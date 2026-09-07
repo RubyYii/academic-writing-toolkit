@@ -24,10 +24,11 @@
 import { spawnSync } from 'node:child_process'
 import {
   cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync,
-  rmSync, symlinkSync, writeFileSync,
+  rmSync, symlinkSync, linkSync, writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const PRODUCT_ROOT = resolve(import.meta.dirname, '..')
 const SKILLS_SRC = join(PRODUCT_ROOT, '.claude', 'skills')
@@ -37,6 +38,7 @@ const E2E_DIR = join(PRODUCT_ROOT, 'e2e')
 const PROFILE_SRC = join(PRODUCT_ROOT, 'profiles', 'awt-headless')
 const DSH_BIN = join(E2E_DIR, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 const COMPAT = join(PRODUCT_ROOT, 'COMPAT.json')
+const HARNESS_DIR = join(PRODUCT_ROOT, 'harness')
 const RUN_TIMEOUT_MS = 300_000
 
 // --- typed failure -----------------------------------------------------------------
@@ -68,12 +70,26 @@ toolkit development files never belong here.
 - Literature PDFs: \`literature/\`
 - Reading notes: \`literature/reading_notes/\` (template: \`_template_NOTES.md\`)
 - Edit contracts: \`contracts/\`
+- On-demand reference documents: \`references/\` (linked to the toolkit)
 
 ## Reading constraints (enforced by AWT guards when run under dsh)
 - Max pages per read invocation: 15
 - Max pages per conversation: 90
 - No chapter write may cite a source without a conforming notes file
 - Text inside quotation spans of existing chapters is immutable
+
+## Chapter targets
+Edit this table; \`/map\` reports word counts against it. Delete rows you do
+not need — an empty table means the dashboard has nothing to report against.
+
+| Chapter | Title | Target words |
+|---------|-------|--------------|
+| ch1 | Introduction | 5000 |
+| ch2 | Background | 10000 |
+| ch3 | Methodology | 8000 |
+| ch4 | Results | 12000 |
+| ch5 | Discussion | 10000 |
+| ch6 | Conclusion | 5000 |
 
 ## Writing principles (advisory)
 - Read first, write later — complete reading notes before editing chapters
@@ -111,7 +127,9 @@ function init(target) {
   cpSync(TEMPLATE_SRC, join(ws, 'literature', 'reading_notes', '_template_NOTES.md'))
   writeFileSync(join(ws, 'AGENTS.md'), WORKSPACE_CONFIG)
   // Claude Code reads CLAUDE.md; one file is the source, the other a link.
-  symlinkSync('AGENTS.md', join(ws, 'CLAUDE.md'))
+  // Windows hard links and directory junctions do not need Developer Mode.
+  if (process.platform === 'win32') linkSync(join(ws, 'AGENTS.md'), join(ws, 'CLAUDE.md'))
+  else symlinkSync('AGENTS.md', join(ws, 'CLAUDE.md'))
 
   const skills = readdirSync(SKILLS_SRC, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -130,12 +148,20 @@ function init(target) {
       `remove ${strays.length === 1 ? 'it' : 'them'} from the toolkit checkout, then re-run init`,
     )
   }
+  symlinkSync(join(PRODUCT_ROOT, 'references'), join(ws, 'references'), process.platform === 'win32' ? 'junction' : 'dir')
   for (const name of skills) {
-    symlinkSync(join(SKILLS_SRC, name), join(ws, '.agents', 'skills', name))
+    symlinkSync(join(SKILLS_SRC, name), join(ws, '.agents', 'skills', name), process.platform === 'win32' ? 'junction' : 'dir')
   }
+  // The catalogue is mounted at .agents/skills here and at .claude/skills in a
+  // toolkit checkout. One directory under two names — the same dual-naming as
+  // AGENTS.md/CLAUDE.md above — so a skill can name a single path that resolves
+  // on both surfaces instead of being correct in one and unrunnable in the other.
+  mkdirSync(join(ws, '.claude'), { recursive: true })
+  if (process.platform === 'win32') symlinkSync(join(ws, '.agents', 'skills'), join(ws, '.claude', 'skills'), 'junction')
+  else symlinkSync(join('..', '.agents', 'skills'), join(ws, '.claude', 'skills'), 'dir')
 
   console.log(`workspace created: ${ws}`)
-  console.log(`  chapters/  literature/reading_notes/  contracts/  .agents/skills (${skills.length} links)  AGENTS.md  CLAUDE.md`)
+  console.log(`  chapters/  literature/reading_notes/  contracts/  references/ (link)  .agents/skills (${skills.length} links, also as .claude/skills)  AGENTS.md  CLAUDE.md`)
   console.log(`next: node ${relativeToCwd(join(PRODUCT_ROOT, 'scaffold', 'awt.mjs'))} verify ${target}`)
 }
 
@@ -154,10 +180,10 @@ function relativeToCwd(path) {
  * existing profile is a typed refusal — remove it first to upgrade.
  */
 function installProfile(targetHome) {
-  const home = resolve(targetHome ?? process.env.DSH_HOME ?? join(process.env.HOME ?? '', '.dsh'))
+  const home = resolve(targetHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'))
   const guardsDist = join(GUARDS_DIR, 'dist')
   if (!existsSync(join(guardsDist, 'dsh-plugin.js'))) {
-    throw new AwtError('AWT_PROFILE_GUARDS_UNBUILT', `built guards bundle missing at ${guardsDist}`, `cd ${GUARDS_DIR} && npm install && npm run build`)
+    throw new AwtError('AWT_PROFILE_GUARDS_UNBUILT', `cannot install profiles into ${home}: built guards bundle missing at ${guardsDist}`, `cd ${GUARDS_DIR} && npm install && npm run build`)
   }
   for (const name of ['awt-headless', 'awt-web']) {
     const target = join(home, 'profiles', name)
@@ -170,15 +196,58 @@ function installProfile(targetHome) {
     }
     mkdirSync(target, { recursive: true })
     cpSync(join(PRODUCT_ROOT, 'profiles', name, 'package.json'), join(target, 'package.json'))
-    for (const shared of ['cordis.patch.yml', 'awt-read-pdf.plugin.mjs', 'awt-brand.plugin.mjs', 'awt-export.plugin.mjs']) {
-      cpSync(join(PROFILE_SRC, shared), join(target, shared))
+    // Every .mjs beside the patch, derived rather than listed: a plugin's
+    // sibling module is as necessary as the plugin, and a hardcoded list is
+    // one more thing to remember when adding one.
+    cpSync(join(PROFILE_SRC, 'cordis.patch.yml'), join(target, 'cordis.patch.yml'))
+    for (const f of readdirSync(PROFILE_SRC).filter((n) => n.endsWith('.mjs'))) {
+      cpSync(join(PROFILE_SRC, f), join(target, f))
     }
     cpSync(guardsDist, join(target, 'awt-guards'), { recursive: true })
     console.log(`profile installed: ${target}`)
   }
+  const harness = ensureHarness()
+  const self = relativeToCwd(join(PRODUCT_ROOT, 'scaffold', 'awt.mjs'))
+  console.log(`harness ${harness.version} ${harness.installed ? 'installed' : 'already present'} in ${relativeToCwd(HARNESS_DIR)}`)
   console.log('  routes need DEEPSEEK_API_KEY or ANTHROPIC_API_KEY in the environment at run time (never in files)')
-  console.log(`verify composition: DSH_HOME=${home} npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile awt-headless --dump-config | grep awt-guards`)
-  console.log(`web UI: run from your workspace — DSH_HOME=${home} npx --yes @deepseek-ai/dsh@0.1.0-rc.6 --profile awt-web --host 127.0.0.1 --port 3180`)
+  console.log(`next: node ${self} web <your-workspace>          # the UI on 127.0.0.1:3180`)
+  console.log(`      node ${self} run <your-workspace> "<task>"  # one headless task`)
+}
+
+/**
+ * The harness AWT launches lives in the toolkit checkout, not in $DSH_HOME.
+ * dsh owns `$DSH_HOME/profiles/node_modules` and heals it by symlinking its
+ * own packages in from an existing installation — it rejects a real directory
+ * placed there. So AWT must own that installation instead of inheriting
+ * whatever a machine happens to have; a machine that had run dsh before
+ * looked fine while every clean one refused. Idempotent, and `npm ci` from
+ * the tracked lockfile so the pin is the same everywhere.
+ */
+function ensureHarness() {
+  const pkgRoot = join(HARNESS_DIR, 'node_modules', '@deepseek-ai', 'dsh')
+  const want = pinnedHarnessVersion()
+  if (existsSync(join(pkgRoot, 'lib', 'bin.js')) && existsSync(join(pkgRoot, 'package.json'))) {
+    if (JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8')).version === want) return { installed: false, version: want }
+  }
+  console.log(`installing the pinned harness @deepseek-ai/dsh@${want} into ${relativeToCwd(HARNESS_DIR)} (needs the network) ...`)
+  // npm is a .cmd shim on Windows, and since the fix for CVE-2024-27980 Node
+  // refuses to spawn one without a shell (EINVAL). Through a shell the command
+  // line is re-parsed, so the one argument that can contain spaces is quoted.
+  const onWindows = process.platform === 'win32'
+  const prefix = onWindows ? `"${HARNESS_DIR}"` : HARNESS_DIR
+  const res = spawnSync(onWindows ? 'npm.cmd' : 'npm', ['ci', '--prefix', prefix, '--no-audit', '--no-fund'],
+    { encoding: 'utf8', timeout: RUN_TIMEOUT_MS, shell: onWindows })
+  if (res.status !== 0 || !existsSync(join(pkgRoot, 'lib', 'bin.js'))) {
+    // res.error carries the reason when the spawn itself failed, and both
+    // streams are empty then — reporting only those said nothing at all.
+    const why = (res.error?.message || res.stderr || res.stdout || '').trim().split('\n').slice(-2).join(' ')
+    throw new AwtError(
+      'AWT_HARNESS_INSTALL',
+      `could not install the pinned harness into ${HARNESS_DIR}${why ? `: ${why}` : ''}`,
+      `this step needs the network — retry, or run it yourself: npm ci --prefix ${relativeToCwd(HARNESS_DIR)}`,
+    )
+  }
+  return { installed: true, version: want }
 }
 
 // --- launch ------------------------------------------------------------------------
@@ -187,6 +256,7 @@ function installProfile(targetHome) {
 function pinnedHarnessVersion() {
   return JSON.parse(readFileSync(COMPAT, 'utf8')).harness.split('@').pop()
 }
+
 
 /** The markers `init` creates; the same truth test `verify` applies. */
 function assertWorkspace(ws, code) {
@@ -198,14 +268,14 @@ function assertWorkspace(ws, code) {
 }
 
 /**
- * Run a profile against a workspace using the launcher `install-profile`
- * already placed in $DSH_HOME — not a `npx` resolution and not a checkout's
+ * Run a profile against a workspace using the explicitly installed launcher
+ * in $DSH_HOME — not a `npx` resolution and not a checkout's
  * dev dependencies. Every refusal here happens before anything boots, so
  * none of them needs a credential. The provider key stays in the caller's
  * environment; this command never reads, stores or forwards one.
  */
 function launch(profile, ws, extra) {
-  const home = resolve(process.env.DSH_HOME ?? join(process.env.HOME ?? '', '.dsh'))
+  const home = resolve(process.env.DSH_HOME ?? join(homedir(), '.dsh'))
   if (!existsSync(join(home, 'profiles', profile))) {
     throw new AwtError(
       'AWT_LAUNCH_PROFILE_MISSING',
@@ -213,13 +283,15 @@ function launch(profile, ws, extra) {
       `node ${relativeToCwd(join(PRODUCT_ROOT, 'scaffold', 'awt.mjs'))} install-profile`,
     )
   }
-  const pkgRoot = join(home, 'profiles', 'node_modules', '@deepseek-ai', 'dsh')
+  // dsh populates $DSH_HOME/profiles/node_modules itself on first run, from
+  // the installation it was launched out of. That installation is ours.
+  const pkgRoot = join(HARNESS_DIR, 'node_modules', '@deepseek-ai', 'dsh')
   const bin = join(pkgRoot, 'lib', 'bin.js')
   if (!existsSync(bin)) {
     throw new AwtError(
       'AWT_LAUNCH_HARNESS_MISSING',
       `no dsh launcher under ${pkgRoot}`,
-      `reinstall the profiles so their dependency tree is present`,
+      `node ${relativeToCwd(join(PRODUCT_ROOT, 'scaffold', 'awt.mjs'))} install-profile`,
     )
   }
   // A different harness would void every gate COMPAT.json attests, so an
@@ -238,14 +310,14 @@ function launch(profile, ws, extra) {
   process.exit(res.status ?? 1)
 }
 
-function web(target, port) {
-  if (target === undefined) throw new AwtError('AWT_LAUNCH_USAGE', 'usage: awt web <workspace> [port]')
-  launch('awt-web', resolve(target), ['--host', '127.0.0.1', '--port', port ?? '3180'])
+function web(target, port, forwarded) {
+  if (target === undefined) throw new AwtError('AWT_LAUNCH_USAGE', 'usage: awt web <workspace> [port] [-- <harness flags>]')
+  launch('awt-web', resolve(target), ['--host', '127.0.0.1', '--port', port ?? '3180', ...forwarded])
 }
 
-function runTask(target, task) {
-  if (target === undefined || task === undefined) throw new AwtError('AWT_LAUNCH_USAGE', 'usage: awt run <workspace> "<task>"')
-  launch('awt-headless', resolve(target), [task])
+function runTask(target, task, forwarded) {
+  if (target === undefined || task === undefined) throw new AwtError('AWT_LAUNCH_USAGE', 'usage: awt run <workspace> "<task>" [-- <harness flags>]')
+  launch('awt-headless', resolve(target), [task, ...forwarded])
 }
 
 // --- verify ------------------------------------------------------------------------
@@ -296,12 +368,12 @@ async function verify(target) {
   if (!existsSync(join(GUARDS_DIR, 'node_modules'))) {
     throw new AwtError('AWT_VERIFY_GUARDS_DEPS', 'guards/node_modules missing', `cd ${GUARDS_DIR} && npm install`)
   }
-  run('AWT_VERIFY_BUILD', 'npm', ['run', 'build'], { cwd: GUARDS_DIR })
+  run('AWT_VERIFY_BUILD', process.execPath, [join(GUARDS_DIR, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', 'tsconfig.json'], { cwd: GUARDS_DIR })
   record('build', 'guards typecheck + build green (tsc)')
 
   // 2. offline notes-lint smoke: the linter must discriminate (an empty file
   // fails), and every real notes file in the workspace must pass.
-  const lint = await import(join(GUARDS_DIR, 'dist', 'notes-lint.js'))
+  const lint = await import(pathToFileURL(join(GUARDS_DIR, 'dist', 'notes-lint.js')).href)
   if (!lint.hasErrors(lint.lintNotes(''))) {
     throw new AwtError('AWT_VERIFY_LINT_SMOKE', 'notes lint accepted an empty file — the linter is not discriminating')
   }
@@ -343,7 +415,7 @@ async function verify(target) {
   // throwaway workspaces + DSH_HOME roots; exit 0 only when every typed
   // denial and the negative control hold).
   run('AWT_VERIFY_E2E', process.execPath, ['run-e2e.mjs'], { cwd: E2E_DIR })
-  record('scripted-denial', 'live e2e evidence table green (5 scenarios)')
+  record('scripted-denial', 'live e2e evidence table green (6 scenarios)')
 
   // 5. credential discipline (P3, keyless): a configured apiKeyEnv reference
   // that resolves to nothing must fail typed (MISSING_CREDENTIAL), never
@@ -351,19 +423,45 @@ async function verify(target) {
   run('AWT_VERIFY_CREDENTIAL', process.execPath, ['run-credential-probe.mjs'], { cwd: E2E_DIR })
   record('credential-probe', 'MISSING_CREDENTIAL fails typed and keyless')
 
-  console.log(`\nVERIFY PASSED (${stages.length}/5): ${ws}`)
+  // 6. the export toolchain, asked rather than inferred (Gate A item 2). A
+  // ladder that reports green while /export cannot produce a .docx is telling
+  // the author the workflow ends where it does not.
+  const converter = join(SKILLS_SRC, 'export', 'scripts', 'convert_to_docx.py')
+  // Same fallback order as doctor: an explicit interpreter, then the .venv the
+  // printed remedy creates, then the system one.
+  const localVenv = process.platform === 'win32'
+    ? join(PRODUCT_ROOT, '.venv', 'Scripts', 'python.exe')
+    : join(PRODUCT_ROOT, '.venv', 'bin', 'python')
+  const python = process.env.AWT_PYTHON ?? (existsSync(localVenv) ? localVenv : 'python3')
+  const backend = spawnSync(python, [converter, '--check'], { encoding: 'utf8', timeout: RUN_TIMEOUT_MS })
+  if (backend.status !== 0) {
+    throw new AwtError(
+      'AWT_VERIFY_EXPORT_BACKEND',
+      `the export converter has no backend: ${(backend.stdout + backend.stderr).trim().split('\n')[0]}`,
+      `install one: python3 -m venv .venv && .venv/bin/pip install -r ${relativeToCwd(join(SKILLS_SRC, 'export', 'scripts', 'requirements.txt'))}`,
+    )
+  }
+  record('export-backend', backend.stdout.trim() || 'export converter has a backend')
+
+  console.log(`\nVERIFY PASSED (${stages.length}/6): ${ws}`)
 }
 
 // --- entry -------------------------------------------------------------------------
 
-const [command, target, third] = process.argv.slice(2)
+// Everything after `--` belongs to the harness, not to awt — that is how a
+// documented launcher overlay (`--patch <model.yml>`) reaches it.
+const argv = process.argv.slice(2)
+const separator = argv.indexOf('--')
+const own = separator === -1 ? argv : argv.slice(0, separator)
+const forwarded = separator === -1 ? [] : argv.slice(separator + 1)
+const [command, target, third] = own
 try {
   if (command === 'init') init(target)
   else if (command === 'verify') await verify(target)
   else if (command === 'install-profile') installProfile(target)
-  else if (command === 'web') web(target, third)
-  else if (command === 'run') runTask(target, third)
-  else fail(new AwtError('AWT_USAGE', 'usage: awt <init|verify> <dir> | awt install-profile [dsh-home] | awt web <dir> [port] | awt run <dir> "<task>"'))
+  else if (command === 'web') web(target, third, forwarded)
+  else if (command === 'run') runTask(target, third, forwarded)
+  else fail(new AwtError('AWT_USAGE', 'usage: awt <init|verify> <dir> | awt install-profile [dsh-home] | awt web <dir> [port] [-- <harness flags>] | awt run <dir> "<task>" [-- <harness flags>]'))
 } catch (error) {
   fail(error instanceof AwtError ? error : new AwtError('AWT_UNEXPECTED', error?.stack ?? String(error)))
 }

@@ -14,6 +14,24 @@ permissions:
   contents: read
 
 jobs:
+  # Two jobs, not one: they cover different things. windows-runtime is the only
+  # leg that runs the guards suite and the live probes on Windows, and it has
+  # already found three defects the Linux legs structurally cannot see.
+  # global-skills exercises the installer's own matrix.
+  windows-runtime:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci --prefix guards
+      - run: npm test --prefix guards
+      - run: npm ci --prefix e2e
+      - run: node e2e/run-e2e.mjs
+      - run: node e2e/run-credential-probe.mjs
+      - run: node e2e/run-skill-scope-probe.mjs
+      - run: node e1/run-e1.mjs
   global-skills:
     name: Global skills (${{ matrix.os }}, Python ${{ matrix.python }})
     strategy:
@@ -58,7 +76,7 @@ jobs:
       - name: Verify python3.8 binary on PATH
         run: python3.8 --version
       - name: Install conversion backend (T17 smoke-import dependency)
-        run: pip install python-docx markdown
+        run: pip install -r .claude/skills/export/scripts/requirements.txt
       - name: Install pandoc (system binary; make doctor probes for it)
         run: sudo apt-get update && sudo apt-get install -y pandoc
       - name: Configure git core.fileMode false (make doctor expects this)

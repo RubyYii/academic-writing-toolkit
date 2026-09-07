@@ -20,11 +20,15 @@ an existing profile):
 node scaffold/awt.mjs install-profile
 ```
 
+`install-profile` copies configuration and built guards, then fetches the
+pinned harness into `harness/` with `npm ci` — the one step that needs the
+network. The default `$DSH_HOME` is `~/.dsh` on every platform, resolved
+through the OS user home rather than `$HOME`, which PowerShell does not set.
+
 Verify the composition without booting or credentials:
 
 ```bash
-node ~/.dsh/profiles/node_modules/@deepseek-ai/dsh/lib/bin.js \\
-  --profile awt-headless --dump-config | grep awt-guards
+node harness/node_modules/@deepseek-ai/dsh/lib/bin.js --profile awt-headless --dump-config | grep awt-guards
 ```
 
 Run inside a thesis workspace created by `awt init` (profile boot is a
@@ -35,10 +39,27 @@ export DEEPSEEK_API_KEY=...   # or ANTHROPIC_API_KEY for the anthropic route
 node scaffold/awt.mjs run <your-thesis-workspace> "task"
 ```
 
-`awt run` resolves the pinned launcher from `$DSH_HOME/profiles/node_modules`
-— the dependency tree `install-profile` already wrote — so no package is
-resolved at launch time and an off-pin harness is a typed refusal
+Setting an Anthropic key alone does not change the default DeepSeek route.
+Select the model through a launcher `--patch` overlay as shown in the
+[author runbook](../docs/e2-dogfood-runbook.md); the pinned headless app has
+no provider/model CLI flags. The E1 producer has its own explicit
+`--provider`/`--model` options that generate the same route in both arms.
+
+`awt run` resolves the pinned launcher from `harness/` in the toolkit
+checkout, which `install-profile` populates with `npm ci` from a tracked
+lockfile. It does not live in `$DSH_HOME`: dsh owns
+`$DSH_HOME/profiles/node_modules` and heals it by symlinking in the
+installation it was launched out of, so AWT owns that installation rather
+than inheriting whatever a machine happens to have. No package is resolved
+at launch time, and an off-pin harness is a typed refusal
 (`AWT_LAUNCH_HARNESS_UNPINNED`).
+
+Anything after `--` goes to the harness untouched, which is how a launcher
+overlay reaches it:
+
+```bash
+node scaffold/awt.mjs run <workspace> "task" -- --patch model.yml
+```
 
 Remove by deleting `$DSH_HOME/profiles/awt-headless`; upgrade by
 re-running `install-profile` after removing (never merges in place).

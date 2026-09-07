@@ -35,9 +35,13 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { extractQuotedSpans, gradeQuoteFidelity, normalizeForMatch, pagesFromLabeledText } from '../e1/graders.mjs'
+import { labelPdfPages } from '../../../../profiles/awt-headless/pdf-pages.mjs'
+import { extractQuotedSpans, gradeQuoteFidelity, normalizeForMatch, pagesFromLabeledText } from '../../../../e1/graders.mjs'
 
-const PRODUCT_ROOT = resolve(import.meta.dirname, '..')
+// This file lives inside the skill that calls it, so both surfaces name one
+// path. Node resolves modules through the real path, so a workspace reaching
+// it through .agents/skills still finds the toolkit's own trees below.
+const PRODUCT_ROOT = resolve(import.meta.dirname, '..', '..', '..', '..')
 const GUARDS_DIST = join(PRODUCT_ROOT, 'guards', 'dist')
 const SCHEMA_VERSION = 1
 
@@ -106,8 +110,7 @@ function pdfText(root, surname, year) {
   if (!existsSync(path)) return undefined
   const res = spawnSync('pdftotext', ['-layout', path, '-'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
   if (res.status !== 0) return undefined
-  const pages = res.stdout.split('\f').filter((p) => p.trim() !== '')
-  return pages.map((p, i) => `--- page ${i + 1} ---\n${p.trimEnd()}`).join('\n\n')
+  return labelPdfPages(res.stdout)
 }
 
 /**

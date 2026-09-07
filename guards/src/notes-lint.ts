@@ -6,6 +6,7 @@
 // source of truth for "does this file conform".
 
 import { readFileSync } from 'node:fs'
+import { isAbsolute, resolve as resolvePath } from 'node:path'
 
 export type Severity = 'error' | 'warning'
 
@@ -102,7 +103,22 @@ if (invokedAsCli) {
   let failed = false
   const report: Record<string, LintIssue[]> = {}
   for (const file of files) {
-    const issues = lintNotes(readFileSync(file, 'utf8'))
+    // `npm --prefix guards run` executes with the working directory set to
+    // guards/, so a path the reader wrote relative to where they typed the
+    // command would not resolve. npm exports the invoking directory as
+    // INIT_CWD; resolving against it makes the path mean what it looks like.
+    const target = isAbsolute(file) ? file : resolvePath(process.env.INIT_CWD ?? process.cwd(), file)
+    let source: string
+    try {
+      source = readFileSync(target, 'utf8')
+    } catch {
+      // A stack trace cannot be told apart from a broken install by the
+      // person who mistyped a path.
+      console.error(`lint:notes: cannot read ${file}`)
+      failed = true
+      continue
+    }
+    const issues = lintNotes(source)
     report[file] = issues
     if (hasErrors(issues)) failed = true
     if (!json) {

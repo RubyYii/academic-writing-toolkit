@@ -21,8 +21,10 @@ The core promise is simple: **agents may help operate the workflow; the author k
 > typed denials, session-log-derived governance, and harness-event approvals.
 > Evidence status is stated per §11 of the
 > [v0.1 design](docs/specs/2026-08-16-awt-dsh-app-v0.1-design.md): every
-> enforcement claim is CI-proven (E0); author-dogfood and external evidence
-> are pending and never implied.
+> enforcement claim is CI-proven (E0). A [three-source local E1 pilot](e1/published/2026-09-05-local-qwen/README.md)
+> is now recorded; neither arm produced lint-conforming notes, so it does
+> not demonstrate improved writing efficacy. Author-dogfood and external
+> evidence remain pending.
 
 AWT is not a hosted writing service and does not operate a manuscript-storage
 backend. Its deterministic tools stay local. Provider routes are configured by
@@ -77,12 +79,16 @@ See [Choose the right product surface](docs/use-cases/choose-product-surface.md)
 
 The dsh app is the enforced surface: profile boot itself truth-tests your
 workspace, and every daily-loop constraint is a typed guard denial or an
-explicit author approval. It needs Node 22+, `pdftotext` (poppler), and one
+explicit author approval. It needs Node 22+, `pdftotext` (poppler), a Python
+conversion backend for `/export` (see
+`.claude/skills/export/scripts/requirements.txt`; `awt verify` asks the
+converter rather than guessing), and one
 provider key at run time.
 
 ```bash
+npm ci --prefix guards && npm run build --prefix guards
 node scaffold/awt.mjs init ~/thesis          # clean workspace + skill links
-node scaffold/awt.mjs install-profile        # awt-headless + awt-web into ~/.dsh
+node scaffold/awt.mjs install-profile        # profiles into ~/.dsh + the pinned harness
 export DEEPSEEK_API_KEY=...                  # or ANTHROPIC_API_KEY
 node scaffold/awt.mjs run ~/thesis "task"    # one headless task
 
@@ -90,10 +96,17 @@ node scaffold/awt.mjs run ~/thesis "task"    # one headless task
 node scaffold/awt.mjs web ~/thesis           # 127.0.0.1:3180 by default
 ```
 
-`run` and `web` launch the pinned harness that `install-profile` placed in
-`$DSH_HOME`, refuse a target that is not a workspace, and refuse a launcher
-whose version is not the one `COMPAT.json` attests. Your provider key stays
-in your environment; no AWT command reads or stores one.
+`install-profile` fetches the pinned harness into `harness/` once (the only
+step that needs the network) as well as writing the two profiles. `run` and
+`web` launch that harness, refuse a target that is not a workspace, and
+refuse a launcher whose version is not the one `COMPAT.json` attests.
+Anything after `--` is forwarded to the harness untouched, so a launcher
+overlay works: `... run ~/thesis "task" -- --patch model.yml`. Your provider
+key stays in your environment; no AWT command reads or stores one.
+
+On Windows PowerShell, use `"$HOME/.dsh/profiles"` as the npm prefix, or
+`"$env:DSH_HOME/profiles"` if you set a custom `DSH_HOME`. The default is the
+OS user home on Windows as well as macOS/Linux.
 
 `node scaffold/awt.mjs verify ~/thesis` runs the five-stage verification
 ladder (build, notes-lint smoke, composition proof, scripted-denial evidence
@@ -165,10 +178,12 @@ Local discovery paths:
 
 ## Run the 10-minute demo
 
-The demo uses fictional public-safe sources. It exercises the same validators used by real projects without requiring network access.
+The demo uses fictional public-safe sources and the same validators real
+projects use. It needs the network once, to install the guards' dependencies;
+everything after that runs against local fixtures.
 
 ```bash
-python3 scripts/verify-refs.py \
+python3 .claude/skills/verify-refs/scripts/verify-refs.py \
   --bib examples/demo-project/references.bib --json
 
 npm --prefix guards install
@@ -225,6 +240,9 @@ Safe fixers are deliberately narrow. They may normalise conservative citation pu
 ## Deterministic quality gates
 
 ```bash
+make setup              # once per clone: configs, export backend, doctor
+npm --prefix guards install   # once per clone: guards/node_modules is not committed
+
 make doctor             # read-only environment and project health
 make test               # regression suite
 
@@ -233,18 +251,18 @@ npm --prefix guards test  # notes-contract lint + catalogue truth tests
 python3 scripts/audit-citations.py --base-dir . --style harvard --json
 python3 scripts/audit-british-english.py --base-dir . --json
 python3 scripts/audit-logic.py --base-dir . --json
-python3 scripts/audit-prose-fingerprint.py --target chapters --baseline literature --exclude 'ourname*'
-python3 scripts/audit-claim-positioning.py --base-dir . --json
-node scripts/audit-citation-fidelity.mjs --base-dir . --json   # needs guards built once
+python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target chapters --baseline literature --exclude 'ourname*'
+python3 .claude/skills/audit/scripts/audit-claim-positioning.py --base-dir . --json
+node .claude/skills/audit/scripts/audit-citation-fidelity.mjs --base-dir . --json   # needs guards built once
 python3 scripts/audit-public-content.py --base-dir .
 ```
 
 Reference verification is offline by default:
 
 ```bash
-python3 scripts/verify-refs.py --bib references.bib --json
-python3 scripts/verify-refs.py --bib references.bib --json --online
-python3 scripts/verify-refs.py --bib references.bib --json --online --metadata-dir path/to/metadata-fixtures
+python3 .claude/skills/verify-refs/scripts/verify-refs.py --bib references.bib --json
+python3 .claude/skills/verify-refs/scripts/verify-refs.py --bib references.bib --json --online
+python3 .claude/skills/verify-refs/scripts/verify-refs.py --bib references.bib --json --online --metadata-dir path/to/metadata-fixtures
 ```
 
 `--exclude` drops baseline files by glob. Point it at the authors' own
@@ -273,6 +291,7 @@ my-writing-project/
 ├── profiles/                canonical awt-headless dsh profile template
 ├── scaffold/                awt init / verify / install-profile
 ├── e1/                      paired-session evidence instrument (§11)
+├── harness/                 the pinned dsh installation `awt run`/`awt web` launch
 ├── e2e/                     live headless denial table + credential probe
 ├── validators/              harness-neutral Python validators
 ├── references/              on-demand reference documents
@@ -309,12 +328,16 @@ customer-facing terms before payment is accepted.
 
 ```bash
 make sync          # regenerate AGENTS.md and GEMINI.md from CLAUDE.md
-make plugin-sync   # regenerate plugin skills from .claude/skills
 make repair        # apply narrow, idempotent local repairs
 make test
 ```
 
-The canonical skill source is `.claude/skills/`; plugin copies are generated from it. Finished changes should pass the full quality gates before they are merged or tagged.
+The canonical skill source is `.claude/skills/`. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request: it carries
+the evidence classes every claim here is stated in, the rule that installation
+and first-run changes are verified on a machine that has never run this
+toolkit, and the branch and review conventions. Each of those rules names the
+incident that produced it.
 
 ## License
 
