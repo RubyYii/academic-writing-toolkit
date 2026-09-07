@@ -213,9 +213,13 @@ function ensureHarness() {
     if (JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8')).version === want) return { installed: false, version: want }
   }
   console.log(`installing the pinned harness @deepseek-ai/dsh@${want} into ${relativeToCwd(HARNESS_DIR)} (needs the network) ...`)
-  const res = spawnSync('npm', ['ci', '--prefix', HARNESS_DIR, '--no-audit', '--no-fund'], { encoding: 'utf8', timeout: RUN_TIMEOUT_MS })
+  // npm is a .cmd shim on Windows, which spawnSync cannot execute by name.
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+  const res = spawnSync(npm, ['ci', '--prefix', HARNESS_DIR, '--no-audit', '--no-fund'], { encoding: 'utf8', timeout: RUN_TIMEOUT_MS })
   if (res.status !== 0 || !existsSync(join(pkgRoot, 'lib', 'bin.js'))) {
-    const why = (res.stderr || res.stdout || '').trim().split('\n').slice(-2).join(' ')
+    // res.error carries the reason when the spawn itself failed, and both
+    // streams are empty then — reporting only those said nothing at all.
+    const why = (res.error?.message || res.stderr || res.stdout || '').trim().split('\n').slice(-2).join(' ')
     throw new AwtError(
       'AWT_HARNESS_INSTALL',
       `could not install the pinned harness into ${HARNESS_DIR}${why ? `: ${why}` : ''}`,
