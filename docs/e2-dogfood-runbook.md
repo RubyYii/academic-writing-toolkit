@@ -14,6 +14,7 @@ It is not a substitute for this author-operated cycle.
 
 ```bash
 # from the toolkit checkout
+make setup                       # configs + the /export conversion backend
 cd guards && npm install && npm run build && cd ..
 cd e2e && npm ci && cd ..
 
