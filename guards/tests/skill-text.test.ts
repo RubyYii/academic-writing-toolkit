@@ -110,3 +110,22 @@ test('a workspace config carries the chapter targets /map reports against', () =
     rmSync(parent, { recursive: true, force: true })
   }
 })
+
+test('the evidence-status values skills name are the ones the linter accepts', () => {
+  // `/note` declares the field, the shipped template carries it, and
+  // `/integrate` refuses to weave in a source that reports having been read
+  // only in part. Three places naming one vocabulary is three places for it
+  // to drift from the one that enforces it.
+  const accepted = /const EVIDENCE_VALUES = \[([^\]]*)\]/
+    .exec(readFileSync(join(PRODUCT_ROOT, 'guards', 'src', 'notes-lint.ts'), 'utf8'))?.[1]
+  assert.ok(accepted, 'EVIDENCE_VALUES not found in the linter')
+  const known = new Set([...accepted.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]))
+
+  const wrong: string[] = []
+  for (const { where, body } of skillProse()) {
+    for (const [, value] of body.matchAll(/Evidence status[`:\s]*([a-z_]{4,})/g)) {
+      if (!known.has(value)) wrong.push(`${where}: ${value}`)
+    }
+  }
+  assert.deepEqual(wrong, [], `these name a value the linter would reject:\n  ${wrong.join('\n  ')}`)
+})
