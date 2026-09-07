@@ -26,12 +26,77 @@ SOURCE = Path(__file__).resolve().parents[1]
 NAMES = ("audit", "edit-contract", "export", "integrate", "map", "note", "read", "review", "verify-refs")
 FORMAT = 1
 OWNER = "yha9806/academic-writing-toolkit"
+# Source paths, not bare names: each script now lives in the skill that calls
+# it, and `export` borrows one of `audit`'s. Naming the full path means a moved
+# script is a missing-file error at install time rather than a silent no-op.
 HELPERS = {
-    "audit": ("audit-claim-positioning.py", "audit-citation-fidelity.mjs", "audit-prose-fingerprint.py"),
-    "edit-contract": ("scaffold-author-control.py", "check-author-control.py"),
-    "export": ("audit-claim-positioning.py",),
-    "verify-refs": ("verify-refs.py",),
+    "audit": (
+        ".claude/skills/audit/scripts/audit-claim-positioning.py",
+        ".claude/skills/audit/scripts/audit-citation-fidelity.mjs",
+        ".claude/skills/audit/scripts/audit-prose-fingerprint.py",
+    ),
+    "edit-contract": (
+        ".claude/skills/edit-contract/scripts/scaffold-author-control.py",
+        ".claude/skills/edit-contract/scripts/check-author-control.py",
+    ),
+    "export": (".claude/skills/audit/scripts/audit-claim-positioning.py",),
+    "verify-refs": (".claude/skills/verify-refs/scripts/verify-refs.py",),
 }
+
+# What a rewritten command may never still look like: a path only the toolkit
+# checkout has. Checked after rewriting, because a str.replace that matched
+# nothing is indistinguishable from one that worked.
+HELPER_COMMAND = re.compile(r"\b(python3?|node) (\.claude/skills/[\w.-]+/scripts/([\w.-]+))")
+LEFTOVER_COMMAND = re.compile(r"\b(python3?|node)\s+(?:\.claude/skills/|scripts/)")
+
+
+BUNDLED_IMPORT = re.compile(r"(['\"])\.\./\.\./\.\./\.\./")
+
+
+def rebase_bundled_imports(text, filename):
+    """Point a copied helper's own imports at the copies bundled beside it.
+
+    `audit-citation-fidelity.mjs` reaches the graders and the guards through
+    four levels of `../` because it lives four levels below the repository
+    root. Installed, it sits one level below its skill, and the installer
+    bundles those dependencies there. Left alone it resolved outside the
+    installation entirely, which the staged smoke test caught only because it
+    runs the real file.
+    """
+    out, count = BUNDLED_IMPORT.subn(r"\1../", text)
+    # The same four levels appear as a path join for the product root.
+    out, roots = re.subn(r"resolve\(import\.meta\.dirname, '\.\.', '\.\.', '\.\.', '\.\.'\)",
+                         "resolve(import.meta.dirname, '..')", out)
+    if "../../../../" in out or "'..', '..', '..', '..'" in out:
+        raise InstallError("Helper {}: a toolkit-relative path was not rebased for the installed layout".format(filename))
+    if count + roots == 0 and "graders.mjs" in text:
+        raise InstallError("Helper {}: expected toolkit-relative paths to rebase, found none".format(filename))
+    return out
+
+
+def rewrite_helper_commands(text, name):
+    """Point a skill's own commands at the copies installed beside it.
+
+    Raises when the result still names a checkout-only path. An ordinary
+    upstream reword used to slip through here: every replacement was a no-op,
+    prepare() raised nothing, the staged smoke test passed and --verify
+    reported success, while the installed skill carried a command that cannot
+    run. Three of the four patterns were already dead when the scripts moved.
+    """
+    def replace(match):
+        interpreter, _whole, filename = match.groups()
+        target = '"{skill_dir}/scripts/' + filename + '"'
+        return target if interpreter.startswith("python") and interpreter != "node" else "node " + target
+
+    out = HELPER_COMMAND.sub(lambda m: ('"{python}" ' if m.group(1).startswith("python") else "node ")
+                             + '"{skill_dir}/scripts/' + m.group(3) + '"', text)
+    leftover = LEFTOVER_COMMAND.search(out)
+    if leftover:
+        raise InstallError(
+            "Skill {}: a helper command was not rewritten and would not run once installed: {!r}. "
+            "The rewrite patterns in HELPER_COMMAND no longer match the skill text.".format(
+                name, out[leftover.start():leftover.start() + 80]))
+    return out
 
 
 class InstallError(RuntimeError):
@@ -56,9 +121,24 @@ def linked(path):
     return stat.S_ISLNK(info.st_mode) or bool(getattr(info, "st_file_attributes", 0) & 0x400)
 
 
-def plain_path(path):
-    """Reject links/junctions in managed paths, including dangling links."""
+_MANAGED_ROOTS = ()   # set once the destination is known; bounds the walk below
+
+
+def plain_path(path, stop=None):
+    """Reject links/junctions *inside* the managed tree, dangling ones included.
+
+    The walk stops at the destination root. What lies above it — a
+    dotfiles-managed ~/.agents, a relocated or network home, anything under
+    macOS's /var — is the user's own arrangement, and refusing it blocked every
+    mode including --dry-run while naming a path they did not choose. The risk
+    worth guarding is writing *through* a link inside the tree we manage.
+    """
+    # The installer writes under the destination and beside it in the state
+    # directory, so either is a place to stop.
+    boundaries = (stop,) if stop is not None else _MANAGED_ROOTS
     for part in (path, *path.parents):
+        if part in boundaries:
+            return
         if linked(part):
             raise InstallError("Refusing a symlink/junction in installation path: {}".format(part))
 
@@ -193,7 +273,11 @@ def prepare(source, stage, dest, python):
             if resource.parent.name == "argument-licence":
                 copy_resource(resource.parent, folder / "references/argument-licence")
         for helper in HELPERS.get(name, ()):
-            copy_resource(source / "scripts" / helper, folder / "scripts" / helper)
+            filename = Path(helper).name
+            target = folder / "scripts" / filename
+            copy_resource(source / helper, target)
+            if filename.endswith(".mjs"):
+                write_text(target, rebase_bundled_imports(target.read_text(encoding="utf-8"), filename))
         if name == "audit":
             for rel in ("e1/graders.mjs", "guards/package.json"):
                 copy_resource(source / rel, folder / rel)
@@ -204,9 +288,7 @@ def prepare(source, stage, dest, python):
             if (source / "profiles/awt-headless/pdf-pages.mjs").is_file():
                 copy_resource(source / "profiles/awt-headless/pdf-pages.mjs", folder / "profiles/awt-headless/pdf-pages.mjs")
         if name in HELPERS:
-            text = re.sub(r"python3 scripts/([\w.-]+)", r'"{python}" "{skill_dir}/scripts/\1"', text)
-            text = text.replace("node scripts/audit-citation-fidelity.mjs", 'node "{skill_dir}/scripts/audit-citation-fidelity.mjs"')
-            text = text.replace("python .claude/skills/export/scripts/convert_to_docx.py", '"{python}" "{skill_dir}/scripts/convert_to_docx.py"')
+            text = rewrite_helper_commands(text, name)
             text = text.replace("(needs the guards built once: `npm --prefix guards install && npm --prefix guards run build`.)",
                                 "(the installer has bundled the compiled audit dependencies.)")
             index = text.index("\n## ")
@@ -391,6 +473,8 @@ def main(argv=None):
         parser.error("Choose --install-deps or --python")
     # abspath preserves junctions for inspection, unlike resolve().
     dest = Path(os.path.abspath(args.dest.expanduser()))
+    global _MANAGED_ROOTS
+    _MANAGED_ROOTS = (dest, state_dir(dest))
     plain_path(dest)
     for canonical in (SOURCE / ".claude/skills", SOURCE / ".agents/skills"):
         if dest == canonical or dest in canonical.parents or canonical in dest.parents:

@@ -51,9 +51,14 @@ python scripts/install-codex-skills.py --verify
 ```
 
 An unchanged installation keeps its existing skill files and receipt. An
-update stages and exercises all nine skills before replacing them, preserves
-existing UI metadata/assets, and backs up the previous folders. Other skill
-names are left alone. Installed helpers resolve their own scripts and
+update stages and exercises all nine skills before replacing them, carries
+over the `agents/` and `assets/` folders a host has written into an installed
+skill, and backs up the previous folders. Other skill names are left alone.
+
+A skill folder that has been edited outside the installer is refused rather
+than overwritten; `--replace-existing` is how you say the edit may go. The
+refusal reads like a tampering warning because that is what it is guarding
+against. Installed helpers resolve their own scripts and
 references; manuscript inputs remain relative to the user's project.
 
 To preview the destination and name collisions without writing or downloading:
@@ -141,5 +146,9 @@ explicit-only invocation policy.
 You can instead open the source repository directly in Codex, which reads
 `.agents/skills/`, or create a thesis workspace with `awt init` as described
 in the README. This route uses the canonical source tree rather than an
-independent global copy. Edit `CLAUDE.md` for that workspace's chapter targets
-and reading limits, then run `make sync` to regenerate `AGENTS.md`.
+independent global copy.
+
+In an `awt init` workspace, edit `AGENTS.md` for that workspace's chapter
+targets and reading limits. `CLAUDE.md` is a link to the same file, so both
+names already agree and there is nothing to regenerate — `make sync` belongs
+to the source repository, which is where the Makefile lives.

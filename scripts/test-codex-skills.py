@@ -211,3 +211,52 @@ class InstallerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+
+class ReviewFollowUpTests(unittest.TestCase):
+    """Gates for the two should-fix findings from the #44 review."""
+
+    def test_a_symlinked_ancestor_of_the_destination_does_not_block_install(self):
+        # plain_path walked every parent up to "/", so a destination reached
+        # through a link — a dotfiles-managed ~/.agents, a relocated home, or
+        # anything under macOS's /var — was refused in every mode, --dry-run
+        # included, naming a path the user did not choose and cannot change.
+        # The protection that matters is against writing *through* a link
+        # inside the managed tree, which the per-entry checks already give.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            real = root / "elsewhere" / "skills"
+            real.mkdir(parents=True)
+            (root / "home").mkdir()
+            link = root / "home" / "skills"
+            link.symlink_to(real, target_is_directory=True)
+            installer.plain_path(link / "inner", stop=link)   # must not raise
+
+    def test_a_link_inside_the_managed_tree_is_still_refused(self):
+        # The control: the check that was worth having still catches what it
+        # was for. Without this the fix above could pass by doing nothing.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "real").mkdir()
+            (root / "dest").mkdir()
+            linked = root / "dest" / "audit"
+            linked.symlink_to(root / "real", target_is_directory=True)
+            with self.assertRaises(installer.InstallError):
+                installer.plain_path(linked / "SKILL.md", stop=root / "dest")
+
+    def test_a_rewrite_that_matches_nothing_is_refused(self):
+        # A no-op str.replace is indistinguishable from a successful one, so an
+        # ordinary upstream reword shipped an unrunnable command while the
+        # staged smoke test and --verify both reported success.
+        # The current form with one extra space — exactly how an upstream
+        # reword slips past a literal pattern.
+        reworded = "Run `python3  .claude/skills/audit/scripts/audit-claim-positioning.py --json`.\n"
+        with self.assertRaises(installer.InstallError):
+            installer.rewrite_helper_commands(reworded, "audit")
+
+    def test_a_rewrite_that_matches_is_applied(self):
+        text = "Run `python3 .claude/skills/audit/scripts/audit-claim-positioning.py --json`.\n"
+        out = installer.rewrite_helper_commands(text, "audit")
+        self.assertIn("{skill_dir}/scripts/audit-claim-positioning.py", out)
+        self.assertNotIn("python3 scripts/", out)
