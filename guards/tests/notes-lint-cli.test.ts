@@ -25,22 +25,34 @@ const DEMO_NOTES = 'examples/demo-project/literature/reading_notes/smith2024_NOT
 const dirs: string[] = []
 after(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
-/** The demo's command, run exactly as the README prints it. */
+/**
+ * The demo's command, run exactly as the README prints it. npm is a .cmd shim
+ * on Windows and Node refuses to spawn one without a shell since the fix for
+ * CVE-2024-27980, so the argument that can contain spaces is quoted there.
+ */
 function lintFromRepoRoot(...args: string[]) {
-  return spawnSync('npm', ['--prefix', 'guards', 'run', '--silent', 'lint:notes', '--', ...args],
-    { cwd: PRODUCT_ROOT, encoding: 'utf8', timeout: 300_000 })
+  const onWindows = process.platform === 'win32'
+  const passed = onWindows ? args.map((a) => `"${a}"`) : args
+  return spawnSync(onWindows ? 'npm.cmd' : 'npm',
+    ['--prefix', 'guards', 'run', '--silent', 'lint:notes', '--', ...passed],
+    { cwd: PRODUCT_ROOT, encoding: 'utf8', timeout: 300_000, shell: onWindows })
+}
+
+/** Everything a failed run said, including why a spawn never started. */
+function saidBy(res: { stdout?: string; stderr?: string; error?: Error }): string {
+  return `${res.stdout ?? ''}${res.stderr ?? ''}${res.error ? `\n${res.error.message}` : ''}`
 }
 
 test('the demo command lints a repo-relative path from the repository root', () => {
   const res = lintFromRepoRoot(DEMO_NOTES)
-  assert.equal(res.status, 0, `the README's own command failed:\n${res.stdout}${res.stderr}`)
+  assert.equal(res.status, 0, `the README's own command failed:\n${saidBy(res)}`)
 })
 
 test('a path that does not exist is a message, not a stack trace', () => {
   // The reader of a stack trace cannot tell a wrong path from a broken install.
   const res = lintFromRepoRoot('literature/reading_notes/no-such-file_NOTES.md')
   assert.notEqual(res.status, 0)
-  const output = res.stdout + res.stderr
+  const output = saidBy(res)
   assert.doesNotMatch(output, /at readFileSync|at ModuleJob|node:internal/, `raw stack trace:\n${output}`)
   assert.match(output, /no-such-file_NOTES\.md/, 'the message should name the file it could not read')
 })
@@ -53,6 +65,6 @@ test('an absolute path still works, and INIT_CWD does not override it', () => {
   const res = lintFromRepoRoot(file)
   // Content is wrong, so it fails — but on the content, having found the file.
   assert.notEqual(res.status, 0)
-  assert.match(res.stdout + res.stderr, /absolute_NOTES\.md/)
-  assert.doesNotMatch(res.stdout + res.stderr, /ENOENT/)
+  assert.match(saidBy(res), /absolute_NOTES\.md/)
+  assert.doesNotMatch(saidBy(res), /ENOENT/)
 })
