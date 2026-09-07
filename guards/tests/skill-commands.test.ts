@@ -15,7 +15,7 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -67,9 +67,26 @@ test('the same commands also resolve in a toolkit checkout', () => {
   assert.deepEqual(unresolved, [], `these skills name paths the checkout does not have:\n  ${unresolved.join('\n  ')}`)
 })
 
-test('no skill instructs a bare `python`, which exists on neither macOS nor modern Linux', () => {
-  const bare = instructedCommands()
-    .filter(({ interpreter }) => interpreter === 'python')
-    .map(({ skill, path }) => `${skill}: python ${path}`)
-  assert.deepEqual(bare, [], `use python3:\n  ${bare.join('\n  ')}`)
+test('all instructed Python helpers run with the native interpreter from a linked workspace', () => {
+  const ws = workspace()
+  const python = process.env.AWT_TEST_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
+  const paths = [...new Set(instructedCommands().filter(({ interpreter }) => interpreter.startsWith('python')).map(({ path }) => path))]
+  assert.ok(paths.length >= 5)
+  for (const path of paths) {
+    const res = spawnSync(python, ['-X', 'utf8', path, '--help'], { cwd: ws, encoding: 'utf8', timeout: 60_000 })
+    assert.equal(res.status, 0, `${path}: ${res.error ?? ''}\n${res.stdout}${res.stderr}`)
+  }
+})
+
+test('map counts real chapter files without shell globs or Unix wc', () => {
+  const ws = workspace()
+  writeFileSync(join(ws, 'chapters', 'ch1_中文.md'), '# Heading\n\nTwo words.\t中文测试\n')
+  writeFileSync(join(ws, 'chapters', 'ch2 empty.md'), '')
+  writeFileSync(join(ws, 'chapters', 'ignored.txt'), 'not a chapter')
+  const res = spawnSync(process.execPath, [join(ws, '.claude', 'skills', 'map', 'scripts', 'count-words.mjs'), '--base-dir', ws, '--json'], { encoding: 'utf8' })
+  assert.equal(res.status, 0, res.stderr)
+  const report = JSON.parse(res.stdout)
+  assert.equal(report.total, 5)
+  assert.deepEqual(report.chapters.map(({ words }: { words: number }) => words), [5, 0])
+  assert.equal(report.chapters.length, 2)
 })
