@@ -1,10 +1,21 @@
 # Gate A — The workspace contract
 
-- **Status:** item 1 IMPLEMENTED (2026-09-06), not yet verified against §7.
-  Author-approved the same day: the ⚑ decision in §5 is **Option D**. Items
-  2–5 are not started. Approval is not implementation and implementation is
-  not verification; §7 states what verification means here, and no run of it
-  has been recorded.
+- **Status:** items 1 and 2 IMPLEMENTED (2026-09-06 and 2026-09-07), neither
+  verified against §7. Author-approved 2026-09-06: the ⚑ decision in §5 is
+  **Option D**. Items 3–5 are not started. Approval is not implementation and
+  implementation is not verification; §7 states what verification means here,
+  and no run of it has been recorded.
+- **Item 2 as landed (#47, #48).** The converter answers `--check`; `doctor`
+  and a sixth `awt verify` stage ask it instead of probing the `pandoc` binary
+  and `python-docx`, which a machine can both satisfy while having no backend.
+  The remedy leads with a virtual environment because a bare `pip install` is
+  refused on a PEP 668 interpreter, and `make setup` builds that environment,
+  so following the printed instruction clears the failure. Three things the
+  work turned up that the spec did not predict: the app spawned the workspace's
+  `python3` rather than the toolkit's, and discarded the converter's diagnosis;
+  a fourth hand-kept list of profile files (in the E1 producer) left a plugin
+  unable to resolve its own import; and making the suite honest made it fail as
+  an unrelated test until `scripts/test.sh` was taught to say why.
 - **Amendment to §5, item 1 (2026-09-06).** As approved, Option D split the
   work five-and-one: five standalone scripts move into the skill that calls
   them, and `audit-citation-fidelity.mjs` becomes a registered profile tool
