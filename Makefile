@@ -13,9 +13,10 @@ help:  ## Show this help (default)
 	@printf "When CLAUDE.md changes:  \033[36mmake sync\033[0m\n"
 	@printf "Health check anytime:    \033[36mmake doctor\033[0m\n"
 
-setup:  ## One-time setup after clone (sets git config, syncs configs, runs doctor)
+setup:  ## One-time setup after clone (git config, configs, export backend, doctor)
 	@git config core.fileMode false
 	@bash scripts/sync-config.sh
+	@bash scripts/setup-export-backend.sh
 	@bash scripts/doctor.sh
 
 init:  ## Open CLAUDE.md in $EDITOR for first-time customisation, then sync
