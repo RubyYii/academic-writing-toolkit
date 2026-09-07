@@ -86,9 +86,12 @@ converter rather than guessing), and one
 provider key at run time.
 
 ```bash
+make setup                                   # configs + the /export conversion backend
 npm ci --prefix guards && npm run build --prefix guards
+npm ci --prefix e2e                          # `awt verify` runs the live denial table from here
 node scaffold/awt.mjs init ~/thesis          # clean workspace + skill links
 node scaffold/awt.mjs install-profile        # profiles into ~/.dsh + the pinned harness
+node scaffold/awt.mjs verify ~/thesis        # six stages, keyless, scratch-only
 export DEEPSEEK_API_KEY=...                  # or ANTHROPIC_API_KEY
 node scaffold/awt.mjs run ~/thesis "task"    # one headless task
 
