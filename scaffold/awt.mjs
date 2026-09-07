@@ -213,9 +213,13 @@ function ensureHarness() {
     if (JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8')).version === want) return { installed: false, version: want }
   }
   console.log(`installing the pinned harness @deepseek-ai/dsh@${want} into ${relativeToCwd(HARNESS_DIR)} (needs the network) ...`)
-  // npm is a .cmd shim on Windows, which spawnSync cannot execute by name.
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-  const res = spawnSync(npm, ['ci', '--prefix', HARNESS_DIR, '--no-audit', '--no-fund'], { encoding: 'utf8', timeout: RUN_TIMEOUT_MS })
+  // npm is a .cmd shim on Windows, and since the fix for CVE-2024-27980 Node
+  // refuses to spawn one without a shell (EINVAL). Through a shell the command
+  // line is re-parsed, so the one argument that can contain spaces is quoted.
+  const onWindows = process.platform === 'win32'
+  const prefix = onWindows ? `"${HARNESS_DIR}"` : HARNESS_DIR
+  const res = spawnSync(onWindows ? 'npm.cmd' : 'npm', ['ci', '--prefix', prefix, '--no-audit', '--no-fund'],
+    { encoding: 'utf8', timeout: RUN_TIMEOUT_MS, shell: onWindows })
   if (res.status !== 0 || !existsSync(join(pkgRoot, 'lib', 'bin.js'))) {
     // res.error carries the reason when the spawn itself failed, and both
     // streams are empty then — reporting only those said nothing at all.
