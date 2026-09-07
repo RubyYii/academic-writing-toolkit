@@ -14,6 +14,10 @@ permissions:
   contents: read
 
 jobs:
+  # Two jobs, not one: they cover different things. windows-runtime is the only
+  # leg that runs the guards suite and the live probes on Windows, and it has
+  # already found three defects the Linux legs structurally cannot see.
+  # global-skills exercises the installer's own matrix.
   windows-runtime:
     runs-on: windows-latest
     steps:
@@ -28,6 +32,37 @@ jobs:
       - run: node e2e/run-credential-probe.mjs
       - run: node e2e/run-skill-scope-probe.mjs
       - run: node e1/run-e1.mjs
+  global-skills:
+    name: Global skills (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.9'
+          - os: macos-latest
+            python: '3.11'
+          - os: windows-latest
+            python: '3.12'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: npm ci --prefix guards
+      - run: python -m pip install -r scripts/codex-skills-requirements.txt
+      - name: Test isolated installs, updates, collisions, rollback and real helpers
+        run: python scripts/test-codex-skills.py
+      - name: Install with a fresh private runtime
+        run: python scripts/install-codex-skills.py --dest "${{ runner.temp }}/awt-user/skills" --install-deps
+      - name: Repeat installation and verify the published receipt
+        run: |
+          python scripts/install-codex-skills.py --dest "${{ runner.temp }}/awt-user/skills" --install-deps
+          python scripts/install-codex-skills.py --dest "${{ runner.temp }}/awt-user/skills" --verify
   test:
     runs-on: ubuntu-latest
     steps:

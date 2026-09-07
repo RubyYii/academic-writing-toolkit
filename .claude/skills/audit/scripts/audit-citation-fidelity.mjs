@@ -120,7 +120,10 @@ function pdfText(root, surname, year) {
  * "et al.", "3.5" and "e.g." do not cut a citing sentence in half.
  */
 function sentences(text) {
-  const src = text.replace(/\r/g, '')
+  // Drop ATX heading lines before buffering prose. Filtering a completed
+  // sentence starting with '#' also discarded the first paragraph that
+  // followed a heading without punctuation.
+  const src = text.replace(/\r/g, '').replace(/^ {0,3}#{1,6}(?:[ \t]+.*|[ \t]*)$/gm, '')
   const out = []
   let buf = ''
   let inQuote = false
