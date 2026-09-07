@@ -14,20 +14,29 @@ allowed-tools: Read, Glob, Grep
 
 This skill activates on: `read`, `next page`, `continue`, `skip to p.N`, `read p.N`, `/read`.
 
-## PDF Limits (advisory in this release)
+## PDF limits
 
-- **Maximum 15 pages per invocation.**
-- **Maximum 90 pages per conversation** — a context-health budget. This is
-  currently an advisory rule the model follows imperfectly, not an enforced
-  counter; do not present it as tracked. (The dsh guard that enforces both
-  budgets deterministically ships in P1 of the dsh app.)
-- When a request clearly approaches the budget, say so and suggest starting a
-  new conversation.
+Both are **enforced** in the dsh app and **advisory** as a plain Agent Skill.
+Say which one you are in rather than asserting either.
+
+- **Maximum 15 pages per invocation.** In the app a wider range is denied
+  before it runs, with `PAGE_RANGE_EXCEEDED`.
+- **Maximum 90 pages per session** — a context-health budget, counted in the
+  app from successful reads folded out of the session log, and denied with
+  `PAGE_BUDGET_EXCEEDED`. It counts what went through the harness; reading
+  done outside it is invisible to the count.
+- Outside the app nothing counts for you: the limits are a rule you follow
+  imperfectly, and you should not present the budget as tracked.
+- When a request approaches the budget, say so and suggest a new session.
 
 ## Workflow
 
 1. **Identify the PDF.** If the user provides a path, use it directly. If the user names an author or title, search the project's `literature/` directory using Glob to locate the file.
-2. **Read the specified page(s)** using the Read tool with the `pages` parameter. Default to the next unread page if the user says "next page" or "continue".
+2. **Read the specified page(s).** In the dsh app call the `read_pdf` tool —
+   `file_path`, `first_page`, `last_page` — which is the surface the page
+   guards decide on. As a plain Agent Skill, use the host's own file reader
+   with whatever page selection it offers. Default to the next unread page if
+   the user says "next page" or "continue".
 3. **Display structured output** following the format below.
 4. **Wait for user instruction.** Do not proceed to the next page, take notes, or search for related material unless explicitly asked.
 

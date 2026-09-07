@@ -26,7 +26,7 @@ If the user says "take notes" without specifying what to record, default to reco
 
 ## Notes File Template
 
-This is the data contract shared across all skills (`/read`, `/note`, `/integrate`, `/map`, `/progress`). When creating a new notes file, use this exact structure:
+This is the data contract shared across all skills (`/read`, `/note`, `/integrate`, `/map`). When creating a new notes file, use this exact structure:
 
 ```markdown
 # Reading Notes: {Author} -- {Title} ({Year})

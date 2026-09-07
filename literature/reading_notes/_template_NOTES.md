@@ -3,7 +3,11 @@
 **Source**: {single-line citation matching your project's `Citation style:` declared in `CLAUDE.md`; see "Source format examples" below}
 **Date read**: {YYYY-MM-DD}
 **Status**: reading
+**Evidence status**: metadata_only
 **Relevance**: {e.g. Ch3 S3.2 — supports argument about X}
+
+<!-- Evidence status starts at the weakest claim. Raise it to abstract_only or
+     full_text once you have actually read that much of the source. -->
 
 ---
 
