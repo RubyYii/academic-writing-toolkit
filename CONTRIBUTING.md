@@ -99,7 +99,21 @@ profile files carry `apiKeyEnv` references and never values.
 
 `main` is protected: pull requests only, `test` must pass, no force pushes.
 Everything else is a short-lived branch, merged and then deleted. There is no
-develop branch and no release branch.
+develop branch and no release branch, and `main` is the only branch this
+repository keeps.
+
+**Contribute from a fork.** Fork the repository, push your branch there, and
+open a pull request against `main`. You do not need write access here, and CI
+runs on fork pull requests — the workflows use `pull_request` and every gate is
+keyless, so nothing you need is withheld. Leave "allow edits by maintainers"
+on, which is the default: it is what lets a maintainer resolve a conflict for
+you rather than asking you to redo the work.
+
+Branches accumulated here once for a reason worth naming: several were pushed
+straight to this repository by a session that finished and moved on, so there
+was no merge and no close to end them, and they sat for months looking like
+outstanding work. A fork pull request always ends — merged or closed — which is
+the point.
 
 - **Link an issue.** A pull request should say which problem it closes. Work
   with no issue behind it usually means the decision has not been made yet.
