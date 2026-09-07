@@ -160,16 +160,20 @@ export function fsRepoView(projectRoot: string): RepoView {
       }
       return out
     },
-    activeContract() {
+    activeContracts() {
       const dir = join(root, 'contracts')
-      if (!existsSync(dir)) return undefined
-      for (const name of readdirSync(dir)) {
+      if (!existsSync(dir)) return []
+      // Every active one, not the first in directory order. Returning one of
+      // several let yesterday's contract scope today's writes, and which one
+      // won depended on how the names happened to sort.
+      const out = []
+      for (const name of readdirSync(dir).sort()) {
         if (!name.endsWith('.md')) continue
         const parsed = parseContractSource(readFileSync(join(dir, name), 'utf8'))
         if (!parsed.active) continue
-        return { path: `contracts/${name}`, mayChange: parsed.mayChange, mustNotChange: parsed.mustNotChange }
+        out.push({ path: `contracts/${name}`, mayChange: parsed.mayChange, mustNotChange: parsed.mustNotChange })
       }
-      return undefined
+      return out
     },
     chapterFiles() {
       const out: string[] = []
@@ -339,8 +343,10 @@ export function apply(ctx: GuardHostContext, config?: Config): void {
     // keyed by the on-disk active contract. Over-counts untyped failures as
     // strikes — the conservative, ask-earlier direction — and is never
     // consulted when the projection snapshot is available.
-    const contract = repoFor(execution).activeContract()
-    if (contract?.path === undefined) return undefined
+    const active = repoFor(execution).activeContracts()
+    if (active.length !== 1) return undefined
+    const contract = active[0]
+    if (contract.path === undefined) return undefined
     const denied = fallbackDenied.get(contract.path) ?? 0
     return denied >= REVISION_ESCALATION_THRESHOLD ? { contract: contract.path, denied } : undefined
   }
@@ -359,9 +365,9 @@ export function apply(ctx: GuardHostContext, config?: Config): void {
     if (result.isError) {
       const rel = typeof call.args.file_path === 'string' ? repo.relative(call.args.file_path) : undefined
       if (rel !== undefined && rel.startsWith('chapters/') && (call.tool === 'write' || call.tool === 'edit')) {
-        const contract = repo.activeContract()
-        if (contract?.path !== undefined) {
-          fallbackDenied.set(contract.path, (fallbackDenied.get(contract.path) ?? 0) + 1)
+        const active = repo.activeContracts()
+        if (active.length === 1 && active[0].path !== undefined) {
+          fallbackDenied.set(active[0].path, (fallbackDenied.get(active[0].path) ?? 0) + 1)
         }
       }
       return
