@@ -15,6 +15,7 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
 const PRODUCT_ROOT = resolve(import.meta.dirname, '..', '..')
@@ -57,7 +58,7 @@ test('the notes template a workspace ships passes the lint /note declares mandat
   // `/note` calls the Evidence status line required, and the template omitted
   // it — so every notes file a new author starts from was missing the field
   // that stops an abstract-only source being cited as evidence.
-  const { lintNotes } = await import(join(PRODUCT_ROOT, 'guards', 'dist', 'notes-lint.js'))
+  const { lintNotes } = await import(pathToFileURL(join(PRODUCT_ROOT, 'guards', 'dist', 'notes-lint.js')).href)
   const template = readFileSync(join(PRODUCT_ROOT, 'literature', 'reading_notes', '_template_NOTES.md'), 'utf8')
   const findings = lintNotes(template).map((f: { code: string; severity: string }) => `${f.severity}: ${f.code}`)
   assert.deepEqual(findings, [], `the shipped template does not satisfy its own linter:\n  ${findings.join('\n  ')}`)
