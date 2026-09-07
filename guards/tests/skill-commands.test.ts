@@ -67,6 +67,18 @@ test('the same commands also resolve in a toolkit checkout', () => {
   assert.deepEqual(unresolved, [], `these skills name paths the checkout does not have:\n  ${unresolved.join('\n  ')}`)
 })
 
+test('no skill instructs a bare `python`, which exists on neither macOS nor modern Linux', () => {
+  // Kept alongside the run-it test below, which does not cover this: that one
+  // picks the interpreter itself from `process.platform`, so it passes however
+  // the skill spells the command. This one reads what the skill tells a reader
+  // to type. Both matter — a helper that runs under the interpreter CI chose is
+  // not the same claim as an instruction a macOS reader can follow.
+  const bare = instructedCommands()
+    .filter(({ interpreter }) => interpreter === 'python')
+    .map(({ skill, path }) => `${skill}: python ${path}`)
+  assert.deepEqual(bare, [], `use python3 in the example and name the platform interpreter in prose:\n  ${bare.join('\n  ')}`)
+})
+
 test('all instructed Python helpers run with the native interpreter from a linked workspace', () => {
   const ws = workspace()
   const python = process.env.AWT_TEST_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
