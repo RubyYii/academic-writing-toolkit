@@ -5,7 +5,7 @@
 # Academic Writing Toolkit
 
 [![CI](https://github.com/yha9806/academic-writing-toolkit/actions/workflows/test.yml/badge.svg)](https://github.com/yha9806/academic-writing-toolkit/actions/workflows/test.yml)
-[![Latest release](https://img.shields.io/github/v/release/yha9806/academic-writing-toolkit?display_name=tag&sort=semver)](https://github.com/yha9806/academic-writing-toolkit/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/yha9806/academic-writing-toolkit?display_name=tag&sort=semver&include_prereleases)](https://github.com/yha9806/academic-writing-toolkit/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-15967D.svg)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent_Skills-compatible-6F88F7.svg)](https://agentskills.io)
 
@@ -13,18 +13,30 @@ Academic Writing Toolkit (AWT) is an open-source, local-first system for evidenc
 
 The core promise is simple: **agents may help operate the workflow; the author keeps control of claims, boundaries, approvals, and the exact artifact that ships.**
 
-> **Current stable release: [v0.5.0](https://github.com/yha9806/academic-writing-toolkit/releases/tag/v0.5.0)** —
-> the last release carrying the Workbench wheel, Codex plugin package, and
-> ChatGPT App. `main` is the v0.1 rebuild: AWT as a
+> **Latest: [v0.6.0-rc.1](https://github.com/yha9806/academic-writing-toolkit/releases/tag/v0.6.0-rc.1), a pre-release.**
+> It is the first tag of the v0.1 rebuild: AWT as a
 > [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness)
 > distribution — a 9-skill catalogue plus deterministic guard plugins with
 > typed denials, session-log-derived governance, and harness-event approvals.
-> Evidence status is stated per §11 of the
-> [v0.1 design](docs/specs/2026-08-16-awt-dsh-app-v0.1-design.md): every
-> enforcement claim is CI-proven (E0). A [three-source local E1 pilot](e1/published/2026-09-05-local-qwen/README.md)
-> is now recorded; neither arm produced lint-conforming notes, so it does
-> not demonstrate improved writing efficacy. Author-dogfood and external
-> evidence remain pending.
+> ("v0.1" there is the architecture generation, not the version number;
+> `v0.1.0` was taken in May 2026, so the release line continues from v0.5.0.)
+>
+> It is a release candidate because of what has and has not been verified.
+> Every enforcement claim is CI-proven (E0), and the daily loop has been run
+> end to end against the acceptance criteria in
+> [Gate A §7](docs/specs/2026-09-06-gate-a-workspace-contract.md) — **on macOS
+> only**; the Windows repeat is open as
+> [#56](https://github.com/yha9806/academic-writing-toolkit/issues/56). A
+> [three-source local E1 pilot](e1/published/2026-09-05-local-qwen/README.md)
+> is recorded and negative: neither arm produced lint-conforming notes, so it
+> does not demonstrate improved writing efficacy. Author-dogfood (E2) and
+> external evidence (E3) remain pending. Evidence classes are stated per §11
+> of the [v0.1 design](docs/specs/2026-08-16-awt-dsh-app-v0.1-design.md).
+>
+> **[v0.5.0](https://github.com/yha9806/academic-writing-toolkit/releases/tag/v0.5.0)
+> is the last release of the previous product** — the Workbench wheel, Codex
+> plugin package and ChatGPT App, all decommissioned since. It is still the
+> place to get those, and nothing on `main` replaces them.
 
 AWT is not a hosted writing service and does not operate a manuscript-storage
 backend. Its deterministic tools stay local. Provider routes are configured by
@@ -314,6 +326,9 @@ Edit `CLAUDE.md` for project-specific directories, page limits, British English 
 
 ## Release and distribution
 
+- [v0.6.0-rc.1](https://github.com/yha9806/academic-writing-toolkit/releases/tag/v0.6.0-rc.1)
+  — pre-release, the first tag of the dsh-distribution architecture; verified
+  against Gate A §7 on macOS and not yet on Windows (#56)
 - [v0.5.0 stable release](https://github.com/yha9806/academic-writing-toolkit/releases/tag/v0.5.0)
   — the last release carrying the ChatGPT App, its privacy/terms documents,
   the Cloud Run/Render deployments, and the local workbench wheel; those
