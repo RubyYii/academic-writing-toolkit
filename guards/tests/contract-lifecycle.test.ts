@@ -17,7 +17,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -110,4 +110,97 @@ test('the shipped contract template does not leave a finished contract active', 
   assert.equal(parseContractSource(template.replace('- [ ]', '- [x]')).active, false,
     'ticking the attempt must retire the contract')
   assert.match(skill, /retire|retiring/i, 'the skill must say how a contract is retired')
+})
+
+// --- scope lines the guard cannot read ---------------------------------------
+// Found by the Gate A §7 acceptance run, not by any unit test: the skill's
+// template invites prose in `- May change:` and the parser split on commas and
+// matched literally, so a real contract produced
+//   mayChange: ["the first prose sentence of chapters/ch1.md only (clarity"]
+// which can never match a path. The unit tests all supplied well-formed path
+// lists, which is exactly why they could not see it.
+//
+// Either extreme is wrong here. Treating an unreadable line as "no scope" lets
+// a contract the author wrote be silently ignored; treating it as a non-empty
+// list denies every chapter write including the one it was meant to allow.
+// A scope the guard cannot read is a refusal that says so.
+
+test('a scope line written as prose is refused, not silently matched against', () => {
+  const d = decideContractScope(
+    { tool: 'write', args: { file_path: 'chapters/ch1.md', content: 'x' } },
+    repo({ activeContracts: () => [{
+      path: 'contracts/prose.md',
+      mayChange: ['the first prose sentence of chapters/ch1.md only (clarity'],
+      mustNotChange: [],
+      unreadableScope: ['May change: the first prose sentence of chapters/ch1.md only (clarity rewrite)'],
+    }] }),
+  )
+  assert.equal(d?.code, 'CONTRACT_UNPARSABLE')
+  assert.match(d!.message, /contracts\/prose\.md/)
+  assert.match(d!.message, /May change/)
+})
+
+test('an unreadable scope does not become a licence to write anywhere', () => {
+  // The failure this replaces: the contract named chapters/ch2.md under
+  // "Must not change" and ch2 was written minutes later.
+  const d = decideContractScope(
+    { tool: 'write', args: { file_path: 'chapters/ch2.md', content: 'x' } },
+    repo({ activeContracts: () => [{
+      path: 'contracts/prose.md', mayChange: [], mustNotChange: [],
+      unreadableScope: ['Must not change: the rest of chapters/ch1.md, quoted spans, and chapters/ch2.md'],
+    }] }),
+  )
+  assert.equal(d?.code, 'CONTRACT_UNPARSABLE')
+})
+
+test('a clean path list is read as before', async () => {
+  const { parseContractSource } = await import(
+    pathToFileURL(join(PRODUCT_ROOT, 'guards', 'dist', 'projections.js')).href
+  )
+  const parsed = parseContractSource([
+    '## Scope',
+    '- May change: chapters/ch1.md, chapters/ch2.md',
+    '- Must not change: chapters/ch3.md',
+    '',
+    '## Attempts',
+    '- [ ] Attempt 1: pending',
+  ].join('\n'))
+  assert.deepEqual(parsed.mayChange, ['chapters/ch1.md', 'chapters/ch2.md'])
+  assert.deepEqual(parsed.mustNotChange, ['chapters/ch3.md'])
+  assert.deepEqual(parsed.unreadableScope, [])
+})
+
+test('the parser reports the prose it could not read rather than dropping it', async () => {
+  const { parseContractSource } = await import(
+    pathToFileURL(join(PRODUCT_ROOT, 'guards', 'dist', 'projections.js')).href
+  )
+  const parsed = parseContractSource([
+    '## Scope',
+    '- May change: the first prose sentence of chapters/ch1.md only (clarity rewrite)',
+    '- Must not change: chapters/ch2.md',
+  ].join('\n'))
+  assert.equal(parsed.unreadableScope.length, 1)
+  assert.match(parsed.unreadableScope[0], /May change/)
+  // The readable line is still read; one bad line does not poison the other.
+  assert.deepEqual(parsed.mustNotChange, ['chapters/ch2.md'])
+})
+
+test('the template placeholder is not treated as prose the author wrote', async () => {
+  const { parseContractSource } = await import(
+    pathToFileURL(join(PRODUCT_ROOT, 'guards', 'dist', 'projections.js')).href
+  )
+  const parsed = parseContractSource('- May change: {files you may touch}\n- Must not change: {everything else}')
+  assert.deepEqual(parsed.unreadableScope, [], 'an unfilled template must not read as a broken contract')
+})
+
+test('the skill tells the author that scope lines are paths, and what ticking an attempt does', () => {
+  const skill = readFileSync(join(PRODUCT_ROOT, '.claude', 'skills', 'edit-contract', 'SKILL.md'), 'utf8')
+  const template = /```markdown\n([\s\S]*?)```/.exec(skill)?.[1] ?? ''
+  const mayChange = /^- May change:\s*(.+)$/m.exec(template)?.[1] ?? ''
+  assert.doesNotMatch(mayChange, /sentence|section|paragraph/i,
+    'the template invites prose where the guard reads paths')
+  assert.match(skill, /comma-separated|path list|paths only/i,
+    'the skill must say the scope lines are paths')
+  assert.match(skill, /goal is (complete|done)|not after a single|only when the goal/i,
+    'the skill must say an attempt is ticked when the goal is done, not after one edit')
 })

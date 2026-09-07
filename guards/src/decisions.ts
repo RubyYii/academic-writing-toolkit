@@ -35,7 +35,13 @@ export interface RepoView {
    * choice about what the author may edit, and the guard cannot know which
    * one they meant.
    */
-  activeContracts(): Array<{ path?: string; mayChange: string[]; mustNotChange: string[] }>
+  activeContracts(): Array<{
+    path?: string
+    mayChange: string[]
+    mustNotChange: string[]
+    /** Scope lines written as prose, which the guard cannot act on. */
+    unreadableScope?: string[]
+  }>
   /** Project-relative paths of every chapter file (chapters/**.md) — corpus-wide checks. */
   chapterFiles(): string[]
   /** The workspace bibliography (references.bib at the root, else the first root-level .bib), if any. */
@@ -170,6 +176,16 @@ export function decideContractScope(call: ToolCall, repo: RepoView): Denial | un
   }
   const contract = contracts[0]
   const which = contract.path ? `"${contract.path}"` : 'the active edit contract'
+  // A scope the guard cannot read is neither an empty scope nor a list. Read as
+  // empty it silently ignores a contract the author wrote; read as a list it
+  // denies every chapter write, including the one the contract exists to allow.
+  const unreadable = contract.unreadableScope ?? []
+  if (unreadable.length > 0) {
+    return {
+      code: 'CONTRACT_UNPARSABLE',
+      message: `${which} has a scope line the guard cannot read (${unreadable.join('; ')}). Scope lines are comma-separated paths, not prose.`,
+    }
+  }
   if (underAny(rel, contract.mustNotChange)) {
     return { code: 'CONTRACT_SCOPE', message: `"${rel}" is listed under "Must not change" in ${which}.` }
   }

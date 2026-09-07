@@ -171,7 +171,7 @@ export function fsRepoView(projectRoot: string): RepoView {
         if (!name.endsWith('.md')) continue
         const parsed = parseContractSource(readFileSync(join(dir, name), 'utf8'))
         if (!parsed.active) continue
-        out.push({ path: `contracts/${name}`, mayChange: parsed.mayChange, mustNotChange: parsed.mustNotChange })
+        out.push({ path: `contracts/${name}`, mayChange: parsed.mayChange, mustNotChange: parsed.mustNotChange, unreadableScope: parsed.unreadableScope })
       }
       return out
     },

@@ -306,7 +306,7 @@ test('relativeToRoot handles absolute, relative, and out-of-root paths', () => {
 
 test('parseContractSource and parseNotesSource are the single parse authority', () => {
   const parsed = parseContractSource(CONTRACT_BODY)
-  assert.deepEqual(parsed, { active: true, mayChange: ['chapters/ch3.md'], mustNotChange: ['chapters/ch2.md'] })
+  assert.deepEqual(parsed, { active: true, mayChange: ['chapters/ch3.md'], mustNotChange: ['chapters/ch2.md'], unreadableScope: [] })
   assert.deepEqual(parseNotesSource(NOTES_BODY), { surname: 'smith', year: '2024' })
   assert.equal(parseNotesSource('no source line here'), undefined)
 })
