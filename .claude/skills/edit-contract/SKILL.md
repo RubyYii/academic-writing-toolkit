@@ -30,8 +30,6 @@ section claims, restructuring). Not for typo fixes or single-sentence edits.
 
 ## Attempts
 - [ ] Attempt 1: {date} — {outcome: accepted / revise / rejected, one line why}
-- [ ] Attempt 2: …
-- [ ] Attempt 3: …
 ```
 
 ## Workflow
@@ -56,7 +54,15 @@ produce a fourth patch under the old contract.
 
 ## Constraints
 
-1. One contract file per edit goal; append-only Attempts.
+1. One contract file per edit goal; append-only Attempts. Append the next
+   attempt line as you make it rather than pre-writing empty ones.
+
+   **Retiring a contract.** A contract is active while any `- [ ] Attempt`
+   line is unticked, and an active contract scopes every chapter write. When
+   the goal is done or abandoned, tick its attempts — that retires it. Leaving
+   a finished contract active makes it scope tomorrow's work as well, and two
+   active contracts at once are refused with `CONTRACT_AMBIGUOUS` naming both,
+   because the guard cannot know which one an edit belongs to.
 2. Never edit outside Scope; never touch quoted spans.
 3. In the dsh app this is **enforced**: a write outside Scope is denied with
    `CONTRACT_SCOPE`, and after three typed denials under one contract the next

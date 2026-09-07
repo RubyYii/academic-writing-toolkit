@@ -16,7 +16,7 @@ function repo(overrides: Partial<RepoView> = {}): RepoView {
     relative: (p) => (p.startsWith('/') ? undefined : p),
     readFile: () => undefined,
     conformingSources: () => [{ surname: 'smith', year: '2024' }],
-    activeContract: () => undefined,
+    activeContracts: () => [],
     chapterFiles: () => [],
     bibText: () => undefined,
     ...overrides,
@@ -91,7 +91,7 @@ const CONTRACT = { mayChange: ['chapters/ch3.md'], mustNotChange: ['chapters/ch4
 test('write outside the active contract May-change scope is denied', () => {
   const d = decideContractScope(
     { tool: 'write', args: { file_path: 'chapters/ch5.md', content: 'x' } },
-    repo({ activeContract: () => CONTRACT })
+    repo({ activeContracts: () => [CONTRACT] })
   )
   assert.equal(d?.code, 'CONTRACT_SCOPE')
 })
@@ -99,14 +99,14 @@ test('write outside the active contract May-change scope is denied', () => {
 test('write to a Must-not-change path is denied even if also under May-change', () => {
   const d = decideContractScope(
     { tool: 'edit', args: { file_path: 'chapters/ch4.md', old_string: 'a', new_string: 'b' } },
-    repo({ activeContract: () => ({ mayChange: ['chapters/'], mustNotChange: ['chapters/ch4.md'] }) })
+    repo({ activeContracts: () => [{ mayChange: ['chapters/'], mustNotChange: ['chapters/ch4.md'] }] })
   )
   assert.equal(d?.code, 'CONTRACT_SCOPE')
 })
 
 test('in-scope write passes; no active contract means no scope restriction', () => {
   assert.equal(
-    decideContractScope({ tool: 'write', args: { file_path: 'chapters/ch3.md', content: 'x' } }, repo({ activeContract: () => CONTRACT })),
+    decideContractScope({ tool: 'write', args: { file_path: 'chapters/ch3.md', content: 'x' } }, repo({ activeContracts: () => [CONTRACT] })),
     undefined
   )
   assert.equal(
@@ -120,7 +120,7 @@ test('in-scope write passes; no active contract means no scope restriction', () 
 test('decide() reports contract scope before quote/notes issues', () => {
   const d = decide(
     { tool: 'write', args: { file_path: 'chapters/ch5.md', content: 'Jones (2021)' } },
-    repo({ activeContract: () => CONTRACT })
+    repo({ activeContracts: () => [CONTRACT] })
   )
   assert.equal(d?.code, 'CONTRACT_SCOPE')
 })

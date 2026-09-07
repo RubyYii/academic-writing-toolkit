@@ -22,7 +22,7 @@
 // --- denial codes -------------------------------------------------------------
 
 /** Chapter-write guard denial codes (P1 session 1). */
-export const CHAPTER_DENIAL_CODES = ['NOTES_MISSING', 'QUOTE_SPAN_MODIFIED', 'CONTRACT_SCOPE'] as const
+export const CHAPTER_DENIAL_CODES = ['NOTES_MISSING', 'QUOTE_SPAN_MODIFIED', 'CONTRACT_SCOPE', 'CONTRACT_AMBIGUOUS'] as const
 export type ChapterDenialCode = (typeof CHAPTER_DENIAL_CODES)[number]
 
 /** read_pdf page-budget denial codes (P1 session 2). */

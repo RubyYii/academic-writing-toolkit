@@ -29,7 +29,13 @@ export interface RepoView {
   /** first-author surname (lowercase) + year for every lint-conforming notes file. */
   conformingSources(): ReadonlyArray<{ surname: string; year: string }>
   /** Active contract scopes (contracts/*.md with an unchecked attempt box), if any. */
-  activeContract(): { path?: string; mayChange: string[]; mustNotChange: string[] } | undefined
+  /**
+   * Every contract still carrying an unticked attempt, in no guaranteed order.
+   * Plural on purpose: picking one of several by directory order is a silent
+   * choice about what the author may edit, and the guard cannot know which
+   * one they meant.
+   */
+  activeContracts(): Array<{ path?: string; mayChange: string[]; mustNotChange: string[] }>
   /** Project-relative paths of every chapter file (chapters/**.md) — corpus-wide checks. */
   chapterFiles(): string[]
   /** The workspace bibliography (references.bib at the root, else the first root-level .bib), if any. */
@@ -150,13 +156,25 @@ export function decideContractScope(call: ToolCall, repo: RepoView): Denial | un
   const rel = repo.relative(raw)
   if (!rel || !isChapterPath(rel)) return undefined
   if (call.tool !== 'write' && call.tool !== 'edit') return undefined
-  const contract = repo.activeContract()
-  if (!contract) return undefined
+  const contracts = repo.activeContracts()
+  if (contracts.length === 0) return undefined
+  // Checked before scope, so an in-scope path cannot mask the ambiguity: a
+  // write that happens to fall inside yesterday's contract would otherwise
+  // pass silently while the author believed today's was in force.
+  if (contracts.length > 1) {
+    const named = contracts.map((c) => c.path ?? '(unnamed contract)').sort().join(', ')
+    return {
+      code: 'CONTRACT_AMBIGUOUS',
+      message: `${contracts.length} edit contracts are active at once (${named}); retire all but the one this edit belongs to by ticking its attempts.`,
+    }
+  }
+  const contract = contracts[0]
+  const which = contract.path ? `"${contract.path}"` : 'the active edit contract'
   if (underAny(rel, contract.mustNotChange)) {
-    return { code: 'CONTRACT_SCOPE', message: `"${rel}" is listed under "Must not change" in the active edit contract.` }
+    return { code: 'CONTRACT_SCOPE', message: `"${rel}" is listed under "Must not change" in ${which}.` }
   }
   if (contract.mayChange.length > 0 && !underAny(rel, contract.mayChange)) {
-    return { code: 'CONTRACT_SCOPE', message: `"${rel}" is outside the active edit contract's "May change" scope.` }
+    return { code: 'CONTRACT_SCOPE', message: `"${rel}" is outside the "May change" scope of ${which}.` }
   }
   return undefined
 }
