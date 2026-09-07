@@ -57,7 +57,7 @@ AWT turns those risks into visible objects:
 | Argument drift | gap → contribution → claim → evidence maps |
 | AI revision drift | project-intent contracts, global thesis audits, spine cards, edit contracts, human gates |
 | Repeated failed edits | three-attempt escalation with stop-and-diagnose semantics |
-| Review contamination | clean-room manifests and source-bounded findings |
+| Review contamination | declared source manifests, source-bounded findings, and explicit reviewer-context status |
 | Release mismatch | exact ref + artifact + evidence state + gate + owner |
 
 ## How the controlled workflow works
@@ -224,6 +224,12 @@ for the per-skill verdicts; retired skills live under [`archive/skills/`](archiv
 | **Write without losing control** | `/integrate`, `/edit-contract` | approved integration plans, spine cards, bounded edit scopes, 3-strike escalation |
 | **Review and ship** | `/review`, `/audit`, `/verify-refs`, `/export` | anchored review findings, consistency reports, BibTeX checks, Word/ZIP exports |
 
+The [`/review` instructions](.claude/skills/review/SKILL.md) distinguish external
+review of another author's submitted work from own-work review of the user's
+draft. Own-work clean-room review calls for a fresh-context subagent given only
+the manuscript and explicitly listed evidence files. If no subagent is
+available, the output must be labelled as not clean-room.
+
 Reference documents (loaded on demand, no standing prompt cost):
 [`references/argument-checklist.md`](references/argument-checklist.md),
 [`references/evidence-vocabulary.md`](references/evidence-vocabulary.md),
@@ -245,7 +251,7 @@ AWT's deterministic helpers verify structural facts that software can check reli
 - required files, columns, identifiers, links, and allowed status values
 - source-note citation shape and in-text citation consistency
 - malformed or duplicate BibTeX records
-- claim/evidence and clean-room packet structure
+- claim/evidence and review-packet structure; packet validation does not establish reviewer-context isolation
 - plugin sync, public-content boundaries, local-path leakage, and packaging integrity
 
 They do **not** prove that a scientific claim is true, that evidence is sufficient for a venue, that a paper will be accepted, or that an AI-generated revision expresses the author's intent. Those remain human scholarly judgments.
