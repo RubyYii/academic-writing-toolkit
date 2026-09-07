@@ -24,7 +24,9 @@ Say which one you are in rather than asserting either.
 - **Maximum 90 pages per session** — a context-health budget, counted in the
   app from successful reads folded out of the session log, and denied with
   `PAGE_BUDGET_EXCEEDED`. It counts what went through the harness; reading
-  done outside it is invisible to the count.
+  done outside it is invisible to the count. The fold counts calls, not
+  distinct pages, so re-reading a page you already read spends the budget
+  again — say so before repeating a range.
 - Outside the app nothing counts for you: the limits are a rule you follow
   imperfectly, and you should not present the budget as tracked.
 - When a request approaches the budget, say so and suggest a new session.
