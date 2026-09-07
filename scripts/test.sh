@@ -21,6 +21,14 @@ if [ -z "${AWT_PYTHON:-}" ]; then
         [ -x "$_candidate" ] && { export AWT_PYTHON="$_candidate"; break; }
     done
 fi
+# Doctor asks the export converter whether it can convert, and several tests
+# run doctor. Without a backend anywhere those tests fail as "T2 symlink
+# corruption + repair", which points at nothing. Say it here instead.
+if ! "${AWT_PYTHON:-python3}" "$REPO_ROOT/.claude/skills/export/scripts/convert_to_docx.py" --check >/dev/null 2>&1; then
+    printf "\033[31merror:\033[0m the export converter has no conversion backend, so the tests that run doctor cannot pass.\n" >&2
+    printf "       fix: make setup   (or: python3 -m venv .venv && .venv/bin/pip install -r .claude/skills/export/scripts/requirements.txt)\n" >&2
+    exit 2
+fi
 source "$SCRIPT_DIR/lib.sh"
 
 cd "$REPO_ROOT"

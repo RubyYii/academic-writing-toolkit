@@ -124,6 +124,7 @@ approving it is not implementing it.
 ## Running the gates
 
 ```bash
+make setup                       # git config, generated configs, export backend, doctor
 npm ci --prefix guards && npm run build --prefix guards
 npm test --prefix guards         # kernel, testkit against the pinned harness, scaffold
 make test                        # the regression suite
@@ -135,6 +136,13 @@ node e1/run-e1.mjs               # offline instrument check
 ```
 
 All of these are keyless. Anything that needs a provider key is not a gate.
+
+`make setup` is not optional before `make test`: several tests run `doctor`,
+doctor asks the export converter whether it can convert, and the converter
+needs a Python backend this repository does not vendor. Without it those tests
+fail as something unrelated, so `scripts/test.sh` checks for a backend first
+and says so. CI installs the backend for itself, which is why a green CI run
+does not prove a fresh clone can run the suite.
 
 For an installation or first-run change, add the clean-machine walk:
 
