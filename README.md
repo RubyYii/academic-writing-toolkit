@@ -156,7 +156,9 @@ Local discovery paths:
 
 ## Run the 10-minute demo
 
-The demo uses fictional public-safe sources. It exercises the same validators used by real projects without requiring network access.
+The demo uses fictional public-safe sources and the same validators real
+projects use. It needs the network once, to install the guards' dependencies;
+everything after that runs against local fixtures.
 
 ```bash
 python3 .claude/skills/verify-refs/scripts/verify-refs.py \
@@ -216,6 +218,9 @@ Safe fixers are deliberately narrow. They may normalise conservative citation pu
 ## Deterministic quality gates
 
 ```bash
+make setup              # once per clone: configs, export backend, doctor
+npm --prefix guards install   # once per clone: guards/node_modules is not committed
+
 make doctor             # read-only environment and project health
 make test               # regression suite
 
