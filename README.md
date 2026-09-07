@@ -85,8 +85,7 @@ provider key at run time.
 ```bash
 npm ci --prefix guards && npm run build --prefix guards
 node scaffold/awt.mjs init ~/thesis          # clean workspace + skill links
-node scaffold/awt.mjs install-profile        # awt-headless + awt-web into ~/.dsh
-npm install --prefix "${DSH_HOME:-$HOME/.dsh}/profiles" --no-audit --no-fund --save-exact @deepseek-ai/dsh@0.1.0-rc.6
+node scaffold/awt.mjs install-profile        # profiles into ~/.dsh + the pinned harness
 export DEEPSEEK_API_KEY=...                  # or ANTHROPIC_API_KEY
 node scaffold/awt.mjs run ~/thesis "task"    # one headless task
 
@@ -94,13 +93,13 @@ node scaffold/awt.mjs run ~/thesis "task"    # one headless task
 node scaffold/awt.mjs web ~/thesis           # 127.0.0.1:3180 by default
 ```
 
-`install-profile` copies the profiles and prints the exact one-time launcher
-installation command for the selected home. The explicit `npm install` above
-installs that pinned launcher; network activity and errors are visible during
-setup. `run` and `web` then use it from `$DSH_HOME`, refuse a target that is
-not a workspace, and refuse a launcher
-whose version is not the one `COMPAT.json` attests. Your provider key stays
-in your environment; no AWT command reads or stores one.
+`install-profile` fetches the pinned harness into `harness/` once (the only
+step that needs the network) as well as writing the two profiles. `run` and
+`web` launch that harness, refuse a target that is not a workspace, and
+refuse a launcher whose version is not the one `COMPAT.json` attests.
+Anything after `--` is forwarded to the harness untouched, so a launcher
+overlay works: `... run ~/thesis "task" -- --patch model.yml`. Your provider
+key stays in your environment; no AWT command reads or stores one.
 
 On Windows PowerShell, use `"$HOME/.dsh/profiles"` as the npm prefix, or
 `"$env:DSH_HOME/profiles"` if you set a custom `DSH_HOME`. The default is the
@@ -157,7 +156,7 @@ Local discovery paths:
 The demo uses fictional public-safe sources. It exercises the same validators used by real projects without requiring network access.
 
 ```bash
-python3 scripts/verify-refs.py \
+python3 .claude/skills/verify-refs/scripts/verify-refs.py \
   --bib examples/demo-project/references.bib --json
 
 npm --prefix guards install
@@ -222,18 +221,18 @@ npm --prefix guards test  # notes-contract lint + catalogue truth tests
 python3 scripts/audit-citations.py --base-dir . --style harvard --json
 python3 scripts/audit-british-english.py --base-dir . --json
 python3 scripts/audit-logic.py --base-dir . --json
-python3 scripts/audit-prose-fingerprint.py --target chapters --baseline literature --exclude 'ourname*'
-python3 scripts/audit-claim-positioning.py --base-dir . --json
-node scripts/audit-citation-fidelity.mjs --base-dir . --json   # needs guards built once
+python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target chapters --baseline literature --exclude 'ourname*'
+python3 .claude/skills/audit/scripts/audit-claim-positioning.py --base-dir . --json
+node .claude/skills/audit/scripts/audit-citation-fidelity.mjs --base-dir . --json   # needs guards built once
 python3 scripts/audit-public-content.py --base-dir .
 ```
 
 Reference verification is offline by default:
 
 ```bash
-python3 scripts/verify-refs.py --bib references.bib --json
-python3 scripts/verify-refs.py --bib references.bib --json --online
-python3 scripts/verify-refs.py --bib references.bib --json --online --metadata-dir path/to/metadata-fixtures
+python3 .claude/skills/verify-refs/scripts/verify-refs.py --bib references.bib --json
+python3 .claude/skills/verify-refs/scripts/verify-refs.py --bib references.bib --json --online
+python3 .claude/skills/verify-refs/scripts/verify-refs.py --bib references.bib --json --online --metadata-dir path/to/metadata-fixtures
 ```
 
 `--exclude` drops baseline files by glob. Point it at the authors' own
@@ -262,6 +261,7 @@ my-writing-project/
 ├── profiles/                canonical awt-headless dsh profile template
 ├── scaffold/                awt init / verify / install-profile
 ├── e1/                      paired-session evidence instrument (§11)
+├── harness/                 the pinned dsh installation `awt run`/`awt web` launch
 ├── e2e/                     live headless denial table + credential probe
 ├── validators/              harness-neutral Python validators
 ├── references/              on-demand reference documents
@@ -298,12 +298,16 @@ customer-facing terms before payment is accepted.
 
 ```bash
 make sync          # regenerate AGENTS.md and GEMINI.md from CLAUDE.md
-make plugin-sync   # regenerate plugin skills from .claude/skills
 make repair        # apply narrow, idempotent local repairs
 make test
 ```
 
-The canonical skill source is `.claude/skills/`; plugin copies are generated from it. Finished changes should pass the full quality gates before they are merged or tagged.
+The canonical skill source is `.claude/skills/`. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request: it carries
+the evidence classes every claim here is stated in, the rule that installation
+and first-run changes are verified on a machine that has never run this
+toolkit, and the branch and review conventions. Each of those rules names the
+incident that produced it.
 
 ## License
 

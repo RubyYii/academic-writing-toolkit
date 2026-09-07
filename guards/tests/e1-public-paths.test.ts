@@ -53,7 +53,7 @@ test('summary identifies legacy session logs by content while retaining usage an
         quoteFidelity: { quotes: 1, matched: 0 }, pageAccuracy: { cited: 0, correct: 0, uncited: 1 },
         unopenedCitations: { draftPresent: false, citations: 0, unopened: [] } }] }
     writeFileSync(join(root, 'metrics.json'), JSON.stringify(metrics))
-    const summary = spawnSync(process.env.PYTHON ?? 'python', ['e1/summarize-run.py', root], {
+    const summary = spawnSync(process.env.PYTHON ?? 'python3', ['e1/summarize-run.py', root], {
       cwd: join(import.meta.dirname, '../..'), encoding: 'utf8', timeout: 30_000,
     })
     assert.equal(summary.status, 0, summary.error?.message ?? summary.stderr)
