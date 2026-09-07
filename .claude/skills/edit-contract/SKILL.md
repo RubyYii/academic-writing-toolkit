@@ -25,8 +25,8 @@ section claims, restructuring). Not for typo fixes or single-sentence edits.
 - Forbidden: {claims that must NOT appear; scope that must NOT leak in}
 
 ## Scope
-- May change: {files/sections}
-- Must not change: {adjacent sections, quoted spans, other chapters}
+- May change: {chapters/ch3.md}
+- Must not change: {chapters/ch2.md, chapters/ch4.md}
 
 ## Attempts
 - [ ] Attempt 1: {date} — {outcome: accepted / revise / rejected, one line why}
@@ -57,10 +57,22 @@ produce a fourth patch under the old contract.
 1. One contract file per edit goal; append-only Attempts. Append the next
    attempt line as you make it rather than pre-writing empty ones.
 
+   **Scope lines are paths.** `May change:` and `Must not change:` are read by
+   a guard, not by a reader: comma-separated repository paths only, no prose
+   around them. Write `chapters/ch3.md`, not "the opening sentence of
+   chapters/ch3.md". A line the guard cannot read is refused with
+   `CONTRACT_UNPARSABLE` rather than guessed at — reading it as an empty scope
+   would silently ignore a contract you wrote, and reading it as a list would
+   deny every chapter write including the one it exists to allow. If the real
+   constraint is narrower than a file, say so in the spine card, where it is
+   guidance for you, and leave the scope line at the file.
+
    **Retiring a contract.** A contract is active while any `- [ ] Attempt`
-   line is unticked, and an active contract scopes every chapter write. When
-   the goal is done or abandoned, tick its attempts — that retires it. Leaving
-   a finished contract active makes it scope tomorrow's work as well, and two
+   line is unticked, and an active contract scopes every chapter write. Tick an
+   attempt only when the **goal is complete** or abandoned — not after a single
+   edit. Ticking retires the contract, and a retired contract stops constraining
+   anything, including the paths it lists under `Must not change`. Leaving a
+   finished contract active instead makes it scope tomorrow's work, and two
    active contracts at once are refused with `CONTRACT_AMBIGUOUS` naming both,
    because the guard cannot know which one an edit belongs to.
 2. Never edit outside Scope; never touch quoted spans.

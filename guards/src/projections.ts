@@ -166,19 +166,45 @@ export interface ContractSource {
   active: boolean
   mayChange: string[]
   mustNotChange: string[]
+  /**
+   * Scope lines that were written as prose rather than as a path list, quoted
+   * as the author wrote them. The guard matches paths, so a line it cannot
+   * read is neither an empty scope nor a list — it is a contract that cannot
+   * be enforced, and saying so is the only honest option.
+   */
+  unreadableScope: string[]
 }
 
 /** Parse one contract file's content (the P1 fsRepoView rules, extracted). */
+/** A scope entry the guard can act on: one path, no prose around it. */
+const PATH_ENTRY = /^[A-Za-z0-9._\-/]+$/
+
+function parseScopeLine(text: string, label: string, problems: string[]): string[] {
+  const line = text.match(new RegExp(`^- ${label}:\\s*(.+)$`, 'm'))?.[1]
+  if (line === undefined) return []
+  const entries = line
+    .split(',')
+    .map((s) => s.trim().replace(/[.;]+$/, ''))
+    .filter((s) => s.length > 0)
+  // An unfilled template placeholder is not a contract the author wrote.
+  const filled = entries.filter((s) => !s.startsWith('{'))
+  if (filled.length === 0) return []
+  if (filled.some((s) => !PATH_ENTRY.test(s))) {
+    problems.push(`${label}: ${line.trim()}`)
+    return []
+  }
+  return filled
+}
+
 export function parseContractSource(text: string): ContractSource {
-  const scope = (label: string) =>
-    (text.match(new RegExp(`^- ${label}:\\s*(.+)$`, 'm'))?.[1] ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !s.startsWith('{'))
+  const problems: string[] = []
+  const mayChange = parseScopeLine(text, 'May change', problems)
+  const mustNotChange = parseScopeLine(text, 'Must not change', problems)
   return {
     active: /^- \[ \] Attempt/m.test(text),
-    mayChange: scope('May change'),
-    mustNotChange: scope('Must not change'),
+    mayChange,
+    mustNotChange,
+    unreadableScope: problems,
   }
 }
 

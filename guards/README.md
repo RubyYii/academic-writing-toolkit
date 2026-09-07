@@ -17,6 +17,7 @@ pinned harness by the testkit tier and the live e2e.
 | Quoted text in existing chapters is immutable | `ctx.tools.guard` | quotation-delimited spans of the target file before vs after the proposed write/edit | deny `QUOTE_SPAN_MODIFIED` |
 | Chapter writes stay inside the active edit contract's scope | `ctx.tools.guard` | target path against the one on-disk active contract's `May change:` / `Must not change:` lists | deny `CONTRACT_SCOPE` |
 | Exactly one edit contract may be active at a time | `ctx.tools.guard` | contracts under `contracts/` still carrying an unticked `- [ ] Attempt` | deny `CONTRACT_AMBIGUOUS` |
+| A contract whose scope the guard cannot read enforces nothing, so it refuses | `ctx.tools.guard` | each `May change:` / `Must not change:` entry against a path shape | deny `CONTRACT_UNPARSABLE` |
 | ≤ 15 pages per `read_pdf` invocation | `ctx.tools.guard` | `first_page`..`last_page` of the requested call | deny `PAGE_RANGE_EXCEEDED` |
 | ≤ 90 pages per session | `ctx.tools.guard` | successful `read_pdf` results folded from the append-only session log (page-budget projection) | deny `PAGE_BUDGET_EXCEEDED` |
 | After 3 typed-denial attempts under a contract, further in-scope chapter writes need the author | `tools/pre-execute` waterfall | per-contract typed-denial attempts folded from the session log (revision-attempts projection) | `ask` with reason `ESCALATION_REQUIRED`, resolved by dsh-user-approval (`allowed-once` / `rejected` / fail-closed `unavailable`) |
@@ -46,7 +47,12 @@ events. No agent-writable file is ever an authority.
   unticked, so a finished contract keeps scoping work until its attempts are
   ticked. Two active at once are refused by name rather than resolved: the
   guard has no way to know which one an edit belongs to, and choosing by
-  directory order silently decided what the author was allowed to change. Contract lifecycle changes through logged writes are
+  directory order silently decided what the author was allowed to change.
+  Scope lines are comma-separated paths. A line written as prose is refused
+  rather than interpreted: read as an empty scope it would silently ignore a
+  contract the author wrote, and read as a list it would deny every chapter
+  write including the one the contract exists to allow. Both were reachable
+  before — the second is what the Gate A acceptance run produced. Contract lifecycle changes through logged writes are
   legitimate management, not bypass; a contract file placed or edited
   outside dsh still scopes writes but never arms the escalation fold.
 - **Page budget**: counts successful logged `read_pdf` results. It cannot
