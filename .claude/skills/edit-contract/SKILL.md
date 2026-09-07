@@ -58,8 +58,13 @@ produce a fourth patch under the old contract.
 
 1. One contract file per edit goal; append-only Attempts.
 2. Never edit outside Scope; never touch quoted spans.
-3. In P0 this discipline is advisory prose; the P1 guard enforces Scope and
-   the attempt count from the session log. Do not describe it as enforced.
+3. In the dsh app this is **enforced**: a write outside Scope is denied with
+   `CONTRACT_SCOPE`, and after three typed denials under one contract the next
+   in-scope chapter write asks the author (`ESCALATION_REQUIRED`), resolved
+   through the harness's own approval events. As a plain Agent Skill it is
+   advisory prose you follow. Say which surface you are on rather than
+   asserting either; the scope comes from the active contract on disk at the
+   moment of the decision.
 4. No emoji. British English.
 
 ## Project-level intent card (optional, Advisory)

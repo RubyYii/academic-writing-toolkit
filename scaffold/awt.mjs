@@ -78,6 +78,19 @@ toolkit development files never belong here.
 - No chapter write may cite a source without a conforming notes file
 - Text inside quotation spans of existing chapters is immutable
 
+## Chapter targets
+Edit this table; \`/map\` reports word counts against it. Delete rows you do
+not need — an empty table means the dashboard has nothing to report against.
+
+| Chapter | Title | Target words |
+|---------|-------|--------------|
+| ch1 | Introduction | 5000 |
+| ch2 | Background | 10000 |
+| ch3 | Methodology | 8000 |
+| ch4 | Results | 12000 |
+| ch5 | Discussion | 10000 |
+| ch6 | Conclusion | 5000 |
+
 ## Writing principles (advisory)
 - Read first, write later — complete reading notes before editing chapters
 - One notes file per source, following the template format
