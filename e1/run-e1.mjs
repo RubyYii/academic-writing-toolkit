@@ -150,8 +150,12 @@ function buildHome(arm) {
   let patch
   if (arm === 'skills') {
     cpSync(join(PROFILE_SRC, 'package.json'), join(profile, 'package.json'))
-    cpSync(join(PROFILE_SRC, 'awt-brand.plugin.mjs'), join(profile, 'awt-brand.plugin.mjs'))
-    cpSync(join(PROFILE_SRC, 'awt-export.plugin.mjs'), join(profile, 'awt-export.plugin.mjs'))
+    // Every .mjs, derived rather than listed. A plugin's sibling module is as
+    // necessary as the plugin: naming files by hand here left the skills arm
+    // booting a profile whose export plugin could not resolve its own import.
+    for (const f of readdirSync(PROFILE_SRC).filter((n) => n.endsWith('.mjs'))) {
+      cpSync(join(PROFILE_SRC, f), join(profile, f))
+    }
     cpSync(GUARDS_DIST, join(profile, 'awt-guards'), { recursive: true })
     patch = readFileSync(join(PROFILE_SRC, 'cordis.patch.yml'), 'utf8')
   } else {
