@@ -1,10 +1,29 @@
 # Gate A — The workspace contract
 
-- **Status:** items 1 and 2 IMPLEMENTED (2026-09-06 and 2026-09-07), neither
-  verified against §7. Author-approved 2026-09-06: the ⚑ decision in §5 is
-  **Option D**. Items 3–5 are not started. Approval is not implementation and
-  implementation is not verification; §7 states what verification means here,
-  and no run of it has been recorded.
+- **Status:** all five items IMPLEMENTED; **§7 VERIFIED on macOS, not on
+  Windows** (2026-09-07). Author-approved 2026-09-06: the ⚑ decision in §5 is
+  **Option D**. The gate is not accepted until the Windows repeat §7 requires
+  is recorded — tracked in #56, and until then no claim covers that platform.
+- **§7 acceptance, run 1 (2026-09-07, macOS, main `13048c3`) — FAILED.** The
+  loop completed and the export produced real `.docx` files, but the contract
+  mechanism constrained nothing, for two compounding reasons. The skill's
+  template invited prose where the guard reads paths, so a real contract
+  produced `mayChange: ["the first prose sentence of chapters/ch1.md only
+  (clarity"]`; and the model ticked its attempt on finishing one edit, which
+  retired the contract before the next write. `chapters/ch2.md` was created
+  despite being listed under `Must not change`. Every unit test had supplied
+  well-formed path lists, which is why none of them could see it.
+- **§7 acceptance, run 2 (2026-09-07, macOS, main `d933b7c`) — the contract
+  mechanism passed.** Same prompt, not reworded to steer the model: the scope
+  lines came out as clean paths, the attempt stayed unticked, and the write
+  run 1 let through was refused with `CONTRACT_SCOPE` naming the contract. Two
+  documentation gaps remained (`npm ci --prefix e2e` and `make setup` missing
+  from the quickstart) and are closed by #55, verified by copying the block
+  onto a fresh clone and reaching `VERIFY PASSED (6/6)` first try.
+- Approval is not implementation, implementation is not verification, and a
+  verification on one platform is not one on another. Evidence class **E0**:
+  the acceptance is a scripted pass, not the author's own chapter, so it is
+  not E2 and issue #35 remains open.
 - **Item 2 as landed (#47, #48).** The converter answers `--check`; `doctor`
   and a sixth `awt verify` stage ask it instead of probing the `pandoc` binary
   and `python-docx`, which a machine can both satisfy while having no backend.
