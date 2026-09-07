@@ -84,6 +84,8 @@ if [ -n "${AWT_PYTHON:-}" ]; then
     :
 elif [ -x "$SCRIPT_DIR/../.venv/bin/python" ]; then
     AWT_PYTHON="$SCRIPT_DIR/../.venv/bin/python"
+elif [ -x "$SCRIPT_DIR/../.venv/Scripts/python.exe" ]; then   # Windows layout
+    AWT_PYTHON="$SCRIPT_DIR/../.venv/Scripts/python.exe"
 else
     AWT_PYTHON="python3"
 fi

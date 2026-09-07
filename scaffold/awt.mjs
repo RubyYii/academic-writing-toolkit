@@ -24,10 +24,11 @@
 import { spawnSync } from 'node:child_process'
 import {
   cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync,
-  rmSync, symlinkSync, writeFileSync,
+  rmSync, symlinkSync, linkSync, writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const PRODUCT_ROOT = resolve(import.meta.dirname, '..')
 const SKILLS_SRC = join(PRODUCT_ROOT, '.claude', 'skills')
@@ -69,6 +70,7 @@ toolkit development files never belong here.
 - Literature PDFs: \`literature/\`
 - Reading notes: \`literature/reading_notes/\` (template: \`_template_NOTES.md\`)
 - Edit contracts: \`contracts/\`
+- On-demand reference documents: \`references/\` (linked to the toolkit)
 
 ## Reading constraints (enforced by AWT guards when run under dsh)
 - Max pages per read invocation: 15
@@ -112,7 +114,9 @@ function init(target) {
   cpSync(TEMPLATE_SRC, join(ws, 'literature', 'reading_notes', '_template_NOTES.md'))
   writeFileSync(join(ws, 'AGENTS.md'), WORKSPACE_CONFIG)
   // Claude Code reads CLAUDE.md; one file is the source, the other a link.
-  symlinkSync('AGENTS.md', join(ws, 'CLAUDE.md'))
+  // Windows hard links and directory junctions do not need Developer Mode.
+  if (process.platform === 'win32') linkSync(join(ws, 'AGENTS.md'), join(ws, 'CLAUDE.md'))
+  else symlinkSync('AGENTS.md', join(ws, 'CLAUDE.md'))
 
   const skills = readdirSync(SKILLS_SRC, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -131,8 +135,9 @@ function init(target) {
       `remove ${strays.length === 1 ? 'it' : 'them'} from the toolkit checkout, then re-run init`,
     )
   }
+  symlinkSync(join(PRODUCT_ROOT, 'references'), join(ws, 'references'), process.platform === 'win32' ? 'junction' : 'dir')
   for (const name of skills) {
-    symlinkSync(join(SKILLS_SRC, name), join(ws, '.agents', 'skills', name))
+    symlinkSync(join(SKILLS_SRC, name), join(ws, '.agents', 'skills', name), process.platform === 'win32' ? 'junction' : 'dir')
   }
   // The catalogue is mounted at .agents/skills here and at .claude/skills in a
   // toolkit checkout. One directory under two names — the same dual-naming as
@@ -143,7 +148,7 @@ function init(target) {
   else symlinkSync(join('..', '.agents', 'skills'), join(ws, '.claude', 'skills'), 'dir')
 
   console.log(`workspace created: ${ws}`)
-  console.log(`  chapters/  literature/reading_notes/  contracts/  .agents/skills (${skills.length} links, also as .claude/skills)  AGENTS.md  CLAUDE.md`)
+  console.log(`  chapters/  literature/reading_notes/  contracts/  references/ (link)  .agents/skills (${skills.length} links, also as .claude/skills)  AGENTS.md  CLAUDE.md`)
   console.log(`next: node ${relativeToCwd(join(PRODUCT_ROOT, 'scaffold', 'awt.mjs'))} verify ${target}`)
 }
 
@@ -162,10 +167,10 @@ function relativeToCwd(path) {
  * existing profile is a typed refusal — remove it first to upgrade.
  */
 function installProfile(targetHome) {
-  const home = resolve(targetHome ?? process.env.DSH_HOME ?? join(process.env.HOME ?? '', '.dsh'))
+  const home = resolve(targetHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'))
   const guardsDist = join(GUARDS_DIR, 'dist')
   if (!existsSync(join(guardsDist, 'dsh-plugin.js'))) {
-    throw new AwtError('AWT_PROFILE_GUARDS_UNBUILT', `built guards bundle missing at ${guardsDist}`, `cd ${GUARDS_DIR} && npm install && npm run build`)
+    throw new AwtError('AWT_PROFILE_GUARDS_UNBUILT', `cannot install profiles into ${home}: built guards bundle missing at ${guardsDist}`, `cd ${GUARDS_DIR} && npm install && npm run build`)
   }
   for (const name of ['awt-headless', 'awt-web']) {
     const target = join(home, 'profiles', name)
@@ -212,9 +217,17 @@ function ensureHarness() {
     if (JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8')).version === want) return { installed: false, version: want }
   }
   console.log(`installing the pinned harness @deepseek-ai/dsh@${want} into ${relativeToCwd(HARNESS_DIR)} (needs the network) ...`)
-  const res = spawnSync('npm', ['ci', '--prefix', HARNESS_DIR, '--no-audit', '--no-fund'], { encoding: 'utf8', timeout: RUN_TIMEOUT_MS })
+  // npm is a .cmd shim on Windows, and since the fix for CVE-2024-27980 Node
+  // refuses to spawn one without a shell (EINVAL). Through a shell the command
+  // line is re-parsed, so the one argument that can contain spaces is quoted.
+  const onWindows = process.platform === 'win32'
+  const prefix = onWindows ? `"${HARNESS_DIR}"` : HARNESS_DIR
+  const res = spawnSync(onWindows ? 'npm.cmd' : 'npm', ['ci', '--prefix', prefix, '--no-audit', '--no-fund'],
+    { encoding: 'utf8', timeout: RUN_TIMEOUT_MS, shell: onWindows })
   if (res.status !== 0 || !existsSync(join(pkgRoot, 'lib', 'bin.js'))) {
-    const why = (res.stderr || res.stdout || '').trim().split('\n').slice(-2).join(' ')
+    // res.error carries the reason when the spawn itself failed, and both
+    // streams are empty then — reporting only those said nothing at all.
+    const why = (res.error?.message || res.stderr || res.stdout || '').trim().split('\n').slice(-2).join(' ')
     throw new AwtError(
       'AWT_HARNESS_INSTALL',
       `could not install the pinned harness into ${HARNESS_DIR}${why ? `: ${why}` : ''}`,
@@ -231,6 +244,7 @@ function pinnedHarnessVersion() {
   return JSON.parse(readFileSync(COMPAT, 'utf8')).harness.split('@').pop()
 }
 
+
 /** The markers `init` creates; the same truth test `verify` applies. */
 function assertWorkspace(ws, code) {
   for (const marker of ['chapters', join('literature', 'reading_notes'), join('.agents', 'skills')]) {
@@ -241,14 +255,14 @@ function assertWorkspace(ws, code) {
 }
 
 /**
- * Run a profile against a workspace using the launcher `install-profile`
- * already placed in $DSH_HOME — not a `npx` resolution and not a checkout's
+ * Run a profile against a workspace using the explicitly installed launcher
+ * in $DSH_HOME — not a `npx` resolution and not a checkout's
  * dev dependencies. Every refusal here happens before anything boots, so
  * none of them needs a credential. The provider key stays in the caller's
  * environment; this command never reads, stores or forwards one.
  */
 function launch(profile, ws, extra) {
-  const home = resolve(process.env.DSH_HOME ?? join(process.env.HOME ?? '', '.dsh'))
+  const home = resolve(process.env.DSH_HOME ?? join(homedir(), '.dsh'))
   if (!existsSync(join(home, 'profiles', profile))) {
     throw new AwtError(
       'AWT_LAUNCH_PROFILE_MISSING',
@@ -341,12 +355,12 @@ async function verify(target) {
   if (!existsSync(join(GUARDS_DIR, 'node_modules'))) {
     throw new AwtError('AWT_VERIFY_GUARDS_DEPS', 'guards/node_modules missing', `cd ${GUARDS_DIR} && npm install`)
   }
-  run('AWT_VERIFY_BUILD', 'npm', ['run', 'build'], { cwd: GUARDS_DIR })
+  run('AWT_VERIFY_BUILD', process.execPath, [join(GUARDS_DIR, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', 'tsconfig.json'], { cwd: GUARDS_DIR })
   record('build', 'guards typecheck + build green (tsc)')
 
   // 2. offline notes-lint smoke: the linter must discriminate (an empty file
   // fails), and every real notes file in the workspace must pass.
-  const lint = await import(join(GUARDS_DIR, 'dist', 'notes-lint.js'))
+  const lint = await import(pathToFileURL(join(GUARDS_DIR, 'dist', 'notes-lint.js')).href)
   if (!lint.hasErrors(lint.lintNotes(''))) {
     throw new AwtError('AWT_VERIFY_LINT_SMOKE', 'notes lint accepted an empty file — the linter is not discriminating')
   }
@@ -388,7 +402,7 @@ async function verify(target) {
   // throwaway workspaces + DSH_HOME roots; exit 0 only when every typed
   // denial and the negative control hold).
   run('AWT_VERIFY_E2E', process.execPath, ['run-e2e.mjs'], { cwd: E2E_DIR })
-  record('scripted-denial', 'live e2e evidence table green (5 scenarios)')
+  record('scripted-denial', 'live e2e evidence table green (6 scenarios)')
 
   // 5. credential discipline (P3, keyless): a configured apiKeyEnv reference
   // that resolves to nothing must fail typed (MISSING_CREDENTIAL), never
@@ -402,7 +416,9 @@ async function verify(target) {
   const converter = join(SKILLS_SRC, 'export', 'scripts', 'convert_to_docx.py')
   // Same fallback order as doctor: an explicit interpreter, then the .venv the
   // printed remedy creates, then the system one.
-  const localVenv = join(PRODUCT_ROOT, '.venv', 'bin', 'python')
+  const localVenv = process.platform === 'win32'
+    ? join(PRODUCT_ROOT, '.venv', 'Scripts', 'python.exe')
+    : join(PRODUCT_ROOT, '.venv', 'bin', 'python')
   const python = process.env.AWT_PYTHON ?? (existsSync(localVenv) ? localVenv : 'python3')
   const backend = spawnSync(python, [converter, '--check'], { encoding: 'utf8', timeout: RUN_TIMEOUT_MS })
   if (backend.status !== 0) {

@@ -16,8 +16,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # convert, so without this the copies fall back to the system interpreter and
 # report a broken export the test did not introduce. Declared here rather than
 # by loosening what those tests assert.
-if [ -z "${AWT_PYTHON:-}" ] && [ -x "$REPO_ROOT/.venv/bin/python" ]; then
-    export AWT_PYTHON="$REPO_ROOT/.venv/bin/python"
+if [ -z "${AWT_PYTHON:-}" ]; then
+    for _candidate in "$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/.venv/Scripts/python.exe"; do
+        [ -x "$_candidate" ] && { export AWT_PYTHON="$_candidate"; break; }
+    done
 fi
 source "$SCRIPT_DIR/lib.sh"
 

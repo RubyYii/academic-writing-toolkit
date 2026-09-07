@@ -25,7 +25,11 @@ export function exportInterpreter(script, options = {}) {
   try {
     // <toolkit>/.claude/skills/export/scripts/convert_to_docx.py
     const toolkit = resolve(dirname(realpathSync(script)), '..', '..', '..', '..')
-    const venv = join(toolkit, '.venv', 'bin', 'python')
+    // A virtual environment puts its interpreter in Scripts\\python.exe on
+    // Windows and bin/python everywhere else.
+    const venv = process.platform === 'win32'
+      ? join(toolkit, '.venv', 'Scripts', 'python.exe')
+      : join(toolkit, '.venv', 'bin', 'python')
     if (existsSync(venv)) return venv
   } catch {
     // An unreadable or dangling path is not this function's problem; the caller

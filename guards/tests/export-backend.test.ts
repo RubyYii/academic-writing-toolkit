@@ -24,6 +24,13 @@ import { pathToFileURL } from 'node:url'
 const PRODUCT_ROOT = resolve(import.meta.dirname, '..', '..')
 const CONVERTER = join(PRODUCT_ROOT, '.claude', 'skills', 'export', 'scripts', 'convert_to_docx.py')
 const DOCTOR = join(PRODUCT_ROOT, 'scripts', 'doctor.sh')
+// Windows runners ship `python`, not `python3`.
+const PYTHON = process.platform === 'win32' ? 'python' : 'python3'
+
+/** A virtual environment's interpreter: Scripts\\python.exe on Windows. */
+function venvPython(venv: string): string {
+  return process.platform === 'win32' ? join(venv, 'Scripts', 'python.exe') : join(venv, 'bin', 'python')
+}
 
 const dirs: string[] = []
 after(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
@@ -32,9 +39,9 @@ after(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, f
 function bareInterpreter(): string {
   const dir = mkdtempSync(join(tmpdir(), 'awt-bare-py-'))
   dirs.push(dir)
-  const made = spawnSync('python3', ['-m', 'venv', '--without-pip', join(dir, 'venv')], { encoding: 'utf8', timeout: 120_000 })
+  const made = spawnSync(PYTHON, ['-m', 'venv', '--without-pip', join(dir, 'venv')], { encoding: 'utf8', timeout: 120_000 })
   assert.equal(made.status, 0, made.stderr)
-  return join(dir, 'venv', 'bin', 'python')
+  return venvPython(join(dir, 'venv'))
 }
 
 /** An interpreter that definitely has a backend, built rather than assumed. */
@@ -42,11 +49,11 @@ function backedInterpreter(): string {
   const dir = mkdtempSync(join(tmpdir(), 'awt-backed-py-'))
   dirs.push(dir)
   const venv = join(dir, 'venv')
-  const made = spawnSync('python3', ['-m', 'venv', venv], { encoding: 'utf8', timeout: 120_000 })
+  const made = spawnSync(PYTHON, ['-m', 'venv', venv], { encoding: 'utf8', timeout: 120_000 })
   assert.equal(made.status, 0, made.stderr)
-  const installed = spawnSync(join(venv, 'bin', 'pip'), ['install', '--quiet', 'python-docx', 'markdown'], { encoding: 'utf8', timeout: 300_000 })
+  const installed = spawnSync(venvPython(venv), ['-m', 'pip', 'install', '--quiet', 'python-docx', 'markdown'], { encoding: 'utf8', timeout: 300_000 })
   assert.equal(installed.status, 0, installed.stderr)
-  return join(venv, 'bin', 'python')
+  return venvPython(venv)
 }
 
 test('the converter can be asked whether it can convert, without converting', () => {
@@ -100,9 +107,9 @@ test('the app runs the converter with the toolkit interpreter, not the workspace
   const scriptDir = join(toolkit, '.claude', 'skills', 'export', 'scripts')
   mkdirSync(scriptDir, { recursive: true })
   writeFileSync(join(scriptDir, 'convert_to_docx.py'), '')
-  const venv = join(toolkit, '.venv', 'bin')
-  mkdirSync(venv, { recursive: true })
-  writeFileSync(join(venv, 'python'), '')
+  const venvBin = process.platform === 'win32' ? join(toolkit, '.venv', 'Scripts') : join(toolkit, '.venv', 'bin')
+  mkdirSync(venvBin, { recursive: true })
+  writeFileSync(process.platform === 'win32' ? join(venvBin, 'python.exe') : join(venvBin, 'python'), '')
 
   const ws = join(dir, 'thesis', '.agents', 'skills')
   mkdirSync(ws, { recursive: true })
@@ -112,7 +119,7 @@ test('the app runs the converter with the toolkit interpreter, not the workspace
   // The helper resolves through realpath, and on macOS the temp root is itself
   // a symlink (/var -> /private/var), so the expectation canonicalises too.
   const canonicalToolkit = realpathSync(toolkit)
-  assert.equal(exportInterpreter(throughLink, { env: {} }), join(canonicalToolkit, '.venv', 'bin', 'python'))
+  assert.equal(exportInterpreter(throughLink, { env: {} }), venvPython(join(canonicalToolkit, '.venv')))
 
   // No .venv in the toolkit: fall back rather than invent a path.
   rmSync(join(toolkit, '.venv'), { recursive: true, force: true })

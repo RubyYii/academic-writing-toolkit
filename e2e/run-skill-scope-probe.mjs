@@ -62,7 +62,7 @@ try {
   mkdirSync(join(ws, 'literature', 'reading_notes'), { recursive: true })
   mkdirSync(join(ws, 'contracts'), { recursive: true })
   mkdirSync(join(ws, '.agents', 'skills'), { recursive: true })
-  for (const name of readdirSync(SKILLS_SRC)) symlinkSync(join(SKILLS_SRC, name), join(ws, '.agents', 'skills', name))
+  for (const name of readdirSync(SKILLS_SRC)) symlinkSync(join(SKILLS_SRC, name), join(ws, '.agents', 'skills', name), process.platform === 'win32' ? 'junction' : 'dir')
 
   const res = spawnSync(process.execPath, [DSH_BIN, '--profile', 'awt-headless', 'List the skills you can see.'], {
     cwd: ws,
