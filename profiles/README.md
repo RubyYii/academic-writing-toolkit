@@ -20,6 +20,11 @@ an existing profile):
 node scaffold/awt.mjs install-profile
 ```
 
+`install-profile` copies configuration and built guards, then fetches the
+pinned harness into `harness/` with `npm ci` — the one step that needs the
+network. The default `$DSH_HOME` is `~/.dsh` on every platform, resolved
+through the OS user home rather than `$HOME`, which PowerShell does not set.
+
 Verify the composition without booting or credentials:
 
 ```bash
@@ -33,6 +38,12 @@ truth test — the guards refuse to mount against a non-workspace directory):
 export DEEPSEEK_API_KEY=...   # or ANTHROPIC_API_KEY for the anthropic route
 node scaffold/awt.mjs run <your-thesis-workspace> "task"
 ```
+
+Setting an Anthropic key alone does not change the default DeepSeek route.
+Select the model through a launcher `--patch` overlay as shown in the
+[author runbook](../docs/e2-dogfood-runbook.md); the pinned headless app has
+no provider/model CLI flags. The E1 producer has its own explicit
+`--provider`/`--model` options that generate the same route in both arms.
 
 `awt run` resolves the pinned launcher from `harness/` in the toolkit
 checkout, which `install-profile` populates with `npm ci` from a tracked

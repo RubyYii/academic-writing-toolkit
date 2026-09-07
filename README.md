@@ -21,8 +21,10 @@ The core promise is simple: **agents may help operate the workflow; the author k
 > typed denials, session-log-derived governance, and harness-event approvals.
 > Evidence status is stated per §11 of the
 > [v0.1 design](docs/specs/2026-08-16-awt-dsh-app-v0.1-design.md): every
-> enforcement claim is CI-proven (E0); author-dogfood and external evidence
-> are pending and never implied.
+> enforcement claim is CI-proven (E0). A [three-source local E1 pilot](e1/published/2026-09-05-local-qwen/README.md)
+> is now recorded; neither arm produced lint-conforming notes, so it does
+> not demonstrate improved writing efficacy. Author-dogfood and external
+> evidence remain pending.
 
 AWT is not a hosted writing service and does not operate a manuscript-storage
 backend. Its deterministic tools stay local. Provider routes are configured by
@@ -81,8 +83,9 @@ explicit author approval. It needs Node 22+, `pdftotext` (poppler), and one
 provider key at run time.
 
 ```bash
+npm ci --prefix guards && npm run build --prefix guards
 node scaffold/awt.mjs init ~/thesis          # clean workspace + skill links
-node scaffold/awt.mjs install-profile        # awt-headless + awt-web into ~/.dsh
+node scaffold/awt.mjs install-profile        # profiles into ~/.dsh + the pinned harness
 export DEEPSEEK_API_KEY=...                  # or ANTHROPIC_API_KEY
 node scaffold/awt.mjs run ~/thesis "task"    # one headless task
 
@@ -97,6 +100,10 @@ refuse a launcher whose version is not the one `COMPAT.json` attests.
 Anything after `--` is forwarded to the harness untouched, so a launcher
 overlay works: `... run ~/thesis "task" -- --patch model.yml`. Your provider
 key stays in your environment; no AWT command reads or stores one.
+
+On Windows PowerShell, use `"$HOME/.dsh/profiles"` as the npm prefix, or
+`"$env:DSH_HOME/profiles"` if you set a custom `DSH_HOME`. The default is the
+OS user home on Windows as well as macOS/Linux.
 
 `node scaffold/awt.mjs verify ~/thesis` runs the five-stage verification
 ladder (build, notes-lint smoke, composition proof, scripted-denial evidence
