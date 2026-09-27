@@ -434,7 +434,7 @@ MUTATIONS = [
     ('ring', 'ring.py', '    current = next((s["key"] for s in segments if s["state"] == "hanging"), None) \\\n        or next((s["key"] for s in segments if s["state"] == "open"), None)',
      '    current = next((s["key"] for s in segments if s["state"] == "open"), None)',
      'test_ring.RingTest.test_the_current_stage_is_the_first_with_something_hanging'),
-    ('ring', 'ring.py', '        if readers.get("status") in NOT_CURRENT or _before(at, last_change_at):', '        if readers.get("status") in NOT_CURRENT:',
+    ('ring', 'ring.py', '        if readers.get("status") in NOT_CURRENT or (_before(at, last_change_at) and readers.get("status") != V.ACCEPTED):', '        if readers.get("status") in NOT_CURRENT:',
      'test_ring.RingTest.test_a_reader_panel_older_than_the_last_rewrite_hangs_on_readers_as_stale'),
     ('ring', 'ring.py', '    ua, ub = _utc(a), _utc(b)\n    return bool(ua and ub and ua < ub)', '    return bool(a and b and a < b)',
      'test_ring.RingTest.test_times_in_different_offsets_are_compared_as_times'),
@@ -442,9 +442,17 @@ MUTATIONS = [
      'test_ring.RingTest.test_the_latest_activity_is_said_beside_the_current_stage'),
     ('ring', 'ring.py', '    latest, latest_at = (last[0], last[1]) if last else (None, None)', '    latest, latest_at = (last[0], None) if last else (None, None)',
      'test_ring.RingTest.test_the_latest_activity_carries_its_time'),
-    ('ring', 'ring.py', '"detail": x.get("detail") or "", "you": True}', '"detail": x.get("detail") or "", "you": False}',
+    ('ring', 'ring.py', '"detail": _open_detail(x), "you": True}', '"detail": _open_detail(x), "you": False}',
      'test_ring.RingTest.test_register_items_are_the_authors_to_decide_and_stale_checks_are_not'),
     # The ring on the notch (plan step 4a): lintel's words and states, the pill, and the overlap with wishing-willow gone.
+    # 09-27: accepting a stale check holds only for the draft and the run it was said about; an author's acceptance
+    # needs the message on record; an open register item says what closes it.
+    ('cov', 'coverage.py', '        if acc and acc.get("run_at") == rec.get("at") and acc.get("digest") == digest(new):', '        if acc:',
+     'test_coverage.AcceptStaleTest.test_accepted_until_the_next_change'),
+    ('cov', 'coverage.py', '    if by == "author" and not (cfg.get("transcripts") and TG._approval_in_transcripts(cfg, uuid.strip())):', '    if False:',
+     'test_coverage.AcceptStaleTest.test_refusals'),
+    ('ring', 'ring.py', '    return f"要做：{what}" + (f" · 由：{gate}" if gate else "")', '    return x.get("detail") or ""',
+     'test_ring.RingTest.test_an_open_item_says_what_closes_it_and_which_gate_decides_it'),
     ('ring', 'lintel.py', '"waiting" if mine else "stale"', '"stale" if mine else "waiting"',
      'test_lintel.RingExportTest.test_seven_stages_with_states_sight_and_the_words_in_each_box'),
     ('ring', 'lintel.py', 'if ring is not None and not ring.get("error") and not (problems or clock or flagged):',

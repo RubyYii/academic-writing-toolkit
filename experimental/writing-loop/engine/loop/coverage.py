@@ -696,7 +696,7 @@ def accept(cfg, ws, cid, reason, by="claude", uuid=None, now=None):
     head = _git(cfg["repo"], "rev-parse", "--verify", f"{cfg['ref']}^{{commit}}")
     if not head or sentences is None:
         raise ValueError("索引或 HEAD 读不出，说不出接受的是哪一版")
-    if index_head and index_head != head:
+    if index_head and head != index_head:
         raise ValueError(f"索引建于 {index_head[:7]}，落后于 HEAD {head[:7]}：先跑 loop update 再接受")
     r = row(check, cfg, ws, head, sentences, index_head)
     if r["status"] != STALE:
