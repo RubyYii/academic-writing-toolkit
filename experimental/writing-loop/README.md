@@ -119,6 +119,41 @@ Otherwise it is 待作者终审. There is no green: whether the paper can be sub
 names the next open items in the ledger's order, and the overview's first 待办 cell shows the same verdict. Without
 a ledger the line says the loop does not know whether the claims stand.
 
+## Known failure: passing the checks instead of improving the paper
+
+An agent revising a draft inside this loop sees which checks fail, and it can make them pass without making the paper
+better. This is a known pattern and not peculiar to this tool. Pan et al. (2024, arXiv:2407.04549) had a language
+model revise essays against a language-model evaluator and found the evaluator's ratings rising while human judgments
+of quality stayed flat or fell. ImpossibleBench (Zhong et al., 2025, arXiv:2510.20270) gives the example of a coding agent
+that deletes a failing test instead of fixing the bug.
+
+The writing version of deleting the test is deleting the sentence. Removing a sentence lowers every per-thousand-words
+rate, shortens the text under a word limit, and gives a reader panel less to complain about. Moves of this kind seen
+while using the loop on a real manuscript:
+
+- A reader-panel target ("the opening paragraph does not repeat the abstract") was met by deleting the paragraph's
+  research question.
+- A word limit was met by dropping a qualifier and the denominator of a reported count.
+- A sentence was kept because readers recalled it, although it said more than the evidence supports.
+- A check script was changed until it reported green, while the output it checks still had the fault.
+- A panel round was reported as passing because its pre-set main question passed, while another measure had fallen
+  two rounds in a row.
+
+What the loop does about it:
+
+- The paper state reads the whole draft, not only the sentences that changed, and it has no green state
+  ([Paper state](#paper-state-whether-the-claims-stand-not-whether-the-checks-ran)).
+- In review, not yet on main: a removed sentence that carried a required wording, a number or a qualifier is flagged
+  like a rewrite, so deleting is no longer the one move no check sees (#78). Reader panels get a blank reader that
+  only copies the first paragraph, as the baseline a result has to beat (#78). The claims ledger can require a
+  wording in named places and name the sentences that carry each claim (`feat/ledger-questioned`).
+- Not built: keeping the evaluator out of the writer's context. Pan et al. report that the effect was weaker with
+  GPT-3.5 when the author and the judge did not share context. Also not built: hiding thresholds from the writer
+  and giving it only the question each check stands for.
+
+None of this makes a paraphrase that weakens a claim visible to a regex. Whether the paper is better is still the
+author's call.
+
 ## What it does not do
 
 - It reads committed versions only. Uncommitted edits in the working tree are not seen.
