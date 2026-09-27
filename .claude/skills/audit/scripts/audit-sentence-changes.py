@@ -336,6 +336,33 @@ def worded_parentheses(s):
     return sum(1 for inner in PAREN_WORDED.findall(s) if re.search(r"\b[a-z]{3,}\b", inner))
 
 
+# A link to the sentence before ("However,", "For example,", ", in turn,") is not what makes a rewrite long or dense,
+# and a draft that states too few of them is its own problem (the fingerprint's linking opener share). Before a
+# rewrite is set against the sentence it replaced, a sentence-initial linking adverbial (the fingerprint's
+# LINKING_OPENER) and a linking adverbial set off by commas inside the sentence are taken out of both, so adding one
+# is not a comma, an adverb, an opener or three more words. What was added is reported as links_added, unflagged.
+# Held against the venue, a sentence is measured whole, as the venue's own sentences are.
+MID_LINK = re.compile(r",\s+(?:however|therefore|thus|hence|moreover|furthermore|consequently|nevertheless|nonetheless|"
+                      r"accordingly|conversely|similarly|likewise|indeed|instead|specifically|notably|in turn|"
+                      r"for example|for instance|in particular|in contrast|by contrast|as a result|in other words|"
+                      r"that is|in addition),(?=\s)", re.I)
+
+
+def links(s):
+    """The linking adverbials unlinked() takes out, lower-cased, in order."""
+    m = FP.LINKING_OPENER.match(s) if FP else None
+    found = [m.group(0).strip(" ,\"'\u201c\u2018").lower()] if m else []
+    return found + [x.group(0).strip(" ,").lower() for x in MID_LINK.finditer(s)]
+
+
+def unlinked(s):
+    m = FP.LINKING_OPENER.match(s) if FP else None
+    if m:
+        rest = s[m.end():].lstrip(" ,")
+        s = rest[:1].upper() + rest[1:] if rest else s
+    return MID_LINK.sub("", s)
+
+
 def features(s):
     return {
         "words": len(s.split()),
@@ -609,6 +636,9 @@ def judge(olds, news, venue):
     """One group: the old sentences (none for an addition) and the new ones."""
     kind = ("added" if not olds else "split" if len(news) > 1 and len(olds) == 1
             else "merged" if len(olds) > 1 else "revised")
+    raw_news, old_text = news, olds
+    links_added = sorted((Counter(t for x in news for t in links(x)) - Counter(t for x in olds for t in links(x))).elements())
+    olds, news = [unlinked(x) for x in olds], [unlinked(x) for x in news]
     fn = summed(news)
     fo = summed(olds) if olds else None
     flags, added = [], {}
@@ -655,12 +685,12 @@ def judge(olds, news, venue):
     # Without a venue, only additions are held to the default ceilings: a revision is already judged against the
     # sentence it replaced.
     if venue or fo is None:
-        for s in news:
+        for s in raw_news:
             f1 = features(s)
             if venue:
                 pct = {k: percentile(venue["columns"][k], f1[k]) for k in ("words",) + DENSITY}
             longest_old = max((features(o)["words"] for o in olds), default=0)
-            grew = fo is None or f1["words"] > (fo["words"] if kind != "merged" else longest_old)
+            grew = fo is None or features(unlinked(s))["words"] > (fo["words"] if kind != "merged" else longest_old)
             if f1["words"] > ceiling["words"] and grew:
                 flags.append("long_for_venue")
             for k in DENSITY:
@@ -668,8 +698,9 @@ def judge(olds, news, venue):
                     dense_hits.add(k)
         if dense_hits:
             flags.append("dense_for_venue")
-    return {"old": " ".join(olds) or None, "new": " ".join(news), "kind": kind, "features_old": fo,
-            "features_new": fn, "added": added, "dense": sorted(dense_hits), "venue_percentile": pct,
+    return {"old": " ".join(old_text) or None, "new": " ".join(raw_news), "kind": kind, "features_old": fo,
+            "features_new": fn, "added": added, "links_added": links_added, "dense": sorted(dense_hits),
+            "venue_percentile": pct,
             "flags": sorted(set(flags), key=flags.index), "pieces": len(news), "olds": len(olds)}
 
 
@@ -748,8 +779,10 @@ def main():
                      "merged": kinds["merged"], "added": kinds["added"], "removed": len(removed),
                      "removed_flagged": removed_flagged})
     unjudged = kinds["added"] if venue is None else 0   # judged against DEFAULT_CEILING, not a venue
+    linked = Counter(t for r in results for t in r.get("links_added", []))
     out = {"schema_version": 2, "compared": compared, "changed": len(results) - removed_flagged, "flagged": len(flagged),
            "added_without_venue": unjudged,
+           "links_added": dict(sorted(linked.items())),
            "venue": ({"documents": venue["documents"], "sentences": venue["sentences"],
                       "p90": {k: at(venue["columns"][k], VENUE_PCT) for k in ("words",) + DENSITY},
                       "p75": {k: at(venue["columns"][k], ADDITION_PCT) for k in ("words",) + DENSITY}}
@@ -792,6 +825,10 @@ def main():
             print(f"\nauthor verdicts on {vt['judged']} of {len(results)} changed sentences (script {vt['script'][:12]}): "
                   f"flagged and rejected {vt['flagged_rejected']}, flagged but kept {vt['flagged_accepted']}, "
                   f"not flagged but rejected {vt['unflagged_rejected']}, not flagged and kept {vt['unflagged_accepted']}")
+        if linked:
+            n = sum(1 for r in results if r.get("links_added"))
+            print(f"\nlinking adverbials added, not flagged: {sum(linked.values())} in {n} sentence(s) ("
+                  + ", ".join(f"{k} x{v}" for k, v in sorted(linked.items())) + ")")
         print(f"\n{LIMITS}")
     sys.exit(1 if flagged else 0)
 

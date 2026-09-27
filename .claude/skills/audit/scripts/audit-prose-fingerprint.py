@@ -48,6 +48,22 @@ DISCOURSE = (
     r"\b(?:[Hh]owever|[Mm]oreover|[Ff]urthermore|[Tt]hus|[Tt]herefore"
     r"|[Nn]evertheless|[Cc]onsequently|[Nn]onetheless)\b"
 )
+# A sentence that opens with a linking adverbial says how it stands to the sentence before it: a contrast, a
+# consequence, an example, an addition. Published papers open a steady share of their sentences this way; a draft
+# that opens almost none of them leaves the reader to supply every relation. The count is of sentences, not of
+# words, and only of the opening: "however" in mid-sentence is the discourse-marker rate above.
+# Not counted: enumerators (First, Second, Finally), which order a list without saying how its items relate, and
+# subordinators (Although, Because, While), which relate two clauses inside one sentence. "Instead of" and
+# "In addition to" open a phrase, not a link. Words that are links only when a comma follows them need the comma.
+# The list is closed: a link it does not name is not counted. audit-sentence-changes.py reads it from here.
+LINKING_OPENER = re.compile(
+    r"^[\"'\u201c\u2018]?(?:"
+    r"(?:However|Thus|Therefore|Hence|Moreover|Furthermore|Consequently|Nevertheless|Nonetheless|Accordingly"
+    r"|Conversely|Similarly|Likewise|Indeed|Yet|Additionally|Specifically|Notably|Importantly|Meanwhile"
+    r"|As a result|As a consequence|In contrast|By contrast|For example|For instance|In particular"
+    r"|On the other hand|In other words|In turn|In summary|In short|To this end|Even so|Instead(?! of)"
+    r"|In addition(?! to))\b"
+    r"|(?:That is|Overall|Still|Otherwise|In practice|Taken together|Put differently)\s*,)")
 NOMINALISATION = r"\b\w+(?:tion|ment|ness|ity)s?\b"
 HEDGE = r"\b(?:may|might|could|appears?|suggests?|seems?|likely|plausibl\w+)\b"
 
@@ -220,6 +236,15 @@ def sentence_lengths(text: str) -> List[Optional[int]]:
     return out
 
 
+def linking_opener_share(text: str) -> Optional[float]:
+    """Share of sentences that open with a linking adverbial (LINKING_OPENER). Sentences are split and kept as in
+    sentence_lengths, so the denominator is the same set of sentences the length metrics read."""
+    kept = [s for s in re.split(r"(?<=[.!?])\s+(?=[A-Z])", text) if 4 <= len(s.split()) <= 120]
+    if len(kept) < 30:
+        return None
+    return sum(1 for s in kept if LINKING_OPENER.match(s.strip())) / len(kept)
+
+
 def lag1(values: Sequence[Optional[int]]) -> Optional[float]:
     """Positive: long sentences cluster with long ones, as in human drafts.
     Near zero: each length drawn independently.
@@ -294,6 +319,7 @@ def measure(text: str) -> Dict[str, Optional[float]]:
     lengths = sentence_lengths(text)
     out["sentence_length_cv"] = cv([n for n in lengths if n is not None])
     out["sentence_length_lag1"] = lag1(lengths)
+    out["linking_opener_share"] = linking_opener_share(text)
     out["repeat_4gram_per_1k"] = repeat_ngram_rate(text)
     verbs = re.findall(r"\b[Ww]e ([a-z]+)\b", text)
     out["first_person_verb_diversity"] = (len(set(verbs)) / len(verbs)) if verbs else None
@@ -336,6 +362,7 @@ KEY_ORDER = [
     ("discourse_marker_per_1k", "discourse marker  /1k"),
     ("sentence_length_cv", "sentence length CV"),
     ("sentence_length_lag1", "sentence length lag-1"),
+    ("linking_opener_share", "linking opener share"),
     ("repeat_4gram_per_1k", "repeated 4-gram  /1k"),
     ("nominalisation_per_1k", "nominalisation  /1k"),
     ("hedge_per_1k", "hedging  /1k"),
