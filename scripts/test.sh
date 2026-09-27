@@ -6587,9 +6587,12 @@ open(sys.argv[1], "wb").write(out)
 EOF
     printf '\\newlabel{fig:span}{{1}{1}{Two spans}{figure.1}{}}\n\\newlabel{tab:counts}{{1}{2}{Counts}{table.1}{}}\n' > "$tmp/doc.aux"
     printf 'PNGBYTES-2' > "$tmp/figures/photo.png"
+    # the figure now says something in words, one sentence of it a prediction; the sheet must set it out, marked
+    printf '\\begin{tikzpicture}\\node {If a gauge drifts, the spans should split.};\\end{tikzpicture}\n' > "$tmp/figures/span.tex"
+    printf '# Claims\n## C1 The spans\n- 允许的说法：the two spans agree within the gauge error\n' > "$tmp/claims.md"
     git -C "$tmp" -c user.name=t -c user.email=t@example.invalid commit -qam v2
     out=$(python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv \
-          --render --pdf "$tmp/doc.pdf" --aux "$tmp/doc.aux" --built-from HEAD~1 --out "$tmp/sheet" 2>&1)
+          --render --pdf "$tmp/doc.pdf" --aux "$tmp/doc.aux" --built-from HEAD~1 --out "$tmp/sheet" --claims "$tmp/claims.md" 2>&1)
     status=$?
     if ! command -v pdftoppm >/dev/null 2>&1; then
         rm -rf "$tmp"
@@ -6603,6 +6606,12 @@ EOF
     echo "$out" | grep -q "fig:span: PDF built from HEAD~1, where this float was a different version" \
         || { echo "the older figure was not marked: $out"; rm -rf "$tmp"; return 1; }
     echo "$out" | grep -q "tab:counts: PDF built from" && { echo "the unchanged table was marked: $out"; rm -rf "$tmp"; return 1; }
+    # what the reviewer is asked to check, what the paper may say, and the figure's words with the prediction marked
+    grep -q "For each figure and table, check:" "$tmp/sheet/REVIEW.md" \
+        && grep -q "C1 The spans: the two spans agree within the gauge error" "$tmp/sheet/REVIEW.md" \
+        && grep -q "  - ⚑ If a gauge drifts, the spans should split." "$tmp/sheet/REVIEW.md" \
+        && grep -q "  - Two spans, read at dawn." "$tmp/sheet/REVIEW.md" \
+        || { echo "the sheet does not set out the checklist, the allowed wordings or the figure's words:"; cat "$tmp/sheet/REVIEW.md"; rm -rf "$tmp"; return 1; }
     rm -rf "$tmp"
 }
 
