@@ -394,6 +394,10 @@ def interpret(check_id, code, stdout, stderr):
         elif "outliers" in data:
             out = data.get("outliers") or []
             summary = f"越界 {len(out)} 项" + (f"：{', '.join(out)}" if out else "")
+            # Inside the baseline's range but outside its 5th-95th percentile band: not an outlier, and not clean.
+            edge = data.get("edge") or []
+            if edge:
+                summary += f"；边缘 {len(edge)} 项：{', '.join(edge)}"
             # The script leaves per-section rates uncomputed for a directory target and calls that a hole, not a
             # clean result: a whole-paper average in range can hide one section far outside it. Say it.
             if str(data.get("per_section_note") or "").startswith("NOT COMPUTED"):
@@ -672,7 +676,8 @@ def row(check, cfg, ws, head, sentences, index_head=None):
         # current until it catches up.
         reasons.insert(0, f"索引建于 {index_head[:7]}，落后于 HEAD {head[:7]}（先跑 loop update）")
     last = {"last_commit": (rec.get("commit") or "")[:7], "last_at": rec.get("at"), "result": rec.get("summary"),
-            "verdict": rec.get("verdict")}
+            "verdict": rec.get("verdict"), "edge": list((rec.get("result") or {}).get("edge") or [])
+            if isinstance(rec.get("result"), dict) else []}
     if rec.get("verdict") == "failed":
         return {**base, **last, "status": FAILED, "changed": n, "detail": rec.get("summary") or "失败",
                 "due": bool(reasons)}
@@ -1056,6 +1061,12 @@ def findings(summary):
     return [r for r in summary["rows"] if r["status"] == OK and r.get("verdict") == "findings"]
 
 
+def edges(summary):
+    """Current checks with a metric at the edge of the baseline (inside its range, outside the 5th-95th percentile
+    band). Not a finding and not a failure: named apart, so "越界 0" is not read as "nowhere near the edge"."""
+    return [r for r in summary["rows"] if r["status"] == OK and r.get("edge")]
+
+
 def pending(summary):
     """Open gates and strategic risks, as rows (status 未决): what the author has not decided yet. A register that
     cannot be read, or holds no item, is itself a row, so an unreadable register never reads as "no risks"."""
@@ -1146,6 +1157,9 @@ def reminder_line(summary, ws):
     if found:
         bits.append("有发现 " + "、".join(f"{r['name']}（{_short(r.get('result'))}）" for r in found[:3])
                     + (f" 等 {len(found)} 项" if len(found) > 3 else ""))
+    near = edges(summary)   # 「有发现」 shows only a result's first clause, so the edges are named here
+    if near:
+        bits.append("边缘 " + "、".join(f"{r['name']}（{', '.join(r['edge'][:4])}）" for r in near[:3]))
     wv = waived(summary)
     if wv:
         bits.append("已豁免 " + "、".join(f"{r['name']}（{_short(r.get('detail'), 16)}）" for r in wv))
@@ -1173,7 +1187,9 @@ def todo_cell(summary):
     c = {}
     for r in rows:
         c[r["status"]] = c.get(r["status"], 0) + 1
-    tail = ((f"；有发现 {len(found)} 项" if found else "") + (f"；另有 {len(gap)} 项 AWT 读不了这种稿件" if gap else "")
+    near = edges(summary)
+    tail = ((f"；有发现 {len(found)} 项" if found else "") + (f"；边缘 {sum(len(r['edge']) for r in near)} 项" if near else "")
+            + (f"；另有 {len(gap)} 项 AWT 读不了这种稿件" if gap else "")
             + (f"；豁免 {len(wv)} 项" if wv else "") + (f"；原型进行中 {running}" if running else ""))
     if not rows and not target:
         if not gap and not wv:
