@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test.sh — runs the regression test suite (237 automated tests, labelled T2-T255: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
+# scripts/test.sh — runs the regression test suite (239 automated tests, labelled T2-T257: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
 # Self-contained; saves and restores any state it mutates.
 # Exit 0 if all tests pass, 1 if any fail. CI-suitable.
 # Note: pipefail is intentionally NOT enabled. Several tests assert that a
@@ -3577,6 +3577,73 @@ test_T193() {
     [ "$rc" -eq 1 ] || return 1
     [ -n "$planted_path" ] || return 1
     [ -z "$(_home_paths_under experimental)" ]
+}
+
+# --- T256-T257: links between sentences ----------------------------------------
+test_T256() {
+    # A rewrite that only links a sentence to the one before it ("However,", "As a result,", ", in turn,") is not
+    # flagged: the comma, the adverb, the opener and the extra words belong to the link. The link is reported as
+    # links_added. A link that arrives with a real addition still leaves the addition flagged, and "Instead of"
+    # opens a phrase, not a link.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    printf 'id\told\tnew\n' > "$tmp/pairs.tsv"
+    printf 'a\tThe gauge reads the river level twice a day.\tHowever, the gauge reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    printf 'b\tThe gauge reads the river level twice a day.\tAs a result, the gauge reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    printf 'c\tThe gauge reads the river level twice a day.\tThe gauge, in turn, reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    printf 'd\tThe gauge reads the river level twice a day.\tFor example, the gauge, which the survey installed in spring, reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    printf 'e\tThe gauge reads the river level twice a day.\tInstead of the old float, the gauge reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    printf 'f\tSpecifically, the gauge reads the river level twice a day.\tThe gauge reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --json 2>/dev/null)
+    code=$?
+    rm -rf "$tmp"
+    [ "$code" -eq 1 ] || return 1
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+by = {r['where']: r for r in d['sentences']}
+for k in 'abcf':
+    assert by[k]['flags'] == [], (k, by[k]['flags'])
+assert by['a']['links_added'] == ['however'] and by['b']['links_added'] == ['as a result'], (by['a'], by['b'])
+assert by['c']['links_added'] == ['in turn'] and by['f']['links_added'] == [], (by['c'], by['f'])
+assert {'clause', 'comma'} <= set(by['d']['flags']) and by['d']['links_added'] == ['for example'], by['d']
+assert by['e']['flags'] and by['e']['links_added'] == [], by['e']
+assert d['links_added'] == {'as a result': 1, 'for example': 1, 'however': 1, 'in turn': 1}, d['links_added']
+"
+}
+
+test_T257() {
+    # The fingerprint counts sentences that open with a linking adverbial, as a share of sentences. Enumerators
+    # (First, Second), subordinators (Although) and "Instead of" do not count; a link that needs a comma counts
+    # only with it.
+    local tmp none some
+    tmp=$(mktemp -d) || return 1
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib
+d = pathlib.Path(sys.argv[1])
+plain = "The gauge reads the river level twice a day at the north bridge. "
+notlink = ["First, the gauge reads the river level at the north bridge. ",
+           "Although the float sticks, the gauge reads the level at the north bridge. ",
+           "Instead of the float, the gauge reads the level at the north bridge. ",
+           "Overall accuracy of the gauge stays high at the north bridge. "]
+link = ["However, the gauge reads the river level at the north bridge. ",
+        "For example, the gauge reads the river level at the north bridge. ",
+        "Overall, the gauge reads the river level at the north bridge. ",
+        "In addition, the gauge reads the river level at the north bridge. "]
+(d / "none.txt").write_text((plain * 6 + "".join(notlink)) * 5, encoding="utf-8")
+(d / "some.txt").write_text((plain * 6 + "".join(link)) * 5, encoding="utf-8")
+PYEOF
+    none=$(python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target "$tmp/none.txt" --json 2>/dev/null \
+        | python3 -c "import json,sys; print(json.load(sys.stdin)['metrics']['linking_opener_share']['value'])")
+    some=$(python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target "$tmp/some.txt" --json 2>/dev/null \
+        | python3 -c "import json,sys; print(json.load(sys.stdin)['metrics']['linking_opener_share']['value'])")
+    rm -rf "$tmp"
+    python3 - "$none" "$some" <<'PYEOF'
+import sys
+none, some = float(sys.argv[1]), float(sys.argv[2])
+assert none == 0.0, none
+assert abs(some - 0.4) < 1e-9, some
+PYEOF
 }
 
 # --- T254-T255: a supplement's ledgers and files --------------------------------
@@ -7216,6 +7283,8 @@ EOF
 run_test "T253 float reviews: a tabular in the running text is its own item, and one inside a float or its input is not listed twice" test_T253
 run_test "T254 claim ledger: a supplement outside --base-dir is read with --also-file, two ledgers together" test_T254
 run_test "T255 number ledger: two ledgers read together, each counting its copies in its own files" test_T255
+run_test "T256 changed-sentence audit: a link to the previous sentence is reported, not flagged" test_T256
+run_test "T257 fingerprint: share of sentences that open with a linking adverbial" test_T257
 
 header ""
 if [[ "$RUN_RETIRED" == "1" ]]; then
