@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test.sh — runs the regression test suite (235 automated tests, labelled T2-T253: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
+# scripts/test.sh — runs the regression test suite (237 automated tests, labelled T2-T255: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
 # Self-contained; saves and restores any state it mutates.
 # Exit 0 if all tests pass, 1 if any fail. CI-suitable.
 # Note: pipefail is intentionally NOT enabled. Several tests assert that a
@@ -3579,6 +3579,97 @@ test_T193() {
     [ -z "$(_home_paths_under experimental)" ]
 }
 
+# --- T254-T255: a supplement's ledgers and files --------------------------------
+test_T254() {
+    # Text moved into a supplement outside --base-dir: its ledger row reads as edited away until the supplement is
+    # given with --also-file; two ledgers are read together; a missing --also-file fails instead of reading less.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    ledger_fixture "$tmp"
+    printf 'Sakai finds that deeper pools change the ranking of runs~\\cite{sakai2008}.\n' > "$tmp/supplement.tex"
+    printf 'Deeper pools change the ranking of runs, which we show on three test collections.\n' > "$tmp/evidence/sakai2008.txt"
+    printf 'claim\tcite_key\tsnippet\tsource_file\tlevel\n' > "$tmp/ledger-supp.tsv"
+    printf 'Sakai finds that deeper pools change the ranking of runs\tsakai2008\tDeeper pools change the ranking of runs\tevidence/sakai2008.txt\tfulltext\n' >> "$tmp/ledger-supp.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp/sections" --ledger "$tmp/ledger.tsv" \
+          --ledger "$tmp/ledger-supp.tsv" --json 2>&1)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+gone=[f for f in d['findings'] if f['kind']=='claim-not-in-manuscript']
+assert d['ledger_rows'] == 2 and len(d['ledgers']) == 2, d
+assert len(gone) == 1 and gone[0]['location'].startswith('ledger-supp.tsv:'), gone
+" || { echo "without the supplement: $out"; rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp/sections" --ledger "$tmp/ledger.tsv" \
+          --ledger "$tmp/ledger-supp.tsv" --also-file "$tmp/supplement.tex" --json 2>&1)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+kinds=[f['kind'] for f in d['findings']]
+assert 'claim-not-in-manuscript' not in kinds and 'source-file-missing' not in kinds, kinds
+assert d['citing_sentences'] == 4, d['citing_sentences']
+" || { echo "with the supplement: $out"; rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp/sections" --ledger "$tmp/ledger.tsv" \
+          --also-file "$tmp/nowhere.tex" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" != "0" ] && echo "$out" | grep -q "ALSO_FILE_MISSING" || { echo "a missing --also-file passed: $status $out"; return 1; }
+}
+
+test_T255() {
+    # A supplement's numbers in a ledger of their own: both ledgers are read and a finding names its ledger. With
+    # --ledger-files each ledger counts its copies in its own files: a text number that the supplement repeats is not
+    # a changed copy. A declared scope that matches no prose file fails instead of reading less.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    number_fixture "$tmp"
+    printf '\\section{Supplement}\nThe k1 share is $21.0\\%%$ in the first condition, beside the pooled $63.5\\%%$.\n' > "$tmp/supplement.tex"
+    printf 'printed\tin_artifact\tscope\tartifact\tlocator\tcopies\n' > "$tmp/numbers.tsv"
+    printf '63.5\t0.635\t-\tresults/variance.csv\tpooled,0.635\t1\n' >> "$tmp/numbers.tsv"
+    printf 'printed\tin_artifact\tscope\tartifact\tlocator\tcopies\n' > "$tmp/numbers-supp.tsv"
+    printf '21.0\t0.210\t-\tresults/variance.csv\tk1,0.210\t1\n' >> "$tmp/numbers-supp.tsv"
+    printf '99.9\t0.999\t-\tresults/variance.csv\tk9,0.999\t-\n' >> "$tmp/numbers-supp.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" --ledger "$tmp/numbers.tsv" \
+          --ledger "$tmp/numbers-supp.tsv" --json 2>&1)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert len(d['ledgers']) == 2, d.get('ledgers')
+bad=[f for f in d['findings'] if f['kind']=='locator-not-in-artifact']
+assert len(bad) == 1 and bad[0]['location'].startswith('numbers-supp.tsv:'), bad
+assert [f['location'] for f in d['findings'] if f['kind']=='copies-changed'] == ['numbers.tsv:2'], 'unscoped: the supplement copy counts'
+" || { echo "unscoped: $out"; rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" --ledger "$tmp/numbers.tsv" \
+          --ledger "$tmp/numbers-supp.tsv" --ledger-files "$tmp/numbers.tsv=sections" \
+          --ledger-files "$tmp/numbers-supp.tsv=supplement.tex" --json 2>&1)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+kinds=[f['kind'] for f in d['findings']]
+assert 'copies-changed' not in kinds, kinds
+assert [f['location'] for f in d['findings'] if f['kind']=='number-not-in-manuscript'] == ['numbers-supp.tsv:3'], 'only the 99.9 row, printed nowhere'
+assert d['ledger_files'] == {'numbers.tsv': ['sections'], 'numbers-supp.tsv': ['supplement.tex']}, d['ledger_files']
+" || { echo "scoped: $out"; rm -rf "$tmp"; return 1; }
+    # a table that is the text ledger's artifact is prose to the supplement's ledger, which counts the copy in it
+    mkdir -p "$tmp/tables"
+    printf 'k1 & 21.0 \\\\\n' > "$tmp/tables/k.tex"
+    printf '21.0\t21.0\t-\ttables/k.tex\tk1 & 21.0\t-\n' >> "$tmp/numbers.tsv"
+    printf 'printed\tin_artifact\tscope\tartifact\tlocator\tcopies\n21.0\t0.210\t-\tresults/variance.csv\tk1,0.210\t2\n' > "$tmp/numbers-supp.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" --ledger "$tmp/numbers.tsv" \
+          --ledger "$tmp/numbers-supp.tsv" --ledger-files "$tmp/numbers.tsv=sections" \
+          --ledger-files "$tmp/numbers-supp.tsv=supplement.tex,tables/*.tex" --json 2>&1)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert not [f for f in d['findings'] if f['kind']=='copies-changed'], [f for f in d['findings'] if f['kind']!='unledgered-number']
+" || { echo "a table the other ledger draws from was not counted: $out"; rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" --ledger "$tmp/numbers.tsv" \
+          --ledger-files "$tmp/numbers.tsv=chapters" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" != "0" ] && echo "$out" | grep -q "LEDGER_FILES_MATCH_NOTHING" \
+        || { echo "a scope that matches nothing passed: $status $out"; return 1; }
+}
+
 run_test "T2  symlink corruption + repair"        test_T2
 run_test "T3  sync drift detection + restore"     test_T3
 run_test "T4  CLAUDE.md edit propagates to both"  test_T4
@@ -7123,6 +7214,8 @@ EOF
 }
 
 run_test "T253 float reviews: a tabular in the running text is its own item, and one inside a float or its input is not listed twice" test_T253
+run_test "T254 claim ledger: a supplement outside --base-dir is read with --also-file, two ledgers together" test_T254
+run_test "T255 number ledger: two ledgers read together, each counting its copies in its own files" test_T255
 
 header ""
 if [[ "$RUN_RETIRED" == "1" ]]; then

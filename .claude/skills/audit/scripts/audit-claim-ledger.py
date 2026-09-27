@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Claim ledger audit for LaTeX manuscripts.
 
-    python3 audit-claim-ledger.py --base-dir <manuscript> --ledger <ledger.tsv> [--json] [--pairs] [--allow-empty]
+    python3 audit-claim-ledger.py --base-dir <manuscript> --ledger <ledger.tsv> [--ledger <more.tsv> ...]
+                                  [--also-file <supplement.tex> ...] [--json] [--pairs] [--allow-empty]
 
 The gap this closes: the citation fidelity audit reads `chapters/**/*.md`
 against reading notes. A LaTeX manuscript's claims about its sources were
@@ -115,16 +116,30 @@ def split_cited(text):
     return out
 
 
-def citing_sentences(base):
-    """[(file, sentence, keys)] for every sentence that carries a \\cite."""
-    out = []
-    for path in tex_files(base):
-        for sentence, keys in split_cited(path.read_text(encoding="utf-8", errors="replace")):
-            out.append((str(path.relative_to(base)), sentence, keys))
+def manuscript_files(base, also=()):
+    """[(path, label)]: every .tex under base, then each --also-file (a supplement outside base, say), each once.
+    09-27: moving text into a supplement at the repository root took it out of the base directory, and 13 ledger
+    rows read as edited away while the sentences were only elsewhere."""
+    out = [(p, str(p.relative_to(base))) for p in tex_files(base)]
+    seen = {p.resolve() for p, _ in out}
+    for x in also:
+        p = Path(x).expanduser().resolve()
+        if p not in seen:
+            seen.add(p)
+            out.append((p, str(x)))
     return out
 
 
-def sentences_at_ref(base, ref):
+def citing_sentences(base, also=()):
+    """[(file, sentence, keys)] for every sentence that carries a \\cite."""
+    out = []
+    for path, label in manuscript_files(base, also):
+        for sentence, keys in split_cited(path.read_text(encoding="utf-8", errors="replace")):
+            out.append((label, sentence, keys))
+    return out
+
+
+def sentences_at_ref(base, ref, also=()):
     """Normalised citing sentences as they stood at `ref`.
 
     Files that did not exist there contribute nothing, so every sentence of a
@@ -139,7 +154,7 @@ def sentences_at_ref(base, ref):
                       capture_output=True).returncode:
         sys.exit(f"GATE_BAD_REF: {ref} is not a commit in {root}")
     before = set()
-    for path in tex_files(base):
+    for path, _ in manuscript_files(base, also):
         rel = path.resolve().relative_to(root)
         shown = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{rel}"],
                                capture_output=True, text=True)
@@ -194,7 +209,10 @@ def read_ledger(path):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-dir", default=".")
-    ap.add_argument("--ledger", required=True)
+    ap.add_argument("--ledger", required=True, action="append",
+                    help="a ledger; give it more than once (the text's ledger, a supplement's), and the rows are read together")
+    ap.add_argument("--also-file", action="append", default=[], metavar="FILE",
+                    help="a manuscript file outside --base-dir to read too (a supplement at the repository root)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--pairs", action="store_true", help="print claim/snippet pairs for reading")
     ap.add_argument("--allow-empty", action="store_true")
@@ -206,19 +224,28 @@ def main(argv=None):
                          "Read by the full scan and by the commit gate")
     a = ap.parse_args(argv)
     base = Path(a.base_dir).expanduser().resolve()
-    ledger_path = Path(a.ledger).expanduser().resolve()
+    ledger_paths = [Path(x).expanduser().resolve() for x in a.ledger]
+    ledger_path = ledger_paths[0]
     if not base.is_dir():
         sys.exit(f"BASE_MISSING: {base}")
-    if not ledger_path.is_file():
-        sys.exit(f"LEDGER_MISSING: {ledger_path}")
+    for lp in ledger_paths:
+        if not lp.is_file():
+            sys.exit(f"LEDGER_MISSING: {lp}")
+    for x in a.also_file:
+        if not Path(x).expanduser().is_file():
+            sys.exit(f"ALSO_FILE_MISSING: {x}")
 
-    sentences = citing_sentences(base)
-    rows = read_ledger(ledger_path)
+    sentences = citing_sentences(base, a.also_file)
+    rows = []
+    for lp in ledger_paths:
+        for row in read_ledger(lp):
+            row["_ledger"] = lp
+            rows.append(row)
     credits = read_credits(a.credits) if a.credits else {}
     findings, pairs = [], []
 
     for row in rows:
-        loc = f"{ledger_path.name}:{row['line']}"
+        loc = f"{row['_ledger'].name}:{row['line']}"
         claim_n = norm(row["claim"])
         bound = [(f, s, k) for f, s, k in sentences if claim_n and claim_n in norm(s)]
         if not bound:
@@ -229,7 +256,7 @@ def main(argv=None):
                              "detail": f"the bound sentence does not cite {row['cite_key']}"})
         source = (base / row["source_file"]) if not Path(row["source_file"]).is_absolute() else Path(row["source_file"])
         if not source.is_file():
-            source = ledger_path.parent / row["source_file"]
+            source = row["_ledger"].parent / row["source_file"]
         if not source.is_file():
             findings.append({"kind": "source-file-missing", "location": loc, "cite_key": row["cite_key"],
                              "detail": f"archived source not found: {row['source_file']}"})
@@ -269,7 +296,7 @@ def main(argv=None):
         # Run against the commit that introduced them, a key-only allowlist let
         # an equivalence-testing paper through as the source of a permutation
         # test: the key was listed, and the sentence read like a credit.
-        before = sentences_at_ref(base, a.gate_since)
+        before = sentences_at_ref(base, a.gate_since, a.also_file)
         added = [(f, s, k) for f, s, k in sentences if norm(s) not in before]
         for f, s, keys in added:
             if any(c and c in norm(s) for c in ledgered):
@@ -304,6 +331,8 @@ def main(argv=None):
         "schema_version": 1,
         "base": str(base),
         "ledger": str(ledger_path),
+        "ledgers": [str(p) for p in ledger_paths],
+        "also_files": list(a.also_file),
         "citing_sentences": len(sentences),
         "ledger_rows": len(rows),
         "gate": gate,

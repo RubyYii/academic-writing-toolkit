@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 r"""Bind the numbers a manuscript reports to the artifacts they come from.
 
-    python3 audit-number-ledger.py --base-dir <manuscript> --ledger <numbers.tsv> [--json] [--pairs] [--allow-empty]
+    python3 audit-number-ledger.py --base-dir <manuscript> --ledger <numbers.tsv> [--ledger <more.tsv> ...]
+                                   [--ledger-files <numbers.tsv>=<files,...> ...] [--json] [--pairs] [--allow-empty]
 
 The gap this closes. A manuscript already has one guard on its numbers: a
 frequency table of numeric tokens taken before and after a prose pass, so an
@@ -68,6 +69,7 @@ Exit: 1 on a hard finding, 2 when no row was checked at all unless
 --allow-empty, 0 otherwise.
 """
 import argparse
+import fnmatch
 import json
 import re
 import sys
@@ -116,6 +118,11 @@ def sentences(base):
     return out
 
 
+def governs(rel, globs):
+    """Whether a prose file is one a ledger answers for: a path, a directory prefix, or a glob (* crosses /)."""
+    return any(rel == g or rel.startswith(g.rstrip("/") + "/") or fnmatch.fnmatch(rel, g) for g in globs)
+
+
 def read_ledger(path):
     rows = []
     lines = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -137,29 +144,62 @@ def read_ledger(path):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-dir", default=".")
-    ap.add_argument("--ledger", required=True)
+    ap.add_argument("--ledger", required=True, action="append",
+                    help="a ledger; give it more than once (the text's numbers, a supplement's), and the rows are read together")
+    ap.add_argument("--ledger-files", action="append", default=[], metavar="LEDGER=FILES",
+                    help="the prose files a ledger answers for, comma-separated paths, directories or globs: its "
+                         "numbers are looked for, counted and scope-checked there only. A ledger named in none reads "
+                         "every file. Unledgered numbers are looked for everywhere")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--pairs", action="store_true", help="print number/locator pairs for reading")
     ap.add_argument("--allow-empty", action="store_true")
     a = ap.parse_args(argv)
     base = Path(a.base_dir).expanduser().resolve()
-    ledger_path = Path(a.ledger).expanduser().resolve()
+    ledger_paths = [Path(x).expanduser().resolve() for x in a.ledger]
+    ledger_path = ledger_paths[0]
     if not base.is_dir():
         sys.exit(f"BASE_MISSING: {base}")
-    if not ledger_path.is_file():
-        sys.exit(f"LEDGER_MISSING: {ledger_path}")
+    for lp in ledger_paths:
+        if not lp.is_file():
+            sys.exit(f"LEDGER_MISSING: {lp}")
+    # 09-27: a supplement read beside the text put a second copy of the text's numbers in view, and every copies count
+    # in the text's ledger read as changed. Each ledger answers for its own files.
+    covers = {}
+    for spec in a.ledger_files:
+        name, _, files = spec.partition("=")
+        lp = Path(name).expanduser().resolve()
+        globs = [g.strip() for g in files.split(",") if g.strip()]
+        if lp not in ledger_paths:
+            sys.exit(f"LEDGER_FILES_UNKNOWN: {name} is not one of the --ledger files")
+        if not globs:
+            sys.exit(f"LEDGER_FILES_EMPTY: {name} names no files")
+        covers[lp] = covers.get(lp, []) + globs
 
     prose = sentences(base)
-    rows = read_ledger(ledger_path)
+    rows = []
+    for lp in ledger_paths:
+        for row in read_ledger(lp):
+            row["_ledger"] = lp
+            rows.append(row)
     # An artifact is where a number comes from, not where the prose reports it. A table file read as prose kept a
     # number "reported" after the sentence carrying it was cut, and put every cell on the coverage list.
     sources = {(base / r["artifact"]).resolve() for r in rows}
-    prose = [(f, s) for f, s in prose if (base / f).resolve() not in sources]
+    # Each ledger's own artifacts are not its prose, and only its own: a table that the text's ledger draws numbers
+    # from is prose that the supplement's ledger counts copies in (09-27: read together, the table vanished from the
+    # supplement's count). With one ledger this is the rule it always was.
+    own_sources = {lp: {(base / r["artifact"]).resolve() for r in rows if r["_ledger"] == lp} for lp in ledger_paths}
+    every = prose
+    prose = [(f, s) for f, s in every if (base / f).resolve() not in sources]
+    read = {f for f, _ in every}
+    for lp, globs in covers.items():
+        if not any(governs(f, globs) for f in read):
+            # A declared scope that reads nothing would pass every row as absent-or-fine: fail instead.
+            sys.exit(f"LEDGER_FILES_MATCH_NOTHING: {lp.name} answers for {', '.join(globs)}, and no prose file matches")
     findings, pairs = [], []
     ledgered_numbers = set()
 
     for row in rows:
-        where = f"{ledger_path.name}:{row['line']}"
+        where = f"{row['_ledger'].name}:{row['line']}"
         number = row["printed"].strip()
         in_artifact = row["in_artifact"].strip()
         scope = row["scope"].strip()
@@ -195,7 +235,7 @@ def main(argv=None):
 
         artifact = base / row["artifact"]
         if not artifact.is_file():
-            artifact = ledger_path.parent / row["artifact"]
+            artifact = row["_ledger"].parent / row["artifact"]
         if not artifact.is_file():
             findings.append({"kind": "artifact-missing", "location": where, "number": number,
                              "detail": f"artifact not found: {row['artifact']}"})
@@ -209,7 +249,9 @@ def main(argv=None):
             findings.append({"kind": "value-not-in-locator", "location": where, "number": number,
                              "detail": f'the locator "{row["locator"][:60]}" does not carry {in_artifact}'})
 
-        reporting = [(f, s) for f, s in prose if re.search(rf"(?<![\w.,]){re.escape(number)}(?![\w.])", s)]
+        mine, skip = covers.get(row["_ledger"]), own_sources[row["_ledger"]]
+        reporting = [(f, s) for f, s in every if (base / f).resolve() not in skip and (mine is None or governs(f, mine))
+                     and re.search(rf"(?<![\w.,]){re.escape(number)}(?![\w.])", s)]
         if not reporting:
             findings.append({"kind": "number-not-in-manuscript", "location": where, "number": number,
                              "detail": f"{number} is no longer reported anywhere in the manuscript"})
@@ -246,6 +288,8 @@ def main(argv=None):
         "schema_version": 1,
         "base": str(base),
         "ledger": str(ledger_path),
+        "ledgers": [str(p) for p in ledger_paths],
+        "ledger_files": {p.name: g for p, g in covers.items()},
         "prose_sentences": len(prose),
         "ledger_rows": len(rows),
         "findings": findings,
