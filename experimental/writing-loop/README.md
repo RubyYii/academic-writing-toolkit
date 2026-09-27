@@ -123,8 +123,8 @@ a ledger the line says the loop does not know whether the claims stand.
 
 An agent revising a draft inside this loop sees which checks fail, and it can make them pass without making the paper
 better. This is a known pattern and not peculiar to this tool. Pan et al. (2024, arXiv:2407.04549) had a language
-model revise essays against a language-model evaluator and found the evaluator's ratings rising while human judgments
-of quality stayed flat or fell. ImpossibleBench (Zhong et al., 2025, arXiv:2510.20270) gives the example of a coding agent
+model revise essays against a language-model evaluator and found the evaluator's ratings rising while quality as judged
+by human preference stayed flat or fell. ImpossibleBench (Zhong et al., 2025, arXiv:2510.20270) gives the example of a coding agent
 that deletes a failing test instead of fixing the bug.
 
 The writing version of deleting the test is deleting the sentence. Removing a sentence lowers every per-thousand-words
@@ -143,12 +143,12 @@ What the loop does about it:
 
 - The paper state reads the whole draft, not only the sentences that changed, and it has no green state
   ([Paper state](#paper-state-whether-the-claims-stand-not-whether-the-checks-ran)).
-- In review, not yet on main: a removed sentence that carried a required wording, a number or a qualifier is flagged
-  like a rewrite, so deleting is no longer the one move no check sees (#78). Reader panels get a blank reader that
-  only copies the first paragraph, as the baseline a result has to beat (#78). The claims ledger can require a
-  wording in named places and name the sentences that carry each claim (`feat/ledger-questioned`).
+- A removed sentence that carried a required wording, a number or a qualifier is flagged like a rewrite, so
+  deleting is no longer the one move no check sees (#78). Reader panels get a blank reader that only copies the first
+  paragraph, as the baseline a result has to beat (#78). The claims ledger can require a wording in named places and
+  name the sentences that carry each claim (#80).
 - Not built: keeping the evaluator out of the writer's context. Pan et al. report that the effect was weaker with
-  GPT-3.5 when the author and the judge did not share context. Also not built: hiding thresholds from the writer
+  GPT-3.5 when the author and the judge did not see the same context. Also not built: hiding thresholds from the writer
   and giving it only the question each check stands for.
 
 None of this makes a paraphrase that weakens a claim visible to a regex. Whether the paper is better is still the
