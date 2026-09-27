@@ -389,6 +389,69 @@ The next sentence must survive.
                                     "--derived", derived, "--json").stdout)
             self.assertEqual(got["derived"]["misread"], {"coded_by": ["blind", "main"], "blind": True, "count": 1})
 
+    def test_what_got_in_the_way_is_listed_sorted_and_named_from_three_readers(self):
+        # writing_got_in_way was asked and never tallied: eight readers of one round said the prose was dense and none
+        # of it reached a count. It is listed verbatim, sorted by a closed keyword list (descriptive, not a coding),
+        # and a kind or a paragraph three readers share is marked. "Reading flow" is not a complaint about links.
+        with TempDir() as root:
+            repo, ws = setup(root)
+            out, packet = self.build(root, ws)
+            d = panel(root, packet)
+            said = {"R1_small_1": "Very dense; several qualifications stacked in one sentence.",
+                    "R1_large_1": "Dense, with caveats packed into long clauses.",
+                    "R2_small_1": "The paragraphs are dense.",
+                    "R2_large_1": "Section placeholders (§x) broke the reading flow.",
+                    "R2_large_2": "None."}
+            for who in ("R1_small_1", "R1_small_2", "R1_large_1", "R2_small_1", "R2_small_2", "R2_large_1", "R2_large_2"):
+                f = d / f"{who}.json"
+                o = json.loads(f.read_text(encoding="utf-8"))
+                o["writing_got_in_way"] = said.get(who, "nothing")
+                if who in ("R1_small_1", "R1_large_1", "R2_small_2"):
+                    o["paragraphs"][0]["reread"] = ["The survey covers"]
+                f.write_text(json.dumps(o), encoding="utf-8")
+            got = json.loads(script("tally-readers.py", "--packet", out / "packet.json", "--outputs", d, "--json").stdout)
+            t = got["tally"]
+            self.assertEqual(sorted(r for r, _ in t["writing"]), ["R1_large_1", "R1_small_1", "R2_large_1", "R2_small_1"])
+            self.assertEqual(t["writing_kinds"]["density"], {"readers": ["R1_large_1", "R1_small_1", "R2_small_1"],
+                                                             "flag": True})
+            self.assertEqual(t["writing_kinds"]["placeholders"]["flag"], False)
+            self.assertNotIn("links", t["writing_kinds"], "reading flow is not a complaint about links")
+            self.assertTrue(t["paragraphs"][0]["flag"])
+            self.assertIsNone(t["relations"], "the packet did not ask")
+            text = (out / "report.md").read_text(encoding="utf-8")
+            self.assertIn("写法挡路（原话）：4 / 8 位读者说有", text)
+            self.assertIn("density 3 位 ⚑", text)
+            self.assertIn("3 位以上重读：P1", text)
+            self.assertIn("--derived", text)
+
+    def test_the_relations_question_is_asked_and_its_quotes_placed_in_paragraphs(self):
+        # Readers asked only what got in their way rarely name a missing link between two sentences. --ask-relations
+        # asks for the two sentences, quoted; the tally places each quote in the paragraph that holds it.
+        with TempDir() as root:
+            repo, ws = setup(root)
+            out = Path(root) / "packet"
+            r = script("build-reader-packet.py", "--workspace", ws, "--out", out, "--ask-relations")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            packet = json.loads((out / "packet.json").read_text(encoding="utf-8"))
+            self.assertIn("relation_guessed", [q["id"] for q in packet["questions"]])
+            self.assertIn('"relation_guessed"', (out / "prompt_R1.txt").read_text(encoding="utf-8"))
+            d = panel(root, packet)
+            words = packet["paragraphs"][-1]["text"].split()
+            quote = '"' + " ".join(words[:5]) + '" then "' + " ".join(words[5:10]) + '"'
+            answers = {"R1_small_1": quote, "R1_large_2": quote, "R2_small_1": quote.upper(),
+                       "R2_large_1": '"a sentence this survey never printed"', "R2_large_2": "none"}
+            for f in d.glob("*.json"):
+                o = json.loads(f.read_text(encoding="utf-8"))
+                o["relation_guessed"] = answers.get(f.stem, "none")
+                f.write_text(json.dumps(o), encoding="utf-8")
+            got = json.loads(script("tally-readers.py", "--packet", out / "packet.json", "--outputs", d, "--json").stdout)
+            rel = got["tally"]["relations"]
+            last = str(packet["paragraphs"][-1]["p"])
+            self.assertEqual(sorted(rel["named"]), ["R1_large_2", "R1_small_1", "R2_large_1", "R2_small_1"])
+            self.assertEqual(rel["unplaced"], ["R2_large_1"])
+            self.assertEqual(rel["paragraphs"][last], {"readers": ["R1_large_2", "R1_small_1", "R2_small_1"], "flag": True})
+            self.assertIn(f"P{last}：3 位 ⚑", (out / "report.md").read_text(encoding="utf-8"))
+
     def test_a_small_panel_is_recorded_as_a_failure_not_a_reading(self):
         with TempDir() as root:
             repo, ws = setup(root)
