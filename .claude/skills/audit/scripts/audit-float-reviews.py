@@ -4,7 +4,7 @@ r"""Say which figures and tables no one has looked at since they last changed.
     python3 audit-float-reviews.py --base-dir <manuscript> --main main.tex [--main supplement.tex ...]
                                    --reviews <reviews.tsv> [--json]
     python3 audit-float-reviews.py ... --render --pdf <x.pdf> --aux <x.aux> [--pdf .. --aux ..]
-                                   [--built-from <commit>] --out <dir>
+                                   [--built-from <commit>] [--claims <claims ledger>] --out <dir>
 
 The gap this closes. Every check the loop runs reads text. An overflowing label,
 a caption that no longer describes its figure, a figure that contradicts the
@@ -71,6 +71,14 @@ with the \@input files they name. With --built-from, each item's fingerprint
 at that commit is compared with the current one, and one whose rendered page
 shows an older version is marked; without it the PDF's modification time is
 compared with the float's files.
+
+The sheet opens with what to check in each float, and under each float lists
+what it says in words: the sentences of its caption, TikZ nodes, table notes
+and the .tex files it pulls in, with TeX dropped. A sentence that predicts,
+infers or claims a cause is marked, because the overreach scan only knows the
+wordings someone listed and a new wording in a figure goes past it. With
+--claims, the claims ledger's allowed wordings are set out at the top, so each
+marked sentence can be read against what the paper may say.
 
 Exit: 1 on unreviewed, review-open, missing-file or unfollowed; 2 when no float
 is found, the review record is unreadable, or a --pdf or --aux is missing; 0
@@ -383,7 +391,7 @@ def reach(tree, main):
     envs = {name for src in pre_sources for name, inner in NEWENV.findall(src) if inner in BASE_ENVS}
     preamble = None
     if m:
-        preamble = {"id": f"preamble:{main}", "env": "preamble", "file": main, "labels": [], "caption": "",
+        preamble = {"id": f"preamble:{main}", "env": "preamble", "file": main, "labels": [], "caption": "", "statements": [],
                     "pulled": [p for p, _ in pre_files], "missing": [],
                     "fingerprint": fingerprint(pre_text, pre_files)}
     body = {main: ([root, ""], body_text)}
@@ -452,6 +460,70 @@ def around(text, pos, found):
     b = text.find("\n\n", pos)
     b = min([b if b >= 0 else len(text)] + [s for _, s, _ in found if s >= pos])
     return a, b
+
+
+# What a float says in words, for the review sheet: the text of the float and the .tex files it pulls in, with TeX
+# commands, options, coordinates and math dropped. A sentence that predicts or asserts is marked for the reviewer.
+# (09-27: a figure's annotation predicted an ordering the paper's own evidence ruled out. The overreach scan read the
+# figure text but only knows wordings someone listed; the first look at the rendered figure checked its fonts.)
+# Prediction, inference, cause and universal claims. Not "only", "all", "every": in a figure they mostly describe what
+# is drawn (on a real manuscript they made most of the marks, and none of those asserted anything).
+ASSERTS = re.compile(r"\b(should|would|will|must|expect\w*|predict\w*|if|therefore|thus|hence|shows?|showed|"
+                     r"demonstrat\w*|proves?|confirms?|cannot|can't|always|never|because|causes?)\b", re.I)
+_DROP_ARGS = re.compile(r"\\(?:label|ref|cref|Cref|autoref|eqref|cite\w*|includegraphics|includesvg|input|include|"
+                        r"usetikzlibrary|definecolor|tikzset|pgfplotsset|graphicspath|addplot|pgfplotstableread)\*?\s*"
+                        r"(?:\[[^\]]*\]\s*)*(?:\{[^{}]*\}\s*)*")
+
+
+def detex(text):
+    t = plain(text)
+    t = re.sub(r"\}\s*;", "}. ", t)                    # a TikZ node ends where its text ends
+    t = t.replace("\\caption", ". \\caption")           # and a caption starts a sentence of its own
+    t = re.sub(r"\bat\s*\([^()]*\)", " ", t)           # node placement: at (x,y)
+    t = re.sub(r"\$[^$]*\$", " ", t)
+    t = _DROP_ARGS.sub(" ", t)
+    t = re.sub(r"\\(?:begin|end)\s*\{[^{}]*\}", " ", t)
+    t = re.sub(r"\[[^\[\]]*\]", " ", t)
+    t = re.sub(r"\([^()]*\)", lambda m: m.group(0) if re.search(r"[A-Za-z]{3,}\s+[A-Za-z]{3,}", m.group(0)) else " ", t)
+    t = re.sub(r"\\(?:[A-Za-z@]+\*?|.)", " ", t)              # commands, and \\, \ , \, and the like
+    t = re.sub(r"[{}~;&]", " ", t)
+    t = re.sub(r"\s+", " ", t)
+    t = re.sub(r"(?:\s*\.){2,}", ".", t).strip()
+    return re.sub(r"^\.\s*", "", t)
+
+
+def statements(texts):
+    """[{text, asserts}] for the sentences a float shows: at least four words of letters, in source order, each once."""
+    out, seen = [], set()
+    for text in texts:
+        for sent in re.split(r"(?<=[.!?])\s+", detex(text)):
+            sent = sent.strip()
+            # key=value runs are plot options that crossed a line, not words the page shows
+            words, numbers = len(re.findall(r"[A-Za-z]{2,}", sent)), len(re.findall(r"\d+(?:[.,]\d+)*", sent))
+            # a table's column spec or its rows of numbers are not sentences
+            if words < 4 or "=" in sent or "@" in sent or numbers > words or sent in seen:
+                continue
+            seen.add(sent)
+            out.append({"text": sent[:400], "asserts": bool(ASSERTS.search(sent))})
+    return out
+
+
+def claims_allowed(path):
+    """The claims ledger's allowed wordings, one per claim, to set a float's words against. [] when unreadable."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    out, head = [], ""
+    for line in text.splitlines():
+        h = re.match(r"^#{2,3}\s+(.+?)\s*$", line)
+        if h:
+            head = h.group(1)
+            continue
+        m = re.match(r"^\s*(?:[-*]\s*)?(?:\*\*)?允许的说法(?:\*\*)?\s*[:：]\s*(?:\*\*)?\s*(.+?)\s*$", line)
+        if m and head:
+            out.append(f"{head}: {m.group(1)}")
+    return out
 
 
 def caption_of(body):
@@ -523,6 +595,7 @@ def collect(tree, mains):
             fid = piece[3] if len(piece) > 3 else (labels[0] if labels else f"{rel}#{n}")
             floats.append({"id": fid, "env": env, "file": rel, "labels": labels,
                            "caption": caption_of(body), "pulled": [p for p, _ in acc],
+                           "statements": statements([body] + [tree.text(p) or "" for p, _ in acc if p.endswith(".tex")]),
                            "missing": missing + [f"{u} (a macro)" for u in unfollowed],
                            "fingerprint": fingerprint(body, acc)})
     # a tabular in a file that a float pulls in is that float's content, not a table of its own
@@ -616,7 +689,7 @@ def check(a):
     unf = sum(1 for x in findings if x["kind"] == "unfollowed")
     if unf:
         parts.append(f"跟不进去的引入 {unf} 处")
-    keys = ("id", "env", "file", "labels", "caption", "fingerprint", "pulled", "missing", "status", "review")
+    keys = ("id", "env", "file", "labels", "caption", "statements", "fingerprint", "pulled", "missing", "status", "review")
     reviewers = sorted({f["review"]["reviewer"] for f in floats + preambles if f.get("review")})
     payload = {"schema_version": 3, "base": str(base), "reviews": str(rpath),
                "summary_zh": "；".join(parts),
@@ -727,7 +800,20 @@ def render(a, payload):
     lines = ["# Figure and table review sheet", "",
              f"Built from: {a.built_from or 'unknown (mtime compared)'}. PDFs: "
              + ", ".join(f"{p} (sha256 {hashlib.sha256(Path(p).read_bytes()).hexdigest()[:12]})" for p in a.pdf), "",
-             "Look at each page; then add a row to the review record (verdict ok, or fix with a note).", ""]
+             "Look at each page; then add a row to the review record (verdict ok, or fix with a note).", "",
+             "For each figure and table, check:",
+             "1. Every sentence it shows, against the paper's conclusions: does the evidence support it? A sentence marked "
+             "⚑ predicts or asserts; a prediction the results did not bear out is a fix.",
+             "2. Every number it shows, against the text and the data it was drawn from.",
+             "3. Nothing overflows, overlaps or is too small to read; every glyph is in the intended font.",
+             "4. The caption describes what the figure shows now.", ""]
+    if a.claims:
+        allowed = claims_allowed(a.claims)
+        if allowed is None:
+            lines += [f"**The claims ledger could not be read: {a.claims}. Check sentence 1 against the text instead.**", ""]
+        else:
+            lines += ["What the paper may say (the claims ledger's allowed wordings):", ""] \
+                + [f"- {x}" for x in allowed] + (["- (the ledger names no allowed wording)"] if not allowed else []) + [""]
     for f, number, page, png, notes in rows:
         kind = "Figure" if "figure" in f["env"].lower() else "Table"
         cap = re.sub(r"(?<!\\)%", "", f["caption"])
@@ -735,6 +821,10 @@ def render(a, payload):
                   f"- PNG: {png.name if png else '-'}", f"- fingerprint: `{f['fingerprint']}` · now: {f['status']}",
                   f"- caption: {cap[:400] or '(none)'}"]
         lines += [f"- **{n}**" for n in notes]
+        says = f.get("statements") or []
+        if says:
+            lines += ["- what it says in words (⚑ predicts or asserts: check it against the conclusions):"] \
+                + [f"  - {'⚑ ' if x['asserts'] else ''}{x['text']}" for x in says]
         lines += ["", "```", f"{f['id']}\t{f['fingerprint']}\t<reviewer>\t<date>\t<ok|fix>\t<note>", "```", ""]
     for p, notes in pre_rows:
         lines += [f"## Preamble · `{p['id']}`", "",
@@ -764,6 +854,7 @@ def main(argv=None):
     ap.add_argument("--reviews", required=True)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--render", action="store_true")
+    ap.add_argument("--claims", help="with --render: the claims ledger, whose allowed wordings the sheet sets out")
     ap.add_argument("--pdf", action="append", default=[])
     ap.add_argument("--aux", action="append", default=[])
     ap.add_argument("--built-from")
