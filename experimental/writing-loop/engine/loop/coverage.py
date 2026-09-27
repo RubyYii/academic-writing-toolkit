@@ -685,6 +685,10 @@ def accept(cfg, ws, cid, reason, by="claude", uuid=None, now=None):
         raise ValueError("by 只认 claude 或 author")
     if by == "author" and not (uuid or "").strip():
         raise ValueError("写成作者接受，要带作者那句话的 uuid")
+    # The same test the register applies to a decision: the author's message must be on record in this workspace's
+    # transcripts, or anyone could write 作者 with an invented uuid.
+    if by == "author" and not (cfg.get("transcripts") and TG._approval_in_transcripts(cfg, uuid.strip())):
+        raise ValueError(f"作者那句话在这个工作区登记的会话记录里查不到（uuid {uuid.strip()[:8]}）")
     check = next((c for c in K.all_checks(cfg) if c["id"] == cid), None)
     if check is None:
         raise ValueError(f"没有这个检查：{cid}")

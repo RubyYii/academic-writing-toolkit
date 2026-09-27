@@ -1266,9 +1266,16 @@ class AcceptStaleTest(unittest.TestCase):
                     V.accept(cfg, ws, "probe", "  ")
                 with self.assertRaisesRegex(ValueError, "uuid"):
                     V.accept(cfg, ws, "probe", "理由", by="author")
-                acc = V.accept(cfg, ws, "probe", "理由", by="author", uuid="00000000-0000-4000-8000-000000000000")
+                uid = "00000000-0000-4000-8000-000000000000"
+                with self.assertRaisesRegex(ValueError, "查不到"):
+                    V.accept(cfg, ws, "probe", "理由", by="author", uuid=uid)
+                from fixtures import make_transcripts
+                make_transcripts(root, cfg["transcripts"]["cwd_prefix"], cfg["transcripts"]["git_branch"],
+                                 [{"type": "user", "uuid": uid, "timestamp": "2026-09-22T00:00:00Z",
+                                   "message": {"role": "user", "content": "合成的一句：接受"}}])
+                acc = V.accept(cfg, ws, "probe", "理由", by="author", uuid=uid)
                 self.assertIn("作者接受", status(V.compute(cfg, ws))["detail"])
-                self.assertEqual(acc["uuid"], "00000000-0000-4000-8000-000000000000")
+                self.assertEqual(acc["uuid"], uid)
 
     def test_a_new_run_replaces_the_acceptance(self):
         with TempDir() as root:
