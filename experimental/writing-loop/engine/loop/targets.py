@@ -316,7 +316,7 @@ def risks(cfg):
         for m in RISK_FIELD.finditer(body):
             fields.setdefault(m.group(1), m.group(2))
         item = {"kind": h.group(1), "id": h.group(2), "title": h.group(3), "gate": fields.get("由哪个门决定", ""),
-                "source": fields.get("来源", ""), "status": fields.get("状态", "")}
+                "source": fields.get("来源", ""), "status": fields.get("状态", ""), "evidence": fields.get("消除它的证据", "")}
         # The last 进展 line in file order (the register appends them): how long the item has hung (lintel 09-24: one
         # stale open item pinned the ring's current stage at 设计 while the draft was ready to upload).
         moved = RISK_MOVED.findall(body)

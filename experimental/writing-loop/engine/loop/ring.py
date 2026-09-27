@@ -15,6 +15,7 @@ out of date (a check, the reader panel). Checks that are not current hang on 检
 rewrite hangs on 读者组. This module only reads a summary and two times; the caller supplies both.
 """
 import datetime as dt
+import re
 
 from . import coverage as V
 
@@ -78,6 +79,23 @@ def _done_on(status):
     return parts[1] if len(parts) > 1 and parts[0] == "已做" else None
 
 
+def _first_clause(text, limit=60):
+    """The first sentence of a register field, without its trailing parenthetical, cut to fit a line."""
+    t = re.split(r"[。；;]", str(text or "").strip(), maxsplit=1)[0]
+    t = re.sub(r"\s*[（(][^（）()]*[）)]\s*$", "", t).strip()
+    return t if len(t) <= limit else t[: limit - 1] + "…"
+
+
+def _open_detail(x):
+    """An open register item's second line on the ring: what closes it and which gate decides it. The title alone
+    cannot be read away from the register (panel grill 14, 09-27). Items the register could
+    not read keep the reader's own words (格式不全 …)."""
+    what, gate = _first_clause(x.get("evidence")), (x.get("gate") or "").strip()
+    if not what or str(x.get("detail") or "").startswith("格式不全"):
+        return x.get("detail") or ""
+    return f"要做：{what}" + (f" · 由：{gate}" if gate else "")
+
+
 def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analysis=None):
     """analysis: the claims ledger's 分析 items ([{id, title, closed, status}]) when the workspace turns the stage on;
     None keeps the seven-stage ring. An open item hangs on 分析 as work to do, not as the author's to decide."""
@@ -91,7 +109,7 @@ def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analy
     unhung = []
     for x in open_:
         entry = {"id": x.get("id"), "text": f"{x.get('kind', '')} {x.get('id')} {x.get('title', '')}".strip(),
-                 "detail": x.get("detail") or "", "you": True}
+                 "detail": _open_detail(x), "you": True}
         if x.get("moved"):
             entry["moved"] = x["moved"]
         key = stage_of(x.get("gate"))
@@ -106,7 +124,8 @@ def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analy
     readers = next((r for r in rows if r.get("id") == "readers"), None)
     if readers is not None:
         at = readers.get("last_at")
-        if readers.get("status") in NOT_CURRENT or _before(at, last_change_at):
+        # 接受过期：有人说过这次改动不用重读（coverage.accept），这一环不挂「要重跑」。
+        if readers.get("status") in NOT_CURRENT or (_before(at, last_change_at) and readers.get("status") != V.ACCEPTED):
             items["readers"].append({"id": "readers", "text": "读者组 · 过期：稿子改过了，要重读" if at else "读者组 · 还没跑",
                                      "detail": readers.get("detail") or "", "you": False})
 
@@ -121,7 +140,8 @@ def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analy
         "design": None,
         "rewrite": _after(last_change_at, since),
         "check": _after(last_change_at, since) and not items["check"],
-        "readers": bool(readers and _after(readers.get("last_at"), since) and not _before(readers.get("last_at"), last_change_at)),
+        "readers": bool(readers and _after(readers.get("last_at"), since)
+                        and (not _before(readers.get("last_at"), last_change_at) or readers.get("status") == V.ACCEPTED)),
         "review": False,
         "land": None,
     }
