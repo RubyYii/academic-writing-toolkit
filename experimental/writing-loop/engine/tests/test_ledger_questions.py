@@ -134,6 +134,18 @@ class MethodTest(unittest.TestCase):
             self.assertEqual(st["remaining"], ["I2.2"])
             self.assertIn("方法句", S.table(st))
 
+    def test_a_draft_with_no_method_sentence_says_it_was_read(self):
+        # Nothing printed read as "not checked": the rule ran and found no sentence of the forms it knows.
+        with TempDir() as root:
+            ws, cfg = setup(root, BASE)
+            st = S.compute(cfg, ws)
+            self.assertTrue(st["questioned"])
+            st["closing"] = []   # the fixture holds one such sentence; clear it to read the silent case
+            table = S.table(st)
+            self.assertIn("没有一句是「only X differs", table)
+            st["questioned"] = False
+            self.assertNotIn("没有一句是", S.table(st), "an index that was never read is not said to have been read")
+
     def test_figure_text_is_read_for_method_sentences_too(self):
         # A figure said no cue was left while the text named one; the sentence index holds only the text.
         q = S.question([], [], [{"label": "figures/f.tex:1", "text": "The design leaves no non-semantic cue left to remove."}])
@@ -164,7 +176,18 @@ class GateTest(unittest.TestCase):
     def test_no_required_gate_changes_nothing(self):
         with TempDir() as root:
             ws, cfg = setup(root, BASE)
-            self.assertEqual(S.compute(cfg, ws)["verdict"], S.AUTHOR)
+            st = S.compute(cfg, ws)
+            self.assertEqual(st["verdict"], S.AUTHOR)
+            # ... but says it is not configured: a workspace read the gates as not yet built because nothing showed.
+            self.assertIn("必需的门：没配置（state.required_gates）", S.table(st))
+
+    def test_closed_gates_are_said_to_be_closed(self):
+        with TempDir() as root:
+            done = self.OPEN.replace("状态：未决", "状态：已决 2026-01-02 审过")
+            ws, cfg = setup(root, BASE, register=done, gates=["统计审查"])
+            table = S.table(S.compute(cfg, ws))
+            self.assertIn("必需的门：统计审查 都已在风险台账里决定", table)
+            self.assertNotIn("没配置", table)
 
 
 if __name__ == "__main__":
