@@ -504,6 +504,10 @@ def _ring(coverage, *, name, last_comment_at, last_change_at, analysis=None):
         out = {"id": _clip(str(x.get("id")), 32), "text": _clip(x.get("text") or "", 20000), "you": bool(x.get("you"))}
         if x.get("moved"):
             out["moved"] = _clip(str(x["moved"]), 16)
+        # The second line lintel draws under the item (lintel 56fb3da): what closes it and which gate decides it, or
+        # for a check what changed since it last ran.
+        if x.get("detail"):
+            out["detail"] = _clip(str(x["detail"]), 20000)
         return out
     segs = []
     for g in r["segments"]:

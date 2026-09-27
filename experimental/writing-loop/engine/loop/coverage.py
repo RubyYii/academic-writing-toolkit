@@ -36,6 +36,10 @@ MISSING = "缺前提"
 NOT_APPLICABLE = "不适用"
 WAIVED = "已豁免"
 FAILED = "失败"
+# Out of date, and someone said the change is too small to re-run for: counted as current, not as attention. It holds
+# only for the draft and the run it was said about; the next change to what the check reads makes it 过期 again.
+# (09-27: after a reader round only a few terms changed, and the notch kept asking for a panel nobody meant to rerun.)
+ACCEPTED = "接受过期"
 ATTENTION = (STALE, NEVER, MISSING, FAILED)
 # Not a check's status: an open gate or strategic risk from the workspace's register (targets.risks). Kept out of
 # ATTENTION so it is never counted as a check to run; shown ahead of every check in the per-turn line instead.
@@ -639,9 +643,75 @@ def row(check, cfg, ws, head, sentences, index_head=None):
     if rec.get("verdict") == "failed":
         return {**base, **last, "status": FAILED, "changed": n, "detail": rec.get("summary") or "失败",
                 "due": bool(reasons)}
+    if reasons and not (index_head and index_head != head):
+        acc = load_accept(ws, check["id"])
+        if acc and acc.get("run_at") == rec.get("at") and acc.get("digest") == digest(new):
+            who = "作者" if acc.get("by") == "author" else "Claude"
+            return {**base, **last, "status": ACCEPTED, "changed": n,
+                    "accepted": {k: acc.get(k) for k in ("by", "uuid", "at", "reason")},
+                    "detail": f"{who}接受这次过期（{'；'.join(reasons)}）：{acc.get('reason')}"}
     if reasons:
         return {**base, **last, "status": STALE, "changed": n, "detail": "；".join(reasons)}
     return {**base, **last, "status": OK, "changed": 0, "detail": rec.get("summary") or ""}
+
+
+# ---------------------------------------------------------------- accepting a stale check
+
+def accepts_dir(ws):
+    return Path(ws) / "cache" / "coverage" / "accepted"
+
+
+def load_accept(ws, cid):
+    try:
+        d = json.loads((accepts_dir(ws) / f"{cid}.json").read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def digest(snap):
+    """A snapshot's fingerprint: an acceptance names the exact draft it was said about."""
+    return hashlib.sha256(json.dumps(snap, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def accept(cfg, ws, cid, reason, by="claude", uuid=None, now=None):
+    """Record that the check `cid` is out of date for the current draft and that this is accepted, with the reason.
+    Refused when the check is not 过期 now, when the index is behind HEAD, without a reason, or when it claims to be
+    the author's without the author's message uuid. Not written under human/: Claude may accept too, and says so."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("要写理由：为什么这次改动不用重跑")
+    if by not in ("claude", "author"):
+        raise ValueError("by 只认 claude 或 author")
+    if by == "author" and not (uuid or "").strip():
+        raise ValueError("写成作者接受，要带作者那句话的 uuid")
+    # The same test the register applies to a decision: the author's message must be on record in this workspace's
+    # transcripts, or anyone could write 作者 with an invented uuid.
+    if by == "author" and not (cfg.get("transcripts") and TG._approval_in_transcripts(cfg, uuid.strip())):
+        raise ValueError(f"作者那句话在这个工作区登记的会话记录里查不到（uuid {uuid.strip()[:8]}）")
+    check = next((c for c in K.all_checks(cfg) if c["id"] == cid), None)
+    if check is None:
+        raise ValueError(f"没有这个检查：{cid}")
+    sentences, index_head = current_sentences(ws)
+    head = _git(cfg["repo"], "rev-parse", "--verify", f"{cfg['ref']}^{{commit}}")
+    if not head or sentences is None:
+        raise ValueError("索引或 HEAD 读不出，说不出接受的是哪一版")
+    if index_head and head != index_head:
+        raise ValueError(f"索引建于 {index_head[:7]}，落后于 HEAD {head[:7]}：先跑 loop update 再接受")
+    r = row(check, cfg, ws, head, sentences, index_head)
+    if r["status"] != STALE:
+        raise ValueError(f"{check['name']} 现在是「{r['status']}」，不是过期，没有要接受的")
+    rec = load_run(ws, cid) or {}
+    acc = {"id": cid, "run_at": rec.get("at"), "digest": digest(snapshot(check, cfg, sentences, head)),
+           "head": head, "changed": r.get("changed"), "why_stale": r.get("detail"), "reason": reason,
+           "by": by, "uuid": (uuid or None),
+           "at": dt.datetime.fromtimestamp(now or time.time(), dt.timezone.utc).isoformat()}
+    d = accepts_dir(ws)
+    d.mkdir(parents=True, exist_ok=True)
+    tmp = d / f".{cid}.{os.getpid()}.tmp"
+    tmp.write_text(json.dumps(acc, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    tmp.replace(d / f"{cid}.json")
+    return acc
 
 
 def due(r):
@@ -802,7 +872,7 @@ def compute(cfg, ws, do_run=False, now=None, only=None, force=False):
             if not check.get("auto", True) and not (only and check["id"] in only):
                 continue  # a slow project check runs only when named
             r = row(check, cfg, ws, head, sentences, index_head)
-            if check["kind"] == "script" and (due(r) or (force and r["status"] in (OK, FAILED, STALE, NEVER))):
+            if check["kind"] == "script" and (due(r) or (force and r["status"] in (OK, FAILED, STALE, NEVER, ACCEPTED))):
                 run(check, cfg, ws, head, sentences, now=now)
                 ran.append(check["id"])
     rows = [row(c, cfg, ws, head, sentences, index_head) for c in checks]

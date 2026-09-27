@@ -1219,3 +1219,68 @@ class LatexCoverageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AcceptStaleTest(unittest.TestCase):
+    """09-27: after a reader round only a handful of terms changed, and the ring kept asking for a re-run. A stale
+    check can be accepted for the draft as it is; the next change makes it stale again."""
+
+    def _stale(self, root):
+        repo, ws = setup(root)
+        cfg = C.load(ws)
+        V.compute(cfg, ws, do_run=True)
+        commit(repo, {"sections/01_intro.tex": INTRO.replace("fail slowly", "fail quietly")}, "small", 1_700_000_200)
+        reindex(ws)
+        return repo, ws, cfg
+
+    def test_accepted_until_the_next_change(self):
+        with TempDir() as root:
+            with Probe(probe_check(root, scope="cite")):
+                repo, ws, cfg = self._stale(root)
+                self.assertEqual(status(V.compute(cfg, ws))["status"], V.STALE)
+                acc = V.accept(cfg, ws, "probe", "只换了一个词")
+                self.assertEqual(acc["by"], "claude")
+                r = status(V.compute(cfg, ws))
+                self.assertEqual(r["status"], V.ACCEPTED)
+                self.assertIn("Claude接受这次过期", r["detail"])
+                self.assertIn("只换了一个词", r["detail"])
+                self.assertNotIn(V.ACCEPTED, V.ATTENTION, "accepted is not counted as something to do")
+                self.assertEqual(V.compute(cfg, ws, do_run=True)["ran"], [], "an accepted check is not re-run")
+                commit(repo, {"sections/01_intro.tex": INTRO.replace("fail slowly", "fail loudly")}, "again", 1_700_000_300)
+                reindex(ws)
+                self.assertEqual(status(V.compute(cfg, ws))["status"], V.STALE, "the next change clears the acceptance")
+
+    def test_refusals(self):
+        with TempDir() as root:
+            with Probe(probe_check(root, scope="cite")):
+                repo, ws = setup(root)
+                cfg = C.load(ws)
+                V.compute(cfg, ws, do_run=True)
+                with self.assertRaisesRegex(ValueError, "不是过期"):
+                    V.accept(cfg, ws, "probe", "理由")
+                commit(repo, {"sections/01_intro.tex": INTRO.replace("fail slowly", "fail quietly")}, "small", 1_700_000_200)
+                with self.assertRaisesRegex(ValueError, "落后于 HEAD"):
+                    V.accept(cfg, ws, "probe", "理由")
+                reindex(ws)
+                with self.assertRaisesRegex(ValueError, "要写理由"):
+                    V.accept(cfg, ws, "probe", "  ")
+                with self.assertRaisesRegex(ValueError, "uuid"):
+                    V.accept(cfg, ws, "probe", "理由", by="author")
+                uid = "00000000-0000-4000-8000-000000000000"
+                with self.assertRaisesRegex(ValueError, "查不到"):
+                    V.accept(cfg, ws, "probe", "理由", by="author", uuid=uid)
+                from fixtures import make_transcripts
+                make_transcripts(root, cfg["transcripts"]["cwd_prefix"], cfg["transcripts"]["git_branch"],
+                                 [{"type": "user", "uuid": uid, "timestamp": "2026-09-22T00:00:00Z",
+                                   "message": {"role": "user", "content": "合成的一句：接受"}}])
+                acc = V.accept(cfg, ws, "probe", "理由", by="author", uuid=uid)
+                self.assertIn("作者接受", status(V.compute(cfg, ws))["detail"])
+                self.assertEqual(acc["uuid"], uid)
+
+    def test_a_new_run_replaces_the_acceptance(self):
+        with TempDir() as root:
+            with Probe(probe_check(root, scope="cite")):
+                repo, ws, cfg = self._stale(root)
+                V.accept(cfg, ws, "probe", "只换了一个词")
+                V.compute(cfg, ws, do_run=True, force=True)
+                self.assertEqual(status(V.compute(cfg, ws))["status"], V.OK, "a fresh run is simply current")

@@ -380,6 +380,22 @@ def cmd_inbox(a):
     return 0 if all(o["ok"] for _, o in results) else 1
 
 
+def cmd_accept(a):
+    """A check out of date for the current draft, and a small enough change not to re-run for: say so, with the reason.
+    It holds until the next change to what the check reads."""
+    from . import coverage as V
+    try:
+        cfg = C.load(a.workspace)
+        acc = V.accept(cfg, a.workspace, a.check, a.reason, by=a.by, uuid=a.author_uuid)
+    except (OSError, ValueError) as e:
+        print(f"accept：{e}", file=sys.stderr)
+        return 1
+    V.compute(cfg, a.workspace)
+    who = "作者" if acc["by"] == "author" else "Claude"
+    print(f"已记下：{who}接受 {a.check} 这次过期（{acc['why_stale']}）：{acc['reason']}；下一次改动它读的内容，就重新算过期")
+    return 0
+
+
 def cmd_ack(a):
     from . import health as HL
     HL.ack(a.workspace)
@@ -444,6 +460,14 @@ def main(argv=None):
     b.add_argument("--runs", type=int, default=10)
     b.add_argument("--json", action="store_true")
     b.set_defaults(fn=cmd_bench)
+
+    ac = sub.add_parser("accept", help="accept that a check is out of date for the draft as it is now (a small change)")
+    ac.add_argument("workspace")
+    ac.add_argument("check", help="check id, e.g. readers")
+    ac.add_argument("--reason", required=True, help="why this change does not need a re-run")
+    ac.add_argument("--by", choices=("claude", "author"), default="claude")
+    ac.add_argument("--author-uuid", default=None, help="required with --by author: the uuid of the author's message")
+    ac.set_defaults(fn=cmd_accept)
 
     k = sub.add_parser("ack", help="the author has seen the refused writes and hook errors so far")
     k.add_argument("workspace")

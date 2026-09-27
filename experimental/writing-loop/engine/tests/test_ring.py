@@ -75,6 +75,25 @@ class RingTest(unittest.TestCase):
         self.assertEqual([i["id"] for i in seg(r, "check")["items"]], ["fingerprint", "claims"])
         self.assertEqual(r["current"], "check")
 
+    def test_an_accepted_stale_reader_panel_does_not_hang_and_counts_as_done(self):
+        s = summary(rows=[row("readers", V.ACCEPTED, last_at="2026-09-24T09:00:00Z", name="读者组")])
+        r = R.ring(s, last_change_at="2026-09-24T12:00:00Z")
+        self.assertEqual(seg(r, "readers")["items"], [], "someone accepted this change; the ring does not ask for a re-run")
+        stale = R.ring(summary(rows=[row("readers", V.STALE, last_at="2026-09-24T09:00:00Z", name="读者组")]),
+                        last_change_at="2026-09-24T12:00:00Z")
+        self.assertEqual(len(seg(stale, "readers")["items"]), 1)
+
+    def test_an_open_item_says_what_closes_it_and_which_gate_decides_it(self):
+        x = dict(risk("风险", "W1", "改稿结束"), detail="待 改稿结束",
+                 evidence="改完后把合成模板装进工具（公开仓，不带原句）。另一句不上环")
+        r = R.ring(summary(open_=[x]))
+        item = seg(r, "rewrite")["items"][0]
+        self.assertEqual(item["detail"], "要做：改完后把合成模板装进工具 · 由：改稿结束")
+        bad = dict(risk("风险", "W2", "改稿结束"), detail="格式不全：缺 消除它的证据", evidence="")
+        self.assertEqual(seg(R.ring(summary(open_=[bad])), "rewrite")["items"][0]["detail"], "格式不全：缺 消除它的证据")
+        long_ = dict(risk("风险", "W3", "改稿结束"), evidence="合" * 100)
+        self.assertEqual(len(seg(R.ring(summary(open_=[long_])), "rewrite")["items"][0]["detail"].split(" · ")[0]), 3 + 60)
+
     def test_a_reader_panel_older_than_the_last_rewrite_hangs_on_readers_as_stale(self):
         s = summary(rows=[row("readers", V.OK, last_at="2026-09-24T09:00:00Z", name="读者组")])
         r = R.ring(s, last_comment_at="2026-09-24T08:00:00Z", last_change_at="2026-09-24T11:00:00Z")

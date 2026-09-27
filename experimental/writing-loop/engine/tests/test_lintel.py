@@ -349,6 +349,15 @@ class RingExportTest(unittest.TestCase):
         self.assertIn("2026-09-17", r["since"])
         self.assertEqual(set(r["labels"]), {"title", "current", "latest", "unhung", "closed", "waiting"})
 
+    def test_an_item_carries_its_second_line_to_the_notch(self):
+        cov = json.loads(json.dumps(RING_COV))
+        cov["risks"]["open"][0]["evidence"] = "把合成模板装进工具"
+        r = only(L.build(with_change(), now=NOW, coverage=cov, turn=turn(NOW - 7200, ended=NOW - 7000)))["ring"]
+        item = next(i for s in r["segments"] for i in s["items"] if i["id"] == cov["risks"]["open"][0]["id"])
+        self.assertTrue(item["detail"].startswith("要做：把合成模板装进工具"), item)
+        readers = next(s for s in r["segments"] if s["key"] == "readers")["items"][0]
+        self.assertNotIn("detail", readers, "a row with no detail sends none")
+
     def test_the_latest_move_is_the_change_or_the_message_whichever_came_last(self):
         r = self.build()["ring"]
         self.assertEqual(r["latest"], "rewrite", "the change set (NOW - 60) is after the message (NOW - 7200)")
