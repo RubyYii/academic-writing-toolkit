@@ -62,6 +62,9 @@ def _node(ctx, name):
 def _ledger_inputs(cfg):
     led = get(cfg, "overview.ledger") or {}
     out = {"ledger": led.get("path")} if led.get("path") else {}
+    # More ledgers checked with it (a supplement's own, 09-27): read together, each one's change makes it stale.
+    for i, p in enumerate(led.get("also") or [], 1):
+        out[f"ledger{i}"] = p
     for i, p in enumerate(led.get("archive") or []):
         out[f"archive{i}"] = p
     return out
@@ -78,6 +81,11 @@ def credits_path(cfg):
 def _ledger_argv(ctx):
     led = ctx["cfg"]["overview"]["ledger"]
     args = _py(ctx, "audit/audit-claim-ledger.py") + ["--base-dir", led["base_dir"], "--ledger", led["path"], "--json"]
+    for p in led.get("also") or []:
+        args += ["--ledger", p]
+    # The also-checked files (a supplement outside base_dir): their citing sentences are the manuscript's too.
+    for p in ctx.get("also") or []:
+        args += ["--also-file", p]
     credits = credits_path(ctx["cfg"])
     if credits and credits.is_file():
         args += ["--credits", str(credits)]
@@ -107,8 +115,41 @@ def _positioning_argv(ctx):
     return args
 
 
+def number_ledger_specs(cfg):
+    """inputs.number_ledger: one path, or a list whose items are a path or {"path": ..., "files": [...]}: the prose
+    files that ledger answers for (the text's numbers, a supplement's). [(path, files or None)]."""
+    v = get(cfg, "inputs.number_ledger")
+    out = []
+    for x in ([v] if isinstance(v, (str, dict)) else (v or [])):
+        if isinstance(x, str) and x:
+            out.append((x, None))
+        elif isinstance(x, dict) and isinstance(x.get("path"), str) and x["path"]:
+            files = [f for f in (x.get("files") or []) if isinstance(f, str) and f]
+            out.append((x["path"], files or None))
+    return out
+
+
+def number_ledgers(cfg):
+    return [p for p, _ in number_ledger_specs(cfg)]
+
+
+def _numbers_argv(ctx):
+    args = _py(ctx, "audit/audit-number-ledger.py") + ["--base-dir", ".", "--json"]
+    for p, files in number_ledger_specs(ctx["cfg"]):
+        args += ["--ledger", p] + (["--ledger-files", f"{p}={','.join(files)}"] if files else [])
+    return args
+
+
 def _numbers_inputs(cfg):
-    out = {"ledger": get(cfg, "inputs.number_ledger")} if get(cfg, "inputs.number_ledger") else {}
+    specs = number_ledger_specs(cfg)
+    out = {"ledger": specs[0][0]} if specs else {}
+    for i, (p, _) in enumerate(specs[1:], 1):
+        out[f"ledger{i}"] = p
+    # The files each ledger answers for are read and watched too (globs are expanded at the commit): a supplement's
+    # tables that its ledger counts copies in (09-27: without them every table copy read as a changed count).
+    for i, (_, files) in enumerate(specs):
+        for j, f in enumerate(files or []):
+            out[f"files{i}_{j}"] = f
     for i, p in enumerate(get(cfg, "inputs.number_artifacts") or []):
         out[f"artifact{i}"] = p
     return out
@@ -275,7 +316,7 @@ CHECKS = [
     {"id": "claim-ledger", "name": "主张台账", "kind": "script", "scripts": ["audit/audit-claim-ledger.py"],
      "formats": ["latex"], "instead": {"markdown": "citation-fidelity"},
      "scope": {"kind": "cite"}, "needs": ["overview.ledger"], "config_keys": ["overview.ledger"],
-     "inputs": _ledger_inputs, "outside": _credits_outside, "argv": _ledger_argv},
+     "inputs": _ledger_inputs, "outside": _credits_outside, "argv": _ledger_argv, "also": True},
     {"id": "claim-positioning", "name": "定位", "kind": "script", "scripts": ["audit/audit-claim-positioning.py"],
      "formats": ["latex", "markdown"], "instead": {},
      "scope": {"kind": "all"}, "needs": [],
@@ -283,9 +324,8 @@ CHECKS = [
     {"id": "number-ledger", "name": "数字台账", "kind": "script", "scripts": ["audit/audit-number-ledger.py"],
      "formats": ["latex", "markdown"], "instead": {},
      "scope": {"kind": "numbers"}, "needs": ["inputs.number_ledger"],
-     "inputs": _numbers_inputs, "outside": _no_outside,
-     "argv": lambda ctx: _py(ctx, "audit/audit-number-ledger.py") + [
-         "--base-dir", ".", "--ledger", ctx["inputs"]["ledger"], "--json"]},
+     "inputs": _numbers_inputs, "outside": _no_outside, "also": True,
+     "argv": _numbers_argv},
     {"id": "generated-copies", "name": "生成物对照", "kind": "script", "scripts": ["audit/audit-generated-copies.py"],
      "formats": ["latex", "markdown"], "instead": {},
      "scope": {"kind": "tree"}, "needs": ["inputs.generated"], "tree": True, "timeout": 600,
@@ -368,7 +408,7 @@ CHECKS = [
     # LaTeX citations come from a BibTeX file, so the check is that the two agree both ways, across every \input.
     {"id": "cite-bib", "name": "引文对账", "kind": "script", "scripts": ["verify-refs/reconcile-cites.py"],
      "formats": ["latex"], "instead": {"markdown": "citation-style"}, "tree": True,
-     "scope": {"kind": "cite"}, "needs": ["inputs.bib"],
+     "scope": {"kind": "cite"}, "needs": ["inputs.bib"], "also": True,
      "inputs": _bib, "outside": _no_outside,
      "argv": lambda ctx: _py(ctx, "verify-refs/reconcile-cites.py") + ["--bib", ctx["inputs"]["bib"], "--root", ".",
                                                                        "--json"] + ctx["drafts"]},

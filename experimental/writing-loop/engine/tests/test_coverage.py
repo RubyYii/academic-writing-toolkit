@@ -1284,3 +1284,79 @@ class AcceptStaleTest(unittest.TestCase):
                 V.accept(cfg, ws, "probe", "只换了一个词")
                 V.compute(cfg, ws, do_run=True, force=True)
                 self.assertEqual(status(V.compute(cfg, ws))["status"], V.OK, "a fresh run is simply current")
+
+
+class SupplementReadTest(unittest.TestCase):
+    """09-27: text moved into a supplement outside the draft files. The claim ledger, the number ledger and citation
+    reconciliation kept reading the draft only, and a later change to the supplement made none of them stale."""
+
+    def test_a_check_that_reads_the_supplement_goes_stale_when_it_changes_and_one_that_does_not_stays_current(self):
+        with TempDir() as root:
+            repo, ws = setup(root, [({"supplement.tex": "Supplementary note.\n"}, "supplement", 1_700_000_050)])
+            cfg = C.load(ws)
+            cfg.setdefault("inputs", {})["also_checked"] = ["supplement.tex"]
+            C.save(ws, cfg)
+            cfg = C.load(ws)
+            reads = dict(probe_check(root, scope="cite"), id="reads", name="读补充")
+            reads["also"] = True
+            ignores = dict(probe_check(root, scope="cite"), id="ignores", name="不读补充")
+            saved = list(K.CHECKS)
+            K.CHECKS[:] = [reads, ignores]
+            try:
+                V.compute(cfg, ws, do_run=True)
+                self.assertEqual(status(V.compute(cfg, ws), "reads")["status"], V.OK)
+                commit(repo, {"supplement.tex": "Supplementary note, revised.\n"}, "supplement edit", 1_700_000_300)
+                reindex(ws)
+                s = V.compute(cfg, ws)
+                self.assertEqual(status(s, "reads")["status"], V.STALE)
+                self.assertIn("also0", status(s, "reads")["detail"])
+                self.assertEqual(status(s, "ignores")["status"], V.OK, "a check that does not read it is not made stale")
+            finally:
+                K.CHECKS[:] = saved
+
+    def test_the_three_checks_read_the_supplement_and_every_ledger(self):
+        by = {c["id"]: c for c in K.CHECKS}
+        for cid in ("claim-ledger", "number-ledger", "cite-bib"):
+            self.assertTrue(V.reads_also(by[cid]), cid)
+        cfg = {"overview": {"ledger": {"path": "l/main.tsv", "base_dir": "sections", "also": ["l/supp.tsv"]}},
+               "inputs": {"number_ledger": ["n/main.tsv", "n/supp.tsv"]}}
+        ctx = {"cfg": cfg, "also": ["supplement.tex"], "inputs": {}, "tmp": ".", "ws": "."}
+        args = by["claim-ledger"]["argv"](ctx)
+        self.assertEqual([args[i + 1] for i, x in enumerate(args) if x == "--ledger"], ["l/main.tsv", "l/supp.tsv"])
+        self.assertEqual([args[i + 1] for i, x in enumerate(args) if x == "--also-file"], ["supplement.tex"])
+        nargs = by["number-ledger"]["argv"](ctx)
+        self.assertEqual([nargs[i + 1] for i, x in enumerate(nargs) if x == "--ledger"], ["n/main.tsv", "n/supp.tsv"])
+        self.assertEqual(by["number-ledger"]["inputs"](cfg), {"ledger": "n/main.tsv", "ledger1": "n/supp.tsv"})
+        cfg["inputs"]["number_ledger"] = "n/main.tsv"
+        self.assertEqual(by["number-ledger"]["inputs"](cfg), {"ledger": "n/main.tsv"}, "one path still works")
+        # each ledger may name the prose files it answers for (its copies are counted there only)
+        cfg["inputs"]["number_ledger"] = [{"path": "n/main.tsv", "files": ["main.tex", "sections"]},
+                                          {"path": "n/supp.tsv", "files": ["supplement.tex"]}, "n/other.tsv"]
+        nargs = by["number-ledger"]["argv"](ctx)
+        self.assertEqual([nargs[i + 1] for i, x in enumerate(nargs) if x == "--ledger-files"],
+                         ["n/main.tsv=main.tex,sections", "n/supp.tsv=supplement.tex"])
+        self.assertEqual([nargs[i + 1] for i, x in enumerate(nargs) if x == "--ledger"], ["n/main.tsv", "n/supp.tsv", "n/other.tsv"])
+        self.assertEqual(by["number-ledger"]["inputs"](cfg),
+                         {"ledger": "n/main.tsv", "ledger1": "n/supp.tsv", "ledger2": "n/other.tsv",
+                          "files0_0": "main.tex", "files0_1": "sections", "files1_0": "supplement.tex"})
+
+    def test_a_glob_input_is_expanded_at_the_commit_watched_and_one_that_matches_nothing_is_said(self):
+        with TempDir() as root:
+            repo, ws = setup(root, [({"tables/a.tex": "A 1 & 2\\\\\n", "tables/b.tex": "B 3 & 4\\\\\n"}, "tables",
+                                     1_700_000_050)])
+            cfg = C.load(ws)
+            head = git(cfg["repo"], "rev-parse", "HEAD")
+            got = V.expand_inputs(cfg, head, {"ledger": "x.tsv", "t": "tables/*.tex", "none": "figures/*.tex"})
+            self.assertEqual(got, {"ledger": "x.tsv", "t.0": "tables/a.tex", "t.1": "tables/b.tex", "none": "figures/*.tex"})
+            watch = dict(probe_check(root, scope="none", inputs=lambda c: {"t": "tables/*.tex"}), id="watch", name="看表")
+            with Probe(watch):
+                V.compute(cfg, ws, do_run=True)
+                self.assertEqual(status(V.compute(cfg, ws), "watch")["status"], V.OK)
+                commit(repo, {"tables/b.tex": "B 3 & 5\\\\\n"}, "table edit", 1_700_000_300)
+                reindex(ws)
+                self.assertEqual(status(V.compute(cfg, ws), "watch")["status"], V.STALE, "a table inside the glob changed")
+            blind = dict(probe_check(root, scope="none", inputs=lambda c: {"f": "figures/*.tex"}), id="blind", name="看图")
+            with Probe(blind):
+                r = status(V.compute(cfg, ws, do_run=True), "blind")
+                self.assertEqual(r["status"], V.FAILED, r)
+                self.assertIn("figures/*.tex", r["detail"])

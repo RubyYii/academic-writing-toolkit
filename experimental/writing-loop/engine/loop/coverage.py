@@ -85,12 +85,43 @@ def also_checked(cfg):
     return list(K.get(cfg, "inputs.also_checked") or [])
 
 
+def reads_also(check):
+    """Whether a check reads the also-checked files (a supplement): every whole-text check, and the ledgers and
+    citation reconciliation, which bind sentences wherever they are (09-27: text moved into a supplement left three
+    checks reporting it missing, and a later change to the supplement turned nothing stale)."""
+    return check["scope"]["kind"] == "all" or bool(check.get("also"))
+
+
 def check_inputs(check, cfg):
     """{role: repo path} a check reads besides the draft: its own inputs, plus the also-checked files for a check
-    whose scope is the whole text."""
+    that reads them (reads_also)."""
     out = dict(check["inputs"](cfg))
-    if check["scope"]["kind"] == "all":
+    if reads_also(check):
         out.update({f"also{i}": q for i, q in enumerate(also_checked(cfg))})
+    return out
+
+
+_GLOB = re.compile(r"[*?\[]")
+
+
+def expand_inputs(cfg, head, inputs):
+    """Roles whose path is a glob (the files a number ledger answers for, tables/*.tex) become one role per file that
+    matches at head, so the run reads them and a change to any of them makes it stale. A glob that matches nothing is
+    kept as it is: materialize then says the input is not there, instead of the run reading less."""
+    if not head or not any(_GLOB.search(p) for p in inputs.values()):
+        return dict(inputs)
+    from . import gitio
+    files = gitio.ls_tree(cfg["repo"], head, ".")
+    out = {}
+    for role, p in inputs.items():
+        if not _GLOB.search(p):
+            out[role] = p
+            continue
+        hits = sorted(f for f in files if fnmatch.fnmatch(f, p))
+        if not hits:
+            out[role] = p
+        for j, f in enumerate(hits):
+            out[f"{role}.{j}"] = f
     return out
 
 
@@ -250,7 +281,8 @@ def config_hash(check, cfg):
 
 def snapshot(check, cfg, sentences, head):
     """What a run of this check at head looks at. Two runs with equal snapshots would see the same thing."""
-    inputs = {role: _git(cfg["repo"], "rev-parse", f"{head}:{path}") for role, path in check_inputs(check, cfg).items()}
+    inputs = {role: _git(cfg["repo"], "rev-parse", f"{head}:{path}")
+              for role, path in expand_inputs(cfg, head, check_inputs(check, cfg)).items()}
     for role, path in (check.get("optional") or (lambda c: {}))(cfg).items():
         inputs[f"?{role}"] = _git(cfg["repo"], "rev-parse", f"{head}:{path}")
     return {"scope": scope_of(check, cfg, sentences),
@@ -399,7 +431,7 @@ def materialize(cfg, check, head, dest, prev=None, info=None):
         if tar is None:
             return None, "git archive 失败"
         return _extract(tar, dest, {})
-    inputs = check_inputs(check, cfg)
+    inputs = expand_inputs(cfg, head, check_inputs(check, cfg))
     if check.get("tree"):
         # A check that follows \input needs every file the draft pulls in, not only the files the glob names.
         tar = _git(cfg["repo"], "archive", head, binary=True)
@@ -523,8 +555,9 @@ def run(check, cfg, ws, head, sentences, now=None, timeout=TIMEOUT):
             save_run(ws, rec)
             return rec
         ctx = {"cfg": cfg, "ws": str(ws), "tmp": tmp, "inputs": inputs, "head": head,
-               "drafts": [p for p in draft_files(cfg, head) + (also_checked(cfg) if check["scope"]["kind"] == "all" else [])
-                          if (Path(tmp) / p).is_file()]}
+               "drafts": [p for p in draft_files(cfg, head) + (also_checked(cfg) if reads_also(check) else [])
+                          if (Path(tmp) / p).is_file()],
+               "also": [p for p in also_checked(cfg) if reads_also(check) and (Path(tmp) / p).is_file()]}
         if check.get("view"):
             err = _write_view(ctx)
             if err:
