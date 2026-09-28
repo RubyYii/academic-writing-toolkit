@@ -783,6 +783,9 @@ MUTATIONS = [
     ("gap", 'state.py', '                if SIG_DIFF.search((c.get("evidence") or "") + " " + (c.get("allowed") or ""))]', '                if False]', 'test_ledger_questions.NegationTest.test_one_significant_and_one_not_is_flagged_as_evidence_of_a_difference'),
     ("gap", 'state.py', '    everything = list(sentences) + list(extra)', '    everything = list(sentences)', 'test_ledger_questions.MethodTest.test_figure_text_is_read_for_method_sentences_too'),
     ("gap", 'state.py', '    return [w for w in wanted if not any(w in t for t in done)]', '    return []', 'test_ledger_questions.GateTest.test_a_required_gate_holds_the_paper_until_the_register_closes_it'),
+    # 沉默要说出来：方法句查过没找到、必需的门没配置（09-27 一个工作区把这两条读成「还没做」）。
+    ("gap", 'state.py', '        st["questioned"] = True', '        st["questioned"] = False', 'test_ledger_questions.MethodTest.test_a_draft_with_no_method_sentence_says_it_was_read'),
+    ("gap", 'state.py', '    if not st.get("gates_wanted"):', '    if False:', 'test_ledger_questions.GateTest.test_no_required_gate_changes_nothing'),
     ("gap", 'state.py', '                for c in claims if c.get("carry")}', '                for c in claims if False}', 'test_ledger_questions.CarryTest.test_each_claim_lists_every_sentence_that_states_it_changed_or_not'),
 ]
 
