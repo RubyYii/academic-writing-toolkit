@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test.sh — runs the regression test suite (239 automated tests, labelled T2-T257: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
+# scripts/test.sh — runs the regression test suite (240 automated tests, labelled T2-T258: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences + T258 the edge of the baseline) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
 # Self-contained; saves and restores any state it mutates.
 # Exit 0 if all tests pass, 1 if any fail. CI-suitable.
 # Note: pipefail is intentionally NOT enabled. Several tests assert that a
@@ -3646,6 +3646,55 @@ assert abs(some - 0.4) < 1e-9, some
 PYEOF
 }
 
+test_T258() {
+    # The range is min-max: a draft below all but one venue paper reads as inside it. Both prose audits also name the
+    # metrics outside the baseline's 5th-95th percentile band ("edge"), apart from the outliers, and an edge does not
+    # change the exit code. Twenty baseline documents whose semicolon and comma rates rise one step at a time; one
+    # target below the lowest (outlier), one between the lowest and the band (edge), one in the middle (neither).
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/base"
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib, itertools
+d = pathlib.Path(sys.argv[1])
+toks = iter("".join(c) for c in itertools.product("abcdefghij", repeat=4))
+def doc(n, k):
+    out = []
+    for i in range(n):
+        w = next(toks)
+        out.append(("The %s stage scored the pool; so, it kept rank. " if i % (n // k) == 0 and i // (n // k) < k
+                    else "The %s stage scored the pool and kept the rank. ") % w)
+    return "".join(out)
+for i in range(20):
+    (d / "base" / ("paper%02d.txt" % i)).write_text(doc(200, 2 * (i + 1)))
+(d / "outlier.txt").write_text(doc(400, 2))
+(d / "edge.txt").write_text(doc(400, 5))
+(d / "middle.txt").write_text(doc(200, 20))
+PYEOF
+    for t in outlier edge middle; do
+        python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target "$tmp/$t.txt" --baseline "$tmp/base" \
+            --json > "$tmp/$t.fp.json" 2>/dev/null
+        python3 .claude/skills/audit/scripts/audit-prose-structure.py --target "$tmp/$t.txt" --baseline "$tmp/base" \
+            --json > "$tmp/$t.st.json" 2>/dev/null
+    done
+    python3 - "$tmp" <<'PYEOF'
+import json, sys, pathlib
+d = pathlib.Path(sys.argv[1])
+for script, key, flag in (("fp", "semicolon_per_1k", "outside_range"), ("st", "comma_per_100w", "outside")):
+    r = {t: json.loads((d / ("%s.%s.json" % (t, script))).read_text()) for t in ("outlier", "edge", "middle")}
+    m = {t: r[t]["metrics"][key] for t in r}
+    assert m["outlier"][flag] and not m["outlier"]["edge"] and key in r["outlier"]["outliers"], (script, m["outlier"])
+    assert key not in r["outlier"]["edge"], (script, r["outlier"]["edge"])
+    assert not m["edge"][flag] and m["edge"]["edge"], (script, m["edge"])
+    assert key in r["edge"]["edge"] and key not in r["edge"]["outliers"], (script, r["edge"])
+    assert m["edge"]["value"] < m["edge"]["band_low"], (script, m["edge"])
+    assert not m["middle"][flag] and not m["middle"]["edge"] and key not in r["middle"]["edge"], (script, m["middle"])
+PYEOF
+    local rc=$?
+    rm -rf "$tmp"
+    return $rc
+}
+
 # --- T254-T255: a supplement's ledgers and files --------------------------------
 test_T254() {
     # Text moved into a supplement outside --base-dir: its ledger row reads as edited away until the supplement is
@@ -7285,6 +7334,7 @@ run_test "T254 claim ledger: a supplement outside --base-dir is read with --also
 run_test "T255 number ledger: two ledgers read together, each counting its copies in its own files" test_T255
 run_test "T256 changed-sentence audit: a link to the previous sentence is reported, not flagged" test_T256
 run_test "T257 fingerprint: share of sentences that open with a linking adverbial" test_T257
+run_test "T258 prose audits name the metrics at the edge of the baseline (outside its 5th-95th percentile band)" test_T258
 
 header ""
 if [[ "$RUN_RETIRED" == "1" ]]; then
