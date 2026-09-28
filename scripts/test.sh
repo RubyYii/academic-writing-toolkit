@@ -5402,7 +5402,7 @@ test_T165() {
     number_fixture "$tmp"
     cat > "$tmp/sections/06_results.tex" <<'EOF'
 \section{Results}
-The pooled variance share is $91.9\%$ across all five conditions.
+The pooled variance share is $73.6\%$ across all four gauges.
 EOF
     out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" \
           --ledger "$tmp/numbers.tsv" --json 2>&1)

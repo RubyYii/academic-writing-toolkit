@@ -119,6 +119,14 @@ Otherwise it is 待作者终审. There is no green: whether the paper can be sub
 names the next open items in the ledger's order, and the overview's first 待办 cell shows the same verdict. Without
 a ledger the line says the loop does not know whether the claims stand.
 
+The line reads the same every turn, and a blocker that appears in it is easy to miss: on a real manuscript one stood
+there from one commit on and was not acted on until the author asked why the verdict had changed. So a change is also
+said once, on its own, at the next prompt of the manuscript's session: `写作循环 · <name>：上一条消息以来，论文状态有变化——`
+followed by the verdict's move (`未就绪 → 待作者终审`), the new blockers (`新：…`) and the cleared ones (`已解：…`). The
+hook says it itself rather than through wishing-willow's note, because its own output always reaches the model. What
+was last said is kept in `cache/state-told.json`; a prompt of a session that reads the manuscript only as history
+does not use the change up.
+
 ## Known failure: passing the checks instead of improving the paper
 
 An agent revising a draft inside this loop sees which checks fail, and it can make them pass without making the paper
