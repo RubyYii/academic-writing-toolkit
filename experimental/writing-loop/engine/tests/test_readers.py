@@ -272,6 +272,56 @@ The next sentence must survive.
             self.assertIsNone(got["compare"]["M1"]["inside_noise"])
             self.assertIn("没有同包重跑", (out / "report.md").read_text(encoding="utf-8"))
 
+    def test_a_misreading_is_compared_only_on_a_question_both_versions_asked(self):
+        # A misreading gone in the new version could mean nobody made it or nobody mentioned it (FOR-AWT 41). A point
+        # asked as a directed question in one version and not the other is not compared; a free-recall point is
+        # compared with a note; the same question in both versions is the paired design.
+        all8 = [f"{pr}_{m}_{n}" for pr in ("R1", "R2") for m in ("small", "large") for n in (1, 2)]
+        with TempDir() as root:
+            repo, ws = setup(root)
+            out, packet = self.build(root, ws)                      # asks "span"
+            d = panel(root, packet)
+            span = lambda carriers: "".join(f"{r}\tspan\t{j}\t{'✓' if r in carriers else '✗'}\n"
+                                            for r in all8 for j in ("main", "sub"))
+            j = self.judgments(root, "j.tsv", all8[:6], span(all8[:7]))
+            b = Path(root) / "b"
+            b.mkdir()
+            r = script("build-reader-packet.py", "--workspace", ws, "--out", b / "packet")   # does not ask it
+            self.assertEqual(r.returncode, 0, r.stderr)
+            bpacket = json.loads((b / "packet" / "packet.json").read_text(encoding="utf-8"))
+            bd = panel(b, bpacket, bad={"R1_small_1": "remember", "R2_small_2": "remember"})
+            cj = self.judgments(b, "cj.tsv", all8[:3], span(all8[:2]))
+            args = ["--packet", out / "packet.json", "--outputs", d, "--judgments", j, "--compare-packet",
+                    b / "packet" / "packet.json", "--compare-outputs", bd, "--compare-judgments", cj, "--json"]
+            got = json.loads(script("tally-readers.py", *args).stdout)
+            self.assertEqual(got["compare"]["span"]["kind"], "mismatch")
+            self.assertIsNone(got["compare"]["span"]["p"], "counts of two different things get no p")
+            self.assertEqual(got["compare"]["M1"]["kind"], "recall")
+            text = (out / "report.md").read_text(encoding="utf-8")
+            self.assertIn("不可比", text)
+            self.assertIn("配对设计", text)
+            # The panels' make-up: every reader qualified here, two of eight small-model readers rejected there.
+            self.assertEqual(got["models"], {"large": {"qualified": 4, "rejected": 0}, "small": {"qualified": 4, "rejected": 0}})
+            self.assertEqual(got["compare_models"]["small"], {"qualified": 2, "rejected": 2})
+            self.assertIn("按模型的合格读者（合格/交回）：large 4/4、small 4/4", text)
+            self.assertIn("两组合格读者的模型构成不同", text)
+            # The same question in both versions is compared, and said to be.
+            q = Path(root) / "q.tsv"
+            r = script("build-reader-packet.py", "--workspace", ws, "--out", b / "packet2", "--questions", q)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            b2 = json.loads((b / "packet2" / "packet.json").read_text(encoding="utf-8"))
+            c = Path(root) / "c"
+            c.mkdir()
+            cd = panel(c, b2)
+            args[args.index("--compare-packet") + 1] = b / "packet2" / "packet.json"
+            args[args.index("--compare-outputs") + 1] = cd
+            got = json.loads(script("tally-readers.py", *args).stdout)
+            self.assertEqual(got["compare"]["span"]["kind"], "directed")
+            self.assertIsNotNone(got["compare"]["span"]["p"])
+            text = (out / "report.md").read_text(encoding="utf-8")
+            self.assertIn("两版同一道定向题", text)
+            self.assertNotIn("两组合格读者的模型构成不同", text)
+
     def test_counts_are_given_per_model_and_what_the_blank_reader_carries_is_marked(self):
         with TempDir() as root:
             repo, ws = setup(root)

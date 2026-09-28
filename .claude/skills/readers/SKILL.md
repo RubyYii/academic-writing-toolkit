@@ -92,6 +92,11 @@ report.
    as `--repeat-outputs/--repeat-judgments`: a change no larger than the two runs' spread is reported as inside the
    noise. Judge `blank_reader.json` (written beside the packet, reader id `BLANK`) like any reader: a point it
    carries is scored by copying the first paragraph, and the report says so.
+   To check that a rewrite fixed a misreading, ask the same directed question in both versions (the same
+   `--questions` line in both builds) and judge it as a point: that is the only comparison of a misreading the tally
+   reports as paired. A question asked in one version only is marked not comparable and gets no p; a free-recall point
+   is compared with a note that not mentioning a misreading is not avoiding it. The report gives qualified readers
+   per model for each panel and says when the two panels differ in make-up.
 
 6. Report to the author in three lines per scale (whole text, then paragraphs): what you want the reader to carry
    (the intent card), what the readers carried (the tally, counts with their denominators), and what the text added

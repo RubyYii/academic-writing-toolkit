@@ -337,6 +337,32 @@ def relations(packet, answers):
             "paragraphs": {p: {"readers": sorted(v), "flag": len(v) >= SAME_PLACE} for p, v in sorted(where.items())}}
 
 
+def models(readers, rejected):
+    """{model: {"qualified", "rejected"}}: a panel's make-up. One round qualified one reader of eight from one model
+    and seven of eight from the other; two panels built that way are not the same instrument."""
+    out = {}
+    for r in readers:
+        out.setdefault(r["model"], {"qualified": 0, "rejected": 0})["qualified"] += 1
+    for r in rejected:
+        m = NAME.match(r["file"])
+        out.setdefault(m["model"] if m else "?", {"qualified": 0, "rejected": 0})["rejected"] += 1
+    return dict(sorted(out.items()))
+
+
+def _makeup(ms):
+    return "、".join(f"{m} {v['qualified']}/{v['qualified'] + v['rejected']}" for m, v in ms.items())
+
+
+def compare_kind(point, packet, cpacket):
+    """directed: both versions asked the same question; mismatch: one did not, or asked it differently, so the counts
+    are not of one thing; recall: a free-recall point, where not mentioning a misreading is not avoiding it."""
+    qa = {q["id"]: q["question"] for q in packet.get("questions") or []}
+    qb = {q["id"]: q["question"] for q in cpacket.get("questions") or []}
+    if point in qa and point in qb and qa[point] == qb[point]:
+        return "directed"
+    return "mismatch" if point in qa or point in qb else "recall"
+
+
 def panel_shape(readers, min_readers):
     personas, models = {r["persona"] for r in readers}, {r["model"] for r in readers}
     problems = []
@@ -359,6 +385,13 @@ def report(packet, readers, rejected, t, hits, agreement, shape, compare, extra=
         L += ["**面板不全**：" + "；".join(shape[0]) + "。结果只作描述，不记为这一版已读过。", ""]
     if rejected:
         L += ["不合格、没计入的输出：", *[f"- {r['file']}：{'; '.join(r['problems'])}" for r in rejected], ""]
+    ms = extra.get("models")
+    if ms:
+        L += [f"按模型的合格读者（合格/交回）：{_makeup(ms)}", ""]
+    cms = extra.get("compare_models")
+    if ms and cms and {m: v["qualified"] for m, v in ms.items()} != {m: v["qualified"] for m, v in cms.items()}:
+        L += [f"**两组合格读者的模型构成不同**：本版 {_makeup(ms)}；对照版 {_makeup(cms)}。读者模型对结果的影响比画像大，"
+              "这次对照不同质，版本之间的差可能来自读者组成。", ""]
     L += ["## 记忆点（判定者判，不是机器判）"]
     if hits is not None and not any(v["judged"] for v in hits.values()):
         hits = None
@@ -371,9 +404,14 @@ def report(packet, readers, rejected, t, hits, agreement, shape, compare, extra=
             floor = (extra.get("floor") or {}).get(p)
             if floor:
                 line += f"；同包重跑 {floor['carried']} / {floor['judged']}（面板自身波动 {floor['spread']:.2f}）"
-            if compare and p in compare:
+            if compare and p in compare and compare[p].get("kind") == "mismatch":
+                c = compare[p]
+                line += f"；对照版 {c['carried']} / {c['judged']}，**不可比**：这道定向题只有一版问了，或两版问法不同"
+            elif compare and p in compare:
                 c = compare[p]
                 line += f"；对照版 {c['carried']} / {c['judged']}，双侧 Fisher p = {c['p']:.3f}"
+                if c.get("kind") == "directed":
+                    line += "（两版同一道定向题）"
                 if c.get("inside_noise") is True:
                     line += "，**在噪声内**（不大于同包重跑的波动）"
                 elif c.get("inside_noise") is False:
@@ -389,6 +427,9 @@ def report(packet, readers, rejected, t, hits, agreement, shape, compare, extra=
             L.append("没有注入集（--injected）：判定者没有先在答案已知的答卷上查过。")
         else:
             L.append(f"注入集：判定者判错 {inj[0]} / {inj[1]} 格（允许 {INJECT_TOLERANCE}）。")
+        if compare and any(c.get("kind") == "recall" for c in compare.values()):
+            L.append("自由回忆的点在两版之间比的是「提到没有」：一处误读在新版没人提，不等于没人误读。要确认一处误读改好了，"
+                     "在两版上问同一道定向题（配对设计），再比那道题。")
         if compare and not extra.get("floor"):
             L.append("没有同包重跑（--repeat-*）：看不出版本之间的变化是否大于面板自身的波动。")
         by_model = extra.get("by_model") or {}
@@ -499,16 +540,19 @@ def main(argv=None):
         floor = noise_floor(hits, carried(load_judgments(a.repeat_judgments), rreaders)[0])
     extra = {"floor": floor, "by_model": carried_by_model(judgments, readers), "blank": blank_carried(judgments),
              "misattributed": misattributed(judgments, readers), "injected": injected_misses(a.injected, judgments),
-             "derived": derived_metrics(a.derived, readers)}
+             "derived": derived_metrics(a.derived, readers), "models": models(readers, rejected)}
     compare = None
     if a.compare_packet and a.compare_outputs and hits is not None:
-        cpacket, creaders, _ = load_panel(a.compare_packet, a.compare_outputs)
+        cpacket, creaders, crejected = load_panel(a.compare_packet, a.compare_outputs)
+        extra["compare_models"] = models(creaders, crejected)
         chits, _ = carried(load_judgments(a.compare_judgments), creaders)
         compare = {}
         for p, v in hits.items():
             c = (chits or {}).get(p)
             if c and v["judged"] and c["judged"]:
-                compare[p] = {**c, "p": fisher_two_sided(v["carried"], v["judged"], c["carried"], c["judged"])}
+                kind = compare_kind(p, packet, cpacket)
+                compare[p] = {**c, "kind": kind, "p": None if kind == "mismatch" else
+                              fisher_two_sided(v["carried"], v["judged"], c["carried"], c["judged"])}
                 f = (floor or {}).get(p)
                 delta = abs(v["carried"] / v["judged"] - c["carried"] / c["judged"])
                 compare[p]["inside_noise"] = (delta <= f["spread"] + 1e-9) if f else None
@@ -524,6 +568,7 @@ def main(argv=None):
                           "panel_problems": shape[0], "compare": compare, "tally": t, "noise_floor": floor,
                           "by_model": extra["by_model"], "blank": extra["blank"], "repetition": packet.get("repetition"),
                           "misattributed": extra["misattributed"], "injected": extra["injected"], "derived": extra["derived"],
+                          "models": extra["models"], "compare_models": extra.get("compare_models"),
                           "recorded": bool(rec)}, ensure_ascii=False, indent=1))
     else:
         print(text.splitlines()[0])
