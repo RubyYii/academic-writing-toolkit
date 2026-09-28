@@ -346,6 +346,21 @@ def sections(text: str, suffix: str, raw: str) -> Dict[str, str]:
     return out
 
 
+# The range alone calls a value at the baseline's first or last paper "inside". A draft can sit there on several
+# metrics at once, below all but one or two published papers, and read as clean. The band is the middle 90% of the
+# baseline (the 5th and 95th percentiles, interpolated); a value inside the range but outside the band is at the edge:
+# reported beside the outliers, never counted as one, and it does not change the exit code.
+EDGE_BAND = (5, 95)
+
+
+def band(population: List[float]) -> Tuple[float, float]:
+    """The 5th and 95th percentiles of a sorted population, by linear interpolation between its values."""
+    if len(population) < 2:
+        return population[0], population[-1]
+    cuts = statistics.quantiles(population, n=20, method="inclusive")
+    return cuts[EDGE_BAND[0] // 5 - 1], cuts[EDGE_BAND[1] // 5 - 1]
+
+
 def percentile(value: Optional[float], population: List[float]) -> Optional[float]:
     if value is None or not population:
         return None
@@ -555,7 +570,7 @@ def main() -> int:
               "overlap_waived": waived,
               "metrics": {}}
 
-    outliers = []
+    outliers, edges = [], []
     for key, _ in KEY_ORDER:
         pop = [r[key] for r in base_rows if r.get(key) is not None]
         entry = {"value": mine.get(key)}
@@ -568,8 +583,13 @@ def main() -> int:
                 "percentile": percentile(mine[key], pop_sorted),
                 "outside_range": not (pop_sorted[0] <= mine[key] <= pop_sorted[-1]),
             })
+            low, high = band(pop_sorted)
+            entry.update({"band_low": low, "band_high": high,
+                          "edge": not entry["outside_range"] and not (low <= mine[key] <= high)})
             if entry["outside_range"]:
                 outliers.append(key)
+            elif entry["edge"]:
+                edges.append(key)
         report["metrics"][key] = entry
 
     # Per-section evenness needs no baseline at all, which makes it the one
@@ -654,6 +674,7 @@ def main() -> int:
         report["pipeline_note"] = note
 
     report["outliers"] = outliers
+    report["edge"] = edges
 
     if contaminated:
         sys.stderr.write(
@@ -697,6 +718,8 @@ def main() -> int:
                     e["percentile"])
                 if e["outside_range"]:
                     line += "  *"
+                elif e.get("edge"):
+                    line += "  ~"
             print(line)
         if report.get("per_file"):
             print("\nper file, /1k: " + ", ".join(label for _, label in DEVICE_KEYS) + "  (* too short to judge)")
@@ -715,6 +738,9 @@ def main() -> int:
                 print("  {:<44}{:>7.1f}".format(name, r))
         if outliers:
             print("\noutside the baseline range: {}".format(", ".join(outliers)))
+        if edges:
+            print("at the edge (inside the range, outside the baseline's {}th-{}th percentile band): {}".format(
+                EDGE_BAND[0], EDGE_BAND[1], ", ".join(edges)))
         print("\nNote: none of these values is a target to hit. Editing to move a "
               "number\nrather than to fix a sentence produces a different artefact, "
               "not a better one.")
