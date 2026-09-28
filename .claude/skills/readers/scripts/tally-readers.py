@@ -383,6 +383,10 @@ def report(packet, readers, rejected, t, hits, agreement, shape, compare, extra=
          ""]
     if shape[0]:
         L += ["**面板不全**：" + "；".join(shape[0]) + "。结果只作描述，不记为这一版已读过。", ""]
+    stale_aux = (packet.get("references") or {}).get("aux_older_than_source")
+    if stale_aux:
+        L += [f"**交叉引用编号可能过期**：出题用的 .aux 编译于 {stale_aux['aux']}，早于稿子最后一次改动（{stale_aux['source']}）。"
+              "读者对编号的抱怨可能来自这里，不是稿子。", ""]
     if rejected:
         L += ["不合格、没计入的输出：", *[f"- {r['file']}：{'; '.join(r['problems'])}" for r in rejected], ""]
     ms = extra.get("models")
