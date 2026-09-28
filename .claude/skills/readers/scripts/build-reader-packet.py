@@ -300,7 +300,40 @@ def from_workspace(ws, sections_arg):
               "intent_card": {"path": card, "state": state,
                               "sha1": sha(Path(card).read_bytes()) if card and Path(card).is_file() else None}}
     source["paragraph_sections"] = [k[0] for k in order]
+    # When the draft on disk last changed: an .aux compiled before that may number cross-references the draft has moved.
+    # Not the commit time: compiling and then committing is the usual order, and the .aux would always read as a few
+    # seconds older than a commit of the same text (09-28, found on a real workspace).
+    times = []
+    for pat in (cfg.get("draft") or {}).get("glob") or []:
+        for f in Path(cfg["repo"]).glob(pat):
+            try:
+                times.append(f.stat().st_mtime)
+            except OSError:
+                pass
+    source["draft_changed"] = max(times) if times else None
     return [[(s["text"], s["sid"], s["hash"]) for s in paras[k]] for k in order], bibtext, source, snap
+
+
+def aux_staleness(aux, source, text_path):
+    """{aux, source} (local times) when the .aux is older than the last change to the draft it numbers, else None: the
+    draft files on disk (workspace) or the file read (--text). 09-27: an .aux compiled at 18:09 numbered a draft changed
+    again before its 18:34 commit, and nothing said so."""
+    if not aux:
+        return None
+    try:
+        aux_t = Path(aux).stat().st_mtime
+    except OSError:
+        return None
+    src_t = source.get("draft_changed")
+    if src_t is None and text_path:
+        try:
+            src_t = Path(text_path).stat().st_mtime
+        except OSError:
+            src_t = None
+    if src_t is None or aux_t >= src_t:
+        return None
+    fmt = lambda t: dt.datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S")  # noqa: E731
+    return {"aux": fmt(aux_t), "source": fmt(src_t)}
 
 
 def from_text(path):
@@ -397,6 +430,7 @@ def main(argv=None):
         die("no paragraph to give the readers: nothing was built")
     bib, unknown = bib_entries(bibtext), set()
     refs = {"labels": aux_labels(a.aux) if a.aux else {}, "resolved": 0, "omitted": 0}
+    stale_aux = aux_staleness(a.aux, source, a.text)
     rendered = []
     for i, para in enumerate(paras, 1):
         text = readable(" ".join(t for t, _, _ in para), bib, unknown, refs)
@@ -432,7 +466,7 @@ def main(argv=None):
               "paragraphs": rendered, "questions": questions, "personas": PERSONAS, "prompts": prompts,
               "unknown_citation_keys": sorted(unknown), "snapshot": snap,
               "references": {"resolved": refs["resolved"], "omitted": refs["omitted"],
-                             "aux": str(Path(a.aux).resolve()) if a.aux else None},
+                             "aux": str(Path(a.aux).resolve()) if a.aux else None, "aux_older_than_source": stale_aux},
               "repetition": repetition(rendered, source.get("paragraph_sections")),
               "question_keys": {q["id"]: q["keys"] for q in keyed if q.get("keys")}, "copyable_questions": copyable}
     (out / "packet.json").write_text(json.dumps(packet, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -445,6 +479,9 @@ def main(argv=None):
         print(f"  citation keys not in the bibliography, left as keys: {', '.join(sorted(unknown))}")
     if copyable:
         print(f"  directed questions the first paragraph answers verbatim (a reader can copy the answer): {', '.join(copyable)}")
+    if stale_aux:
+        print(f"  the .aux was compiled {stale_aux['aux']}, before the draft last changed ({stale_aux['source']}): cross-reference "
+              "numbers may be out of date; recompile, then build the packet again")
     if refs["omitted"]:
         print(f"  cross-references shown as {OMITTED}: {refs['omitted']} of {refs['omitted'] + refs['resolved']}"
               + ("" if a.aux else " (give --aux, the compiled .aux, for the numbers)"))

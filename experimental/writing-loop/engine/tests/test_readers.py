@@ -156,9 +156,51 @@ The next sentence must survive.
             for shown in ("§3.2", "Figure 2 shows", "Table 4", "§(number omitted)"):
                 self.assertIn(shown, text)
             packet = json.loads((Path(root) / "o" / "packet.json").read_text(encoding="utf-8"))
-            self.assertEqual(packet["references"], {"resolved": 3, "omitted": 1, "aux": str(aux.resolve())})
+            self.assertEqual(packet["references"], {"resolved": 3, "omitted": 1, "aux": str(aux.resolve()),
+                                                    "aux_older_than_source": None})
             head = (Path(root) / "o" / "prompt_R1.txt").read_text(encoding="utf-8").split("MANUSCRIPT")[0]
             self.assertIn("(number omitted)", head, "the readers are told the omission is the packet's")
+
+    def test_an_aux_compiled_before_the_version_read_is_said_to_be_stale(self):
+        # 09-27: an .aux compiled at 18:09 numbered a draft last committed at 18:34, and nothing said so; readers may
+        # then complain about numbers the page does not show. The packet records it, the build says it, the report too.
+        with TempDir() as root:
+            src = Path(root) / "d.tex"
+            src.write_text("Methods are in \\S\\ref{sec:m}.\n", encoding="utf-8")
+            aux = Path(root) / "d.aux"
+            aux.write_text("\\newlabel{sec:m}{{3.2}{4}}\n", encoding="utf-8")
+            t = src.stat().st_mtime
+            os.utime(aux, (t - 3600, t - 3600))
+            r = script("build-reader-packet.py", "--text", src, "--aux", aux, "--out", Path(root) / "o")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("before the draft last changed", r.stdout)
+            packet = json.loads((Path(root) / "o" / "packet.json").read_text(encoding="utf-8"))
+            self.assertIsNotNone(packet["references"]["aux_older_than_source"])
+            os.utime(aux, (t + 60, t + 60))
+            r = script("build-reader-packet.py", "--text", src, "--aux", aux, "--out", Path(root) / "o2")
+            self.assertNotIn("before the draft last changed", r.stdout)
+            self.assertIsNone(json.loads((Path(root) / "o2" / "packet.json").read_text(encoding="utf-8"))["references"]["aux_older_than_source"])
+            # Workspace mode: compared with the draft files on disk, not the commit time -- compiling and then committing
+            # the same text is the usual order, and would otherwise always read as stale.
+            repo, ws = setup(Path(root) / "w")
+            old_aux = Path(root) / "old.aux"
+            old_aux.write_text("", encoding="utf-8")
+            os.utime(old_aux, (946_684_800, 946_684_800))   # 2000-01-01, before the fixture's commits
+            out = Path(root) / "p"
+            r = script("build-reader-packet.py", "--workspace", ws, "--out", out, "--aux", old_aux)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            packet = json.loads((out / "packet.json").read_text(encoding="utf-8"))
+            self.assertIsNotNone(packet["references"]["aux_older_than_source"])
+            fresh = Path(root) / "fresh.aux"
+            fresh.write_text("", encoding="utf-8")
+            later = max(p.stat().st_mtime for p in Path(repo).rglob("*.tex")) + 60
+            os.utime(fresh, (later, later))
+            r = script("build-reader-packet.py", "--workspace", ws, "--out", Path(root) / "p2", "--aux", fresh)
+            self.assertIsNone(json.loads((Path(root) / "p2" / "packet.json").read_text(encoding="utf-8"))["references"]["aux_older_than_source"],
+                              "an .aux compiled after the last edit is not stale, whenever the commit came")
+            d = panel(Path(root) / "w", packet)
+            script("tally-readers.py", "--packet", out / "packet.json", "--outputs", d)
+            self.assertIn("交叉引用编号可能过期", (out / "report.md").read_text(encoding="utf-8"))
 
     def test_without_an_aux_every_reference_says_its_number_is_omitted(self):
         with TempDir() as root:
@@ -170,7 +212,7 @@ The next sentence must survive.
             self.assertNotIn("§x", text)
             self.assertIn("§(number omitted)", text)
             packet = json.loads((Path(root) / "o" / "packet.json").read_text(encoding="utf-8"))
-            self.assertEqual(packet["references"], {"resolved": 0, "omitted": 2, "aux": None})
+            self.assertEqual(packet["references"], {"resolved": 0, "omitted": 2, "aux": None, "aux_older_than_source": None})
 
     def test_nothing_to_read_exits_2(self):
         with TempDir() as root:
