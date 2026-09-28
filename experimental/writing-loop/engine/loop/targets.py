@@ -308,6 +308,7 @@ def risks(cfg):
     except AttributeError:  # Python < 3.9
         authored = human is not None and str(p.resolve()).startswith(str(human) + "/")
     heads = list(RISK_HEAD.finditer(register))
+    unread_scale = []
     if not heads:
         out["problems"].append(f"台账里没有一项（要 `## 门 <id> <标题>` 或 `## 风险 <id> <标题>`）：{p.name}")
     for i, h in enumerate(heads):
@@ -330,9 +331,11 @@ def risks(cfg):
                     out["below"].append({"id": item["id"], "kind": item["kind"], **sc})
             else:
                 # Unread is said, like every other unreadable part of the register: a 规模 line in another form
-                # used to vanish without a word, so a comparison the author wrote down was never shown.
-                out["problems"].append(f"{item['kind']} {item['id']} 的「规模」读不懂（要写成「我们 n · 同类 n、n · 单位 …」）："
-                                       f"{fields['规模'][:40]}")
+                # used to vanish without a word, so a comparison the author wrote down was never shown. It holds the
+                # register open only while its item is open: a decided item whose line was a count, not a comparison,
+                # was shown as undecided on the notch (09-27). A decided item carries the note itself.
+                unread_scale.append((item, f"{item['kind']} {item['id']} 的「规模」读不懂（要写成「我们 n · 同类 n、n · 单位 …」）："
+                                           f"{fields['规模'][:40]}"))
         missing = [f for f in RISK_NEEDS if not fields.get(f)]
         status = fields.get("状态", "")
         if missing:
@@ -360,6 +363,12 @@ def risks(cfg):
         else:
             item["detail"] = f"已决所指的作者消息在会话记录里查不到（uuid {uuid[:8]}）"
             out["open"].append(item)
+    decided = {id(x) for x in out["decided"]}
+    for item, msg in unread_scale:
+        if id(item) in decided:
+            item["scale_note"] = msg
+        else:
+            out["problems"].append(msg)
     return out
 
 

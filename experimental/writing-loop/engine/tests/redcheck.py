@@ -667,9 +667,11 @@ MUTATIONS = [
      'test_coverage.ShownTest.test_per_section_findings_reach_the_line_whatever_the_verdict'),
     ("cov", 'coverage.py', '                summary += "；逐节没算（只有全文平均）"', '                pass',
      'test_coverage.NeverGreenTest.test_a_style_run_that_never_computed_per_section_rates_says_so'),
-    ("risks", 'targets.py', '                out["problems"].append(f"{item[\'kind\']} {item[\'id\']} 的「规模」读不懂',
-     '                (lambda *a: None)(f"{item[\'kind\']} {item[\'id\']} 的「规模」读不懂',
+    ("risks", 'targets.py', '            out["problems"].append(msg)', '            pass',
      'test_coverage.RiskRegisterTest.test_an_unreadable_scale_line_is_shown_not_dropped'),
+    # 已决项的规模读不懂只挂在这一项上，不再让刘海把它显示成未决（09-27）。
+    ("risks", 'targets.py', '            item["scale_note"] = msg', '            out["problems"].append(msg)',
+     'test_coverage.RiskRegisterTest.test_an_unreadable_scale_line_on_a_decided_item_does_not_hold_the_register_open'),
     ("risks", 'coverage.py', '        rows.append(["_risks", _stat_sig(Path(cfg["risks"]).expanduser())])', '        pass',
      'test_coverage.RiskRegisterTest.test_editing_the_register_makes_the_summary_stale'),
     ("risks", 'targets.py', '    register = re.sub(r"(?ms)^```.*?^```", "", raw)  # an item quoted as an example is not an item', '    register = raw',
