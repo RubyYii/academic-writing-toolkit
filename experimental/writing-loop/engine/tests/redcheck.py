@@ -28,8 +28,8 @@ MUTATIONS = [
      'test_coverage.TargetTest.test_a_card_finalised_by_claude_on_the_authors_word_is_delegated_only_if_that_word_is_on_record'),
     ("cov", 'skill:readers/scripts/build-reader-packet.py', '        PERSONAS.update(personas)', '        pass',
      'test_readers.ReadersTest.test_personas_and_questions_can_come_from_the_workspace'),
-    ("cov", 'skill:readers/scripts/build-reader-packet.py', '        text = readable(" ".join(t for t, _, _ in para), bib, unknown, refs)',
-     '        text = " ".join(readable(t, bib, unknown, refs) for t, _, _ in para)',
+    ("cov", 'skill:readers/scripts/build-reader-packet.py', ' if plain else readable(joined, bib, unknown, refs, residual)',
+     ' if plain else " ".join(readable(t, bib, unknown, refs, residual) for t, _, _ in para)',
      'test_readers.ReadersTest.test_the_packet_shows_what_the_page_shows_not_the_markup_or_the_alt_text'),
     ("cov", 'skill:readers/scripts/build-reader-packet.py', '    t = drop_command(t, "Description")', '    pass',
      'test_readers.ReadersTest.test_the_packet_shows_what_the_page_shows_not_the_markup_or_the_alt_text'),
@@ -794,6 +794,12 @@ MUTATIONS = [
     ("gap", 'state.py', '        st["questioned"] = True', '        st["questioned"] = False', 'test_ledger_questions.MethodTest.test_a_draft_with_no_method_sentence_says_it_was_read'),
     ("gap", 'state.py', '    if not st.get("gates_wanted"):', '    if False:', 'test_ledger_questions.GateTest.test_no_required_gate_changes_nothing'),
     ("gap", 'state.py', '                for c in claims if c.get("carry")}', '                for c in claims if False}', 'test_ledger_questions.CarryTest.test_each_claim_lists_every_sentence_that_states_it_changed_or_not'),
+    # 读者包读的要是那份稿子（09-28 四处）：纯文本的 % 不是注释、数学符号不变成单词、索引落后不建包、换了范围不记成读者组。
+    ("gap", 'skill:readers/scripts/build-reader-packet.py', '    return fmt or ("latex" if str(path).lower().endswith(".tex") else "text")', '    return fmt or "latex"', 'test_readers.ReadersTest.test_plain_text_keeps_a_percent_and_latex_drops_a_comment_but_says_so'),
+    ("gap", 'skill:readers/scripts/build-reader-packet.py', '    t = re.sub(r"\\\\([A-Za-z]+)", lambda m: SYMBOLS.get(m.group(1), m.group(0)), t)', '    pass', 'test_readers.ReadersTest.test_math_shows_its_symbols_and_a_command_without_one_keeps_its_backslash'),
+    ("gap", 'skill:readers/scripts/build-reader-packet.py', '            return KEEP + c.group(1) + (LB + c.group(2)[1:-1] + RB if c.group(2) else "")', '            return c.group(1)', 'test_readers.ReadersTest.test_math_shows_its_symbols_and_a_command_without_one_keeps_its_backslash'),
+    ("gap", 'skill:readers/scripts/build-reader-packet.py', '    if head and now and now != head:', '    if False:', 'test_readers.ReadersTest.test_a_packet_is_refused_while_the_index_is_behind_the_branch'),
+    ("gap", 'skill:readers/scripts/build-reader-packet.py', '    snap = None if override else V.snapshot(check, cfg, sentences, head)', '    snap = V.snapshot(check, cfg, sentences, head)', 'test_readers.ReadersTest.test_other_sections_are_a_comparison_not_the_checks_run'),
 ]
 
 
