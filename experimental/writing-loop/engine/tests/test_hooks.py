@@ -754,3 +754,82 @@ class OutletTest(unittest.TestCase):
                 with mock.patch.object(V, "compute", side_effect=RuntimeError("boom")):
                     CL._coverage_after_update(ws, cfg)
                 self.assertIn("还没有算过", notes(state)[0]["always"], "the note does not outlive the summary it quoted")
+
+
+class StateChangeTest(unittest.TestCase):
+    """A change in the paper's state is said once, apart from the per-turn line. The line reads the same every turn,
+    so a blocker that appeared in it was repeated for a day and never read (09-28: the state had said since one
+    commit that a required wording was missing; the agent answered the author only after being asked why). The hook
+    says the change itself, not through willow's note: its own output always reaches the model, the note may not be
+    read for this prompt."""
+
+    def ws(self, root):
+        from test_state import setup as state_setup
+        ws, cfg = state_setup(root)
+        reg = Path(root) / "registry"
+        reg.write_text(f"{ws}\n", encoding="utf-8")
+        regs, _ = LH.registry(str(reg))
+        return ws, cfg, regs
+
+    def test_a_new_blocker_is_said_once_at_the_next_prompt(self):
+        with TempDir() as root:
+            ws, cfg, regs = self.ws(root)
+            repo = cfg["repo"]
+            first = ctx_of(LH.handle(prompt_payload(repo, prompt_id="p1"), regs))
+            self.assertIn("论文状态：未就绪", first)
+            self.assertNotIn("上一条消息以来", first, "nothing was said before, so nothing changed since")
+            ledger = Path(cfg["claims"])
+            ledger.write_text(ledger.read_text(encoding="utf-8").replace("do not test whether drivers",
+                                                                          "we measured the drivers"), encoding="utf-8")
+            second = ctx_of(LH.handle(prompt_payload(repo, prompt_id="p2"), regs))
+            self.assertIn("写作循环 · t：上一条消息以来，论文状态有变化——新：缺该有的说法 C1。", second)
+            self.assertLess(second.index("上一条消息以来"), second.index("论文状态：未就绪"), "the change comes first")
+            third = ctx_of(LH.handle(prompt_payload(repo, prompt_id="p3"), regs))
+            self.assertNotIn("上一条消息以来", third, "said once")
+            ledger.write_text(ledger.read_text(encoding="utf-8").replace("we measured the drivers",
+                                                                          "do not test whether drivers"), encoding="utf-8")
+            fourth = ctx_of(LH.handle(prompt_payload(repo, prompt_id="p4"), regs))
+            self.assertIn("已解：缺该有的说法 C1", fourth)
+            from test_state import CLEAN
+            ledger.write_text(CLEAN, encoding="utf-8")
+            fifth = ctx_of(LH.handle(prompt_payload(repo, prompt_id="p5"), regs))
+            self.assertIn("上一条消息以来，论文状态有变化——论文状态 未就绪 → 待作者终审；已解：没立住 C2、越界 1 句。", fifth)
+
+    def test_through_willow_the_change_is_still_said_by_this_hook(self):
+        from unittest import mock
+        with TempDir() as root:
+            ws, cfg, regs = self.ws(root)
+            repo = cfg["repo"]
+            env, state = willow_outlet(root)
+            with mock.patch.dict(os.environ, env):
+                LH.handle(prompt_payload(repo, prompt_id="p1"), regs)
+                self.assertIsNone(LH.handle(prompt_payload(repo, prompt_id="p2"), regs), "noted, unchanged: willow says it")
+                ledger = Path(cfg["claims"])
+                ledger.write_text(ledger.read_text(encoding="utf-8").replace("- 强度：弱", "- 强度：强"), encoding="utf-8")
+                LH.refresh_note(ws, C.load(ws), None)
+                out = ctx_of(LH.handle(prompt_payload(repo, prompt_id="p3"), regs))
+                self.assertIn("上一条消息以来，论文状态有变化", out)
+                self.assertIn("已解：没立住 C2", out)
+                self.assertNotIn("更正", out, "the note already reads as the line does; only the change is added")
+                self.assertIsNone(LH.handle(prompt_payload(repo, prompt_id="p4"), regs), "said once")
+
+    def test_a_prompt_of_a_session_reading_this_manuscript_as_history_does_not_use_up_the_change(self):
+        with TempDir() as root:
+            ws, cfg, regs = self.ws(root)
+            repo = cfg["repo"]
+            LH.handle(prompt_payload(repo, prompt_id="p1"), regs)
+            other = Path(root) / "other"
+            other.mkdir()
+            git(other, "init", "-q", "-b", "old-branch")
+            git(other, "commit", "-q", "--allow-empty", "-m", "x")
+            c = C.load(ws)
+            c["transcripts"]["also"] = [{"git_branch": "old-branch", "cwd_prefix": str(other)}]
+            C.save(ws, c)
+            regs, _ = LH.registry(str(Path(root) / "registry"))
+            ledger = Path(cfg["claims"])
+            ledger.write_text(ledger.read_text(encoding="utf-8").replace("do not test whether drivers",
+                                                                          "we measured the drivers"), encoding="utf-8")
+            hist = ctx_of(LH.handle(prompt_payload(other, session_id="s2", prompt_id="h1"), regs))
+            self.assertIn("历史来源", hist)
+            self.assertNotIn("上一条消息以来", hist)
+            self.assertIn("新：缺该有的说法 C1", ctx_of(LH.handle(prompt_payload(repo, prompt_id="p2"), regs)))

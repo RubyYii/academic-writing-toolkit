@@ -794,6 +794,14 @@ MUTATIONS = [
     ("gap", 'state.py', '        st["questioned"] = True', '        st["questioned"] = False', 'test_ledger_questions.MethodTest.test_a_draft_with_no_method_sentence_says_it_was_read'),
     ("gap", 'state.py', '    if not st.get("gates_wanted"):', '    if False:', 'test_ledger_questions.GateTest.test_no_required_gate_changes_nothing'),
     ("gap", 'state.py', '                for c in claims if c.get("carry")}', '                for c in claims if False}', 'test_ledger_questions.CarryTest.test_each_claim_lists_every_sentence_that_states_it_changed_or_not'),
+    # 论文状态的变化单独说一次（09-28：一个阻塞在每轮同一行里挂了一天没人读）；只有稿件自己的会话用掉它。
+    ("gap", 'state.py', '    if old.get("verdict") != now["verdict"]:', '    if False:', 'test_hooks.StateChangeTest.test_a_new_blocker_is_said_once_at_the_next_prompt'),
+    ("gap", 'state.py', '    new = [b for b in now["blockers"] if b not in before]', '    new = []', 'test_hooks.StateChangeTest.test_a_new_blocker_is_said_once_at_the_next_prompt'),
+    ("gap", 'state.py', '    gone = [b for b in before if b not in now["blockers"]]', '    gone = []', 'test_hooks.StateChangeTest.test_through_willow_the_change_is_still_said_by_this_hook'),
+    ("gap", 'hooks/loop_hook.py', '        S.mark_told(ws, st)', '        pass', 'test_hooks.StateChangeTest.test_a_new_blocker_is_said_once_at_the_next_prompt'),
+    ("gap", 'hooks/loop_hook.py', '        line = coverage_line(hws, hcfg)\n', '        line = coverage_line(hws, hcfg)\n        state_change(hws, hcfg, now)\n', 'test_hooks.StateChangeTest.test_a_prompt_of_a_session_reading_this_manuscript_as_history_does_not_use_up_the_change'),
+    ("gap", 'coverage.py', '        _LAST_STATE[str(ws)] = st', '        pass', 'test_hooks.StateChangeTest.test_a_new_blocker_is_said_once_at_the_next_prompt'),
+    ("gap", 'hooks/loop_hook.py', '    reminder = _said("\\n".join(x for x in (change, body) if x))', '    reminder = _said(body)', 'test_hooks.StateChangeTest.test_through_willow_the_change_is_still_said_by_this_hook'),
 ]
 
 

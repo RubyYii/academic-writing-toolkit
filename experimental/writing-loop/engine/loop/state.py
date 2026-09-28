@@ -381,6 +381,50 @@ def line(st):
     return head + "——" + "；".join(bits)
 
 
+# A change is said once, apart from the line (09-28: a blocker stood in the per-turn line from one commit on and was
+# not read, because the line reads the same every turn). The record is what the state was at the last prompt of the
+# manuscript's own session, when the hook said it; a history session's prompt does not use the change up.
+TOLD = "state-told.json"
+
+
+def told_view(st):
+    """What a change is measured on: the verdict and the blockers the line names (open to-dos are listed apart)."""
+    if not st.get("configured"):
+        return {"verdict": None, "blockers": []}
+    return {"verdict": st["verdict"], "blockers": [b for b in st["blockers"] if not b.startswith("待做开着")]}
+
+
+def change_since_told(ws, st, name):
+    """One sentence on how the state differs from the one last said at a prompt, or None: nothing recorded yet (the
+    first prompt says the whole line anyway), nothing changed, or a record that cannot be read."""
+    try:
+        old = json.loads((Path(ws) / "cache" / TOLD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(old, dict):
+        return None
+    now, before = told_view(st), [b for b in old.get("blockers") or [] if isinstance(b, str)]
+    parts = []
+    if old.get("verdict") != now["verdict"]:
+        parts.append(f"论文状态 {old.get('verdict') or '没登记'} → {now['verdict'] or '没登记'}")
+    new = [b for b in now["blockers"] if b not in before]
+    gone = [b for b in before if b not in now["blockers"]]
+    if new:
+        parts.append("新：" + "、".join(new))
+    if gone:
+        parts.append("已解：" + "、".join(gone))
+    return f"写作循环 · {name}：上一条消息以来，论文状态有变化——" + "；".join(parts) + "。" if parts else None
+
+
+def mark_told(ws, st):
+    """Record the state as said at this prompt; written whole or not at all."""
+    p = Path(ws) / "cache" / TOLD
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(told_view(st), ensure_ascii=False), encoding="utf-8")
+    tmp.replace(p)
+
+
 def table(st):
     """The terminal view: every claim, every open item, every sentence over the line."""
     if not st.get("configured"):
