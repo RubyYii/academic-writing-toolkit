@@ -134,7 +134,8 @@ class StateTest(unittest.TestCase):
             st = S.compute(cfg, ws)
             self.assertEqual(st["next"], ["N2", "N1"], "the author's order, not sorted")
             line = S.line(st)
-            self.assertIn("待做开着 2（分析 1、出处 1）", line)
+            self.assertIn("待做开着 2：N2 分析·未做、N1 出处·等作者", line,
+                          "each open item by ID, kind and state, so a conversation's list can refer to it")
             self.assertIn("N1 找读数标准的出处（等作者）", line)
 
     def test_a_closed_item_needs_a_date_and_evidence(self):

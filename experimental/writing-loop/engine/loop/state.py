@@ -371,10 +371,9 @@ def line(st):
     bits += [b for b in st["blockers"] if not b.startswith("待做开着")]
     open_ = [t for t in st["todo"] if not t["closed"]]
     if open_:
-        kinds = {}
-        for t in open_:
-            kinds[t["kind"] or "?"] = kinds.get(t["kind"] or "?", 0) + 1
-        bits.append(f"待做开着 {len(open_)}（" + "、".join(f"{k} {v}" for k, v in kinds.items()) + "）")
+        # 每一项写编号、类型与状态：对话里的清单要引用稿件那边的一项（「等：稿件 ipm 的 N4」）得对得上号，
+        # 只给按类型的计数时对不上（09-28 spec「清单与下一步的分工」D3）。
+        bits.append(f"待做开着 {len(open_)}：" + "、".join(f"{t['id']} {t['kind'] or '?'}·{t['state'] or '?'}" for t in open_))
     if st["next"]:
         bits.append("下一步 " + "、".join(_todo_name(st, i) for i in st["next"]))
     if st["verdict"] == AUTHOR:
