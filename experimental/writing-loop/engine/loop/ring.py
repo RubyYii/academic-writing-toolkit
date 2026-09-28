@@ -96,6 +96,24 @@ def _open_detail(x):
     return f"要做：{what}" + (f" · 由：{gate}" if gate else "")
 
 
+# A stale reader panel says how much changed and whether that is small enough to accept instead of re-reading
+# (09-28 panel grill R5: the notch said only "the draft changed, re-read", so a one-word change and a restructure
+# looked the same). Small is at most this share of the sentences the panel reads, and never fewer than SMALL_MIN.
+# A default, not a rule: anyone can still accept or re-run (coverage.accept); this line only says which is plausible.
+SMALL_SHARE, SMALL_MIN = 0.02, 5
+
+
+def _readers_detail(r, scope):
+    base = r.get("detail") or ""
+    n, total = r.get("changed") or 0, (scope or {}).get("sentences") or 0
+    if n <= 0 or total <= 0:
+        return base
+    size = f"改动 {n} 处 / 读的范围 {total} 句"
+    verdict = (f"改动小（{size}），可以接受这次过期、不重读：跟 Claude 说一声" if n <= max(SMALL_MIN, round(total * SMALL_SHARE))
+               else f"改动大（{size}），要重读")
+    return f"{base}；{verdict}" if base else verdict
+
+
 def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analysis=None):
     """analysis: the claims ledger's 分析 items ([{id, title, closed, status}]) when the workspace turns the stage on;
     None keeps the seven-stage ring. An open item hangs on 分析 as work to do, not as the author's to decide."""
@@ -127,7 +145,8 @@ def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analy
         # 接受过期：有人说过这次改动不用重读（coverage.accept），这一环不挂「要重跑」。
         if readers.get("status") in NOT_CURRENT or (_before(at, last_change_at) and readers.get("status") != V.ACCEPTED):
             items["readers"].append({"id": "readers", "text": "读者组 · 过期：稿子改过了，要重读" if at else "读者组 · 还没跑",
-                                     "detail": readers.get("detail") or "", "you": False})
+                                     "detail": _readers_detail(readers, (summary or {}).get("readers_scope")) if at
+                                     else readers.get("detail") or "", "you": False})
 
     done_on = [d for d in (_done_on(x.get("status")) for x in analysis or [] if x.get("closed")) if d]
     for x in analysis or []:
