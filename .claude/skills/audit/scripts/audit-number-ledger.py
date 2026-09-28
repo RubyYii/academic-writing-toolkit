@@ -80,8 +80,8 @@ OPTIONAL = ["copies"]
 # A reported number: a decimal, a percentage or an integer of two digits or
 # more. Single digits are almost always prose ("the three requirements") and
 # would drown the coverage list.
-# A number written with thousands separators (1,614; LaTeX 1{,}614) is one number: read digit by digit it became
-# "614", a value the manuscript never reports.
+# A number written with thousands separators (4,207; LaTeX 4{,}207) is one number: read digit by digit it became
+# "207", a value the manuscript never reports.
 REPORTED = re.compile(r"(?<![\w.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+|\d{2,})(?![\w.])")
 
 
@@ -214,7 +214,7 @@ def main(argv=None):
                 printed_value = float(bare)
                 artifact_value = float(in_artifact.replace("{,}", "").replace(",", ""))
                 # The prose prints the artifact's value to fewer decimals. Only exact rounding to the printed
-                # precision counts: 23.47 printed as 23.5 is a relation, printed as 23.4 is a finding.
+                # precision counts: 36.18 printed as 36.2 is a relation, printed as 36.1 is a finding.
                 places = len(bare.split(".")[1]) if "." in bare else 0
                 if printed_value == artifact_value:
                     relation = "the same value, written with thousands separators"
