@@ -951,10 +951,22 @@ def live_line(ws, cfg):
     cov = reminder_line(load_summary(ws, cfg), ws)
     try:
         from . import state as S
-        paper = S.line(S.compute(cfg, ws))
+        st = S.compute(cfg, ws)
+        _LAST_STATE[str(ws)] = st
+        paper = S.line(st)
     except Exception as e:  # noqa: BLE001 -- a state that cannot be computed is said, never taken for "all fine"
+        _LAST_STATE.pop(str(ws), None)
         paper = f"论文状态：算不出（{type(e).__name__}），不能当作没问题"
     return paper + ("。" + cov if cov else "")
+
+
+# The state the last live_line of this process computed, per workspace: the hook says a change of state once
+# (state.change_since_told) without computing it a second time on the prompt it is blocking.
+_LAST_STATE = {}
+
+
+def last_state(ws):
+    return _LAST_STATE.get(str(Path(ws).resolve()))
 
 
 def refresh_outlet(ws, cfg):

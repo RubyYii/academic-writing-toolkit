@@ -388,6 +388,24 @@ def _said(text):
     return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}} if text else None
 
 
+def state_change(ws, cfg, now):
+    """How the paper's state changed since the last prompt of this manuscript's own session, said once and here: the
+    line itself reads the same every turn, and willow's note may be read before this prompt writes it. Uses the state
+    coverage_line just computed. None when nothing changed; a failure is recorded, never raised."""
+    try:
+        from loop import coverage as V
+        from loop import state as S
+        st = V.last_state(ws)
+        if st is None:
+            return None
+        said = S.change_since_told(ws, st, cfg["name"])
+        S.mark_told(ws, st)
+        return said
+    except Exception as e:  # noqa: BLE001 -- the line still reaches the model; only the change note is lost
+        HL.record_event(ws, "hook_error", f"论文状态的变化没算出来（{type(e).__name__}：{e}），这一轮只有那一行", now=now)
+        return None
+
+
 def through_willow(ws, cfg, payload, role, line, now):
     """One outlet: None when this hook says everything itself (the installed wishing-willow does not speak for other
     sources, this is the session's first prompt, or leaving the note failed); otherwise what the hook must still add,
@@ -430,8 +448,10 @@ def on_prompt(payload, regs, now):
         HL.record_event(ws, "hook_error", "UserPromptSubmit 的载荷里没有字符串字段 prompt（运行时字段名变了？）", now=now)
         return None
     line = coverage_line(ws, cfg)
+    change = state_change(ws, cfg, now)
     extra = through_willow(ws, cfg, payload, "primary", line, now)
-    reminder = _said(reminder_text(ws, cfg, line)) if extra is None else _said(extra)
+    body = reminder_text(ws, cfg, line) if extra is None else extra
+    reminder = _said("\n".join(x for x in (change, body) if x))
     if is_envelope(prompt, willow_rule()[0]):
         return reminder  # the turn it starts can still edit the draft
     (ws / "human").mkdir(parents=True, exist_ok=True)
