@@ -28,6 +28,9 @@ report.
 2. **Directed questions** (optional, recommended): one per suspected misreading or per point you need confirmed,
    as `id<TAB>question` lines. Free-text summaries overstate misreadings; a directed question confirms one.
    Always consider one about reuse and one about which field the work belongs to.
+   When the draft states few links between sentences, pass `--ask-relations`: it asks each reader for the two
+   sentences between which they most had to guess how one follows from the other, quoted. Readers asked only what
+   got in their way seldom name a missing link.
 
 ## Steps
 
@@ -78,6 +81,11 @@ report.
    ```
    python3 .claude/skills/readers/scripts/tally-readers.py --packet <dir>/packet.json --outputs <dir>/outputs --judgments <dir>/judgments.tsv
    ```
+
+   The report lists what each reader said got in the way, verbatim, with a keyword sort into kinds (density,
+   sentences, links, terms, repetition, numbers, placeholders). The sort is for reading, not a count: to compare
+   versions, have a blind coder write `writing:<kind>` rows for `--derived`. A kind, a paragraph re-read, or a
+   paragraph named by `--ask-relations` that three readers share is marked ⚑.
 
    To compare two versions, run a full panel on each and pass `--compare-packet/--compare-outputs/--compare-judgments`;
    the report puts a two-sided Fisher p beside each point. Run the current version's panel twice and pass the second

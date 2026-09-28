@@ -70,6 +70,30 @@ HIT = {"✓": "hit", "hit": "hit", "△": "partial", "partial": "partial", "✗"
        "≠": "misattributed", "misattributed": "misattributed", "归属错": "misattributed"}
 INJECT_TOLERANCE = 2
 REVISER = "main"
+# The same place, the same kind of complaint: from this many readers it is named with ⚑. Below it a single reader's
+# taste cannot be told from a property of the text.
+SAME_PLACE = 3
+NOTHING = re.compile(r"^\s*(?:nothing|none|n/?a|no|无|没有)?\s*[.。]?\s*$", re.I)
+# writing_got_in_way is free text. A closed keyword list sorts it for reading, and the sort is descriptive: a reader
+# who writes "the logic jumps" and one who writes "hard to see why this follows" may land in different kinds, or
+# none. The count to compare versions by is a blind coder's, read with --derived as writing:<kind>. Checked against one
+# real panel: "reading flow" is not a complaint about links, "section numbers" is one about placeholders, "repeated use
+# of placeholders" is not repetition; the patterns below leave those out.
+WRITING_KINDS = [
+    ("density", r"dense|density|packed|qualif|hedg|caveat|stack|nested|parenthe|too much (?:in|per)|overload"),
+    ("sentences", r"long sentence|sentence length|convoluted|run-on|clause|syntax|complex sentence|wordy|verbose"),
+    ("links", r"transition|signpost|abrupt|logical (?:gap|jump|leap|link)|(?:jumps?|leaps?) (?:from|between|to)|"
+              r"how .{0,40}(?:relates?|connects?|follows)|(?:relation|connection|link)s? between|hard to follow the "
+              r"(?:argument|logic|reasoning)"),
+    ("terms", r"jargon|acronym|abbreviat|undefined|terminolog|\bterms?\b|notation|coined|label"),
+    ("repetition", r"repetitive|repetition|redundan|restat|repeats? (?:itself|the same|what)|said (?:twice|again)"),
+    ("numbers", r"numbers?-heavy|(?:many|multiple|several|too many) (?:numbers|statistics|percentages)|statistic|"
+                r"p-values?|q-values?|percentages|hit.counts|decimal"),
+    ("placeholders", r"§x|placeholder|cross-ref|section numbers?|see section"),
+]
+# The directed question build-reader-packet.py --ask-relations adds. Its quotes are located in the packet's paragraphs.
+RELATION_ID = "relation_guessed"
+QUOTE = re.compile(r"[\"\u201c]([^\"\u201d]{12,}?)[\"\u201d]")
 LIMITS = [
     "Readers are sub-agents told to ignore what they can see beyond the text; they are not readers who never knew. "
     "Each reports the outside knowledge it used.",
@@ -269,13 +293,48 @@ def tally(packet, readers):
         guessed = Counter(w.strip() for r in readers for e in r["data"]["paragraphs"] if e.get("p") == para["p"]
                           for w in e.get("guessed") or [] if isinstance(w, str) and w.strip())
         paras.append({"p": para["p"], "reread_by": len(rr), "guessed": guessed.most_common(8)})
+    for p in paras:
+        p["flag"] = p["reread_by"] >= SAME_PLACE
     directed = {q["id"]: [(r["reader"], r["data"][q["id"]]) for r in readers] for q in packet.get("questions") or []}
+    writing = [(r["reader"], r["data"]["writing_got_in_way"]) for r in readers
+               if not NOTHING.match(str(r["data"]["writing_got_in_way"]))]
+    kinds = {k: sorted({rd for rd, txt in writing if re.search(pat, str(txt), re.I)}) for k, pat in WRITING_KINDS}
     return {"paragraphs": paras, "directed": directed,
+            "writing": writing,
+            "writing_kinds": {k: {"readers": v, "flag": len(v) >= SAME_PLACE} for k, v in kinds.items() if v},
+            "relations": relations(packet, directed.get(RELATION_ID)),
             "remember": [(r["reader"], r["data"]["remember"]) for r in readers],
             "closest_prior_work": [(r["reader"], r["data"]["closest_prior_work"]) for r in readers],
             "reuse": [(r["reader"], r["data"]["reuse"]) for r in readers],
             "outside_knowledge": [(r["reader"], r["data"]["outside_knowledge"]) for r in readers
                                   if r["data"]["outside_knowledge"].strip().lower() not in ("none", "none.", "无")]}
+
+
+def _norm(text):
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", str(text).lower())).strip()
+
+
+def relations(packet, answers):
+    """Where readers had to guess how one sentence follows from another: each quote placed in the paragraph that
+    holds it, readers counted once per paragraph. None when the packet did not ask."""
+    if answers is None:
+        return None
+    paras = [(p["p"], _norm(p["text"])) for p in packet["paragraphs"]]
+    named, where, unplaced = [], {}, []
+    for reader, answer in answers:
+        if NOTHING.match(str(answer)):
+            continue
+        named.append(reader)
+        hit = set()
+        for q in QUOTE.findall(str(answer)):
+            q = _norm(q)
+            hit |= {p for p, text in paras if q and q in text}
+        if not hit:
+            unplaced.append(reader)
+        for p in hit:
+            where.setdefault(p, []).append(reader)
+    return {"named": named, "unplaced": unplaced,
+            "paragraphs": {p: {"readers": sorted(v), "flag": len(v) >= SAME_PLACE} for p, v in sorted(where.items())}}
 
 
 def panel_shape(readers, min_readers):
@@ -348,15 +407,33 @@ def report(packet, readers, rejected, t, hits, agreement, shape, compare, extra=
         L += ["", "## 引言第一段与摘要的重复（量的，不是问的）",
               f"P{rep['introduction_first']} 的四词组有 {rep['shared_four_word_share']:.0%} 也在摘要里；最长逐字重合 "
               f"{rep['longest_verbatim_words']} 词：「{rep['longest_verbatim']}」"]
+    wr, n = t.get("writing") or [], len(readers)
+    L += ["", f"## 写法挡路（原话）：{len(wr)} / {n} 位读者说有"]
+    L += [f"- {r}：{a}" for r, a in wr]
+    if t.get("writing_kinds"):
+        L.append("关键词预分（描述，不是编码；" + f"同一类 {SAME_PLACE} 位以上标 ⚑）：" + "；".join(
+            f"{k} {len(v['readers'])} 位" + (" ⚑" if v["flag"] else "") for k, v in t["writing_kinds"].items()))
+    if wr:
+        L.append("要跨版本比较，请盲编：每位读者每一类一行 `writing:<类>\t<读者>\t<编者>\t0|1`，用 --derived 读；类："
+                 + "、".join(k for k, _ in WRITING_KINDS) + "。")
+    rel = t.get("relations")
+    if rel is not None:
+        L += ["", f"## 句间关系要猜（定向问题 {RELATION_ID}）：{len(rel['named'])} / {n} 位读者指出"]
+        for p, v in rel["paragraphs"].items():
+            L.append(f"- P{p}：{len(v['readers'])} 位" + (" ⚑" if v["flag"] else "") + f"（{'、'.join(v['readers'])}）")
+        if rel["unplaced"]:
+            L.append(f"- 引文在稿里找不到、没能定位：{'、'.join(rel['unplaced'])}")
     L += ["", "## 定向问题"]
     for qid, answers in t["directed"].items():
         L += [f"- {qid}"] + [f"  - {r}：{a}" for r, a in answers]
     L += ["", "## 最像哪类已有工作（原话）"] + [f"- {r}：{a}" for r, a in t["closest_prior_work"]]
     L += ["", "## 能带走什么（原话）"] + [f"- {r}：{a}" for r, a in t["reuse"]]
-    L += ["", "## 逐段：要重读的读者数与猜着读的词"]
+    hot = [f"P{p['p']}" for p in t["paragraphs"] if p.get("flag")]
+    L += ["", "## 逐段：要重读的读者数与猜着读的词"
+          + (f"（{SAME_PLACE} 位以上重读：{'、'.join(hot)}）" if hot else "")]
     for p in t["paragraphs"]:
         g = "，".join(f"{w}×{n}" for w, n in p["guessed"])
-        L.append(f"- P{p['p']}：重读 {p['reread_by']} 位" + (f"；猜：{g}" if g else ""))
+        L.append(f"- P{p['p']}：重读 {p['reread_by']} 位" + (" ⚑" if p.get("flag") else "") + (f"；猜：{g}" if g else ""))
     if t["outside_knowledge"]:
         L += ["", "## 读者自报的文外知识"] + [f"- {r}：{a}" for r, a in t["outside_knowledge"]]
     L += ["", "## 这个方法的局限", *[f"- {x}" for x in LIMITS]]

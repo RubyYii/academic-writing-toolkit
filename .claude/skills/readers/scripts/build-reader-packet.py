@@ -82,6 +82,14 @@ MANUSCRIPT
 """
 
 
+# Readers asked only what got in their way named density and qualifiers, rarely a missing link between two sentences,
+# which is what a draft with almost no linking words leaves them to supply. Asked directly, with a quote, it can be
+# placed: tally-readers.py finds each quote in the paragraphs and counts readers per paragraph.
+RELATION_ID = "relation_guessed"
+RELATION_QUESTION = ('the two sentences, one right after the other, between which you most had to guess how the '
+                     'second follows from the first: quote the first 4-6 words of each in double quotes (or "none")')
+
+
 def die(msg, code=2):
     sys.stderr.write(f"build-reader-packet: {msg}\n")
     sys.exit(code)
@@ -366,6 +374,9 @@ def main(argv=None):
     ap.add_argument("--sections", help="comma-separated section prefixes (workspace mode)")
     ap.add_argument("--bib", help="BibTeX file for author-year citations")
     ap.add_argument("--questions", help="directed questions: id<TAB>question per line")
+    ap.add_argument("--ask-relations", action="store_true",
+                    help=f"add the directed question {RELATION_ID}: where the reader had to guess how one sentence "
+                         "follows from the one before (tally-readers.py places the quotes in paragraphs)")
     ap.add_argument("--venue", help="how the prompt names the venue (default: the workspace's target.venue)")
     ap.add_argument("--aux", help="the compiled .aux, for the numbers cross-references show on the page")
     try:
@@ -394,6 +405,8 @@ def main(argv=None):
     keyed = read_questions(a.questions or (source.get("questions_file") and str(Path(source["questions_file"]).expanduser())))
     # Keys are for the judges: what the readers read, and the packet id, hold the questions without them.
     questions = [{"id": q["id"], "question": q["question"]} for q in keyed]
+    if a.ask_relations and all(q["id"] != RELATION_ID for q in questions):
+        questions.append({"id": RELATION_ID, "question": RELATION_QUESTION})
     first = rendered[0]["text"].lower()
     copyable = [q["id"] for q in keyed if any(k.lower() in first for k in q.get("keys") or [])]
     venue = a.venue or source.get("venue") or "a journal"
