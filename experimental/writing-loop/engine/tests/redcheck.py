@@ -28,8 +28,8 @@ MUTATIONS = [
      'test_coverage.TargetTest.test_a_card_finalised_by_claude_on_the_authors_word_is_delegated_only_if_that_word_is_on_record'),
     ("cov", 'skill:readers/scripts/build-reader-packet.py', '        PERSONAS.update(personas)', '        pass',
      'test_readers.ReadersTest.test_personas_and_questions_can_come_from_the_workspace'),
-    ("cov", 'skill:readers/scripts/build-reader-packet.py', '        text = readable(" ".join(t for t, _, _ in para), bib, unknown, refs)',
-     '        text = " ".join(readable(t, bib, unknown, refs) for t, _, _ in para)',
+    ("cov", 'skill:readers/scripts/build-reader-packet.py', ' if plain else readable(joined, bib, unknown, refs, residual)',
+     ' if plain else " ".join(readable(t, bib, unknown, refs, residual) for t, _, _ in para)',
      'test_readers.ReadersTest.test_the_packet_shows_what_the_page_shows_not_the_markup_or_the_alt_text'),
     ("cov", 'skill:readers/scripts/build-reader-packet.py', '    t = drop_command(t, "Description")', '    pass',
      'test_readers.ReadersTest.test_the_packet_shows_what_the_page_shows_not_the_markup_or_the_alt_text'),
@@ -802,6 +802,12 @@ MUTATIONS = [
     ("gap", 'hooks/loop_hook.py', '        line = coverage_line(hws, hcfg)\n', '        line = coverage_line(hws, hcfg)\n        state_change(hws, hcfg, now)\n', 'test_hooks.StateChangeTest.test_a_prompt_of_a_session_reading_this_manuscript_as_history_does_not_use_up_the_change'),
     ("gap", 'coverage.py', '        _LAST_STATE[str(ws)] = st', '        pass', 'test_hooks.StateChangeTest.test_a_new_blocker_is_said_once_at_the_next_prompt'),
     ("gap", 'hooks/loop_hook.py', '    reminder = _said("\\n".join(x for x in (change, body) if x))', '    reminder = _said(body)', 'test_hooks.StateChangeTest.test_through_willow_the_change_is_still_said_by_this_hook'),
+    # 读者包读的要是那份稿子（09-28 四处）：纯文本的 % 不是注释、数学符号不变成单词、索引落后不建包、换了范围不记成读者组。
+    ("gap", 'skill:readers/scripts/build-reader-packet.py', '    return fmt or ("latex" if str(path).lower().endswith(".tex") else "text")', '    return fmt or "latex"', 'test_readers.ReadersTest.test_plain_text_keeps_a_percent_and_latex_drops_a_comment_but_says_so'),
+    ("gap", 'skill:readers/scripts/build-reader-packet.py', '    t = re.sub(r"\\\\([A-Za-z]+)", lambda m: SYMBOLS.get(m.group(1), m.group(0)), t)', '    pass', 'test_readers.ReadersTest.test_math_shows_its_symbols_and_a_command_without_one_keeps_its_backslash'),
+    ("gap", 'skill:readers/scripts/build-reader-packet.py', '            return KEEP + c.group(1) + (LB + c.group(2)[1:-1] + RB if c.group(2) else "")', '            return c.group(1)', 'test_readers.ReadersTest.test_math_shows_its_symbols_and_a_command_without_one_keeps_its_backslash'),
+    ("gap", 'skill:readers/scripts/build-reader-packet.py', '    if head and now and now != head:', '    if False:', 'test_readers.ReadersTest.test_a_packet_is_refused_while_the_index_is_behind_the_branch'),
+    ("gap", 'skill:readers/scripts/build-reader-packet.py', '    snap = None if override else V.snapshot(check, cfg, sentences, head)', '    snap = V.snapshot(check, cfg, sentences, head)', 'test_readers.ReadersTest.test_other_sections_are_a_comparison_not_the_checks_run'),
 ]
 
 

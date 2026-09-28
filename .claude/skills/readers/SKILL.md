@@ -40,10 +40,17 @@ report.
    python3 .claude/skills/readers/scripts/build-reader-packet.py --workspace <workspace> --out <dir> [--questions q.tsv] --aux <main.aux>
    ```
 
-   Or from any file: `--text <file> [--bib refs.bib]`. Citations stay in author-year form; they are never replaced by
-   a placeholder. Give `--aux` (the compiled draft's `.aux`) so cross-references show the numbers the page shows;
-   without it they read "(number omitted)" and the prompt tells readers so. A placeholder the page does not have
-   draws readers' complaints: in one panel most of "what got in the way" was about it.
+   Or from any file: `--text <file> [--bib refs.bib]`. A `.tex` file is read as LaTeX; any other file as plain text,
+   where `%` is a percent sign (`--format text|latex` overrides). Citations stay in author-year form; they are never
+   replaced by a placeholder. Give `--aux` (the compiled draft's `.aux`) so cross-references show the numbers the page
+   shows; without it they read "(number omitted)" and the prompt tells readers so. A placeholder the page does not
+   have draws readers' complaints: in one panel most of "what got in the way" was about it. Math shows its symbols;
+   a command with no symbol keeps its backslash and the build names it.
+
+   While the loop is still indexing a commit, the build refuses (exit 2): wait for `loop update` to finish. A
+   `--sections` other than the workspace's `target.readers.sections` builds a targeted comparison: the build says how
+   many of the configured sentences it reads, and the tally does not record it as the readers check's run. To change
+   what the check reads, change the workspace's configuration.
 
 2. Open the readers as sub-agents: two personas (`prompt_R1.txt`, `prompt_R2.txt`) × two models (a small and a
    larger one) × samples per cell. Eight (two samples) is the floor and shows only large differences; use sixteen

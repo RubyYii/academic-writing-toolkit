@@ -634,6 +634,86 @@ The next sentence must survive.
         self.assertAlmostEqual(mod.fisher_two_sided(8, 8, 0, 8), 0.000155, places=6)
         self.assertAlmostEqual(mod.fisher_two_sided(4, 8, 4, 8), 1.0)
 
+    # 09-28, four ways a packet read something other than the text: a plain-text file cut at its first percentage, math
+    # symbols reaching the readers as words, a packet of the version before the one just committed, and a packet of
+    # two sections recorded as the panel of the whole text.
+
+    def test_plain_text_keeps_a_percent_and_latex_drops_a_comment_but_says_so(self):
+        with TempDir() as root:
+            body = "Gauges read 37.25% of the time, and the rest never.\n\nThe second paragraph.\n"
+            (Path(root) / "t.txt").write_text(body, encoding="utf-8")
+            (Path(root) / "t.tex").write_text(body, encoding="utf-8")
+            r = script("build-reader-packet.py", "--text", Path(root) / "t.txt", "--out", Path(root) / "plain")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            text = (Path(root) / "plain" / "manuscript.txt").read_text(encoding="utf-8")
+            self.assertIn("[P1] Gauges read 37.25% of the time, and the rest never.", text)
+            self.assertEqual(json.loads((Path(root) / "plain" / "packet.json").read_text())["source"]["format"], "text")
+            for args in (["--text", Path(root) / "t.tex"], ["--text", Path(root) / "t.txt", "--format", "latex"]):
+                out = Path(root) / f"latex{len(args)}"
+                r = script("build-reader-packet.py", *args, "--out", out)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIn("[P1] Gauges read 37.25\n", (out / "manuscript.txt").read_text(encoding="utf-8"),
+                              "as LaTeX the rest of the line is a comment, as the typeset page would drop it")
+                self.assertIn("a % after a number drops the rest of the line (lines 1)", r.stdout)
+
+    def test_math_shows_its_symbols_and_a_command_without_one_keeps_its_backslash(self):
+        with TempDir() as root:
+            repo, ws = setup(root)
+            intro = INTRO + (r"""
+The load holds when $L \le C$ and $a \cdot b \geq 41.75$, with $\alpha = \frac{1}{2}$; each gauge reads $\widget{g}$.
+""")
+            commit(repo, {"sections/01_intro.tex": intro}, "v2", 1_700_000_100)
+            reindex(ws)
+            out, packet = self.build(root, ws)
+            text = (out / "manuscript.txt").read_text(encoding="utf-8")
+            self.assertIn("The load holds when L ≤ C and a · b ≥ 41.75, with α = 1/2; each gauge reads \\widget{g}.", text)
+            for word in (" le ", "cdot", "geq", "alpha", "frac"):
+                self.assertNotIn(word, text)
+            self.assertEqual(packet["residual_commands"], {"\\widget": 1})
+
+    def test_a_packet_is_refused_while_the_index_is_behind_the_branch(self):
+        with TempDir() as root:
+            repo, ws = setup(root)
+            old = git(repo, "rev-parse", "HEAD")
+            commit(repo, {"sections/01_intro.tex": INTRO.replace("Nobody watches them.", "Few watch them.")}, "c",
+                   1_700_000_100)
+            r = script("build-reader-packet.py", "--workspace", ws, "--out", Path(root) / "packet")
+            self.assertEqual(r.returncode, 2)
+            self.assertIn(f"the index was built at {old[:7]} but main is at {git(repo, 'rev-parse', 'HEAD')[:7]}",
+                          r.stderr)
+            self.assertFalse((Path(root) / "packet" / "packet.json").exists())
+            reindex(ws)
+            _, packet = self.build(root, ws)
+            self.assertIn("Few watch them.", " ".join(p["text"] for p in packet["paragraphs"]))
+
+    def test_other_sections_are_a_comparison_not_the_checks_run(self):
+        with TempDir() as root:
+            repo, ws = setup(root)
+            cfg = C.load(ws)
+            card = Path(root) / "card.md"
+            card.write_text("M1 bridges fail slowly\n", encoding="utf-8")
+            cfg["target"] = {"intent_card": str(card)}
+            C.save(ws, cfg)
+            out = Path(root) / "only-intro"
+            r = script("build-reader-packet.py", "--workspace", ws, "--out", out, "--sections", "I")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("--sections I is not the workspace's readers scope (A,I): this packet reads", r.stdout)
+            packet = json.loads((out / "packet.json").read_text(encoding="utf-8"))
+            self.assertIsNone(packet["snapshot"])
+            over = packet["source"]["scope_override"]
+            self.assertEqual(over["configured"], ["A", "I"])
+            self.assertLess(over["read_sentences"], over["configured_sentences"])
+            got = json.loads(script("tally-readers.py", "--packet", out / "packet.json", "--outputs",
+                                    panel(root, packet), "--judgments",
+                                    self.judgments(root, "j.tsv", ["R1_small_1"]), "--json").stdout)
+            self.assertFalse(got["recorded"])
+            row = next(x for x in V.compute(C.load(ws), ws)["rows"] if x["id"] == "readers")
+            self.assertEqual(row["status"], V.NEVER, "a comparison of two sections is not a panel of the configured scope")
+            # The configured scope, named in either order, is the check's own panel.
+            r = script("build-reader-packet.py", "--workspace", ws, "--out", Path(root) / "both", "--sections", "I,A")
+            self.assertNotIn("not the workspace's readers scope", r.stdout)
+            self.assertTrue(json.loads((Path(root) / "both" / "packet.json").read_text())["snapshot"])
+
 
 if __name__ == "__main__":
     unittest.main()
