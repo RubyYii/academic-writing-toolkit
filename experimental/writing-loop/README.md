@@ -111,7 +111,9 @@ is wrong". So the line now starts with the paper's state, read from a claims led
 - **待做** items: work that changes a claim, typed 分析 / 出处 / 交付 / 写作 / 决定, so an analysis or a source to find
   sits in the same queue as rewriting. Closing one takes a date and the evidence (`已做 YYYY-MM-DD …`) or the reason
   (`不做 YYYY-MM-DD …`).
-- `阶段：…` at the top names where the paper is (for example 主轴 → 分析 → 正文 → 讨论 → 引言摘要 → 终检).
+- `阶段：…` at the top names where the paper is (for example 主轴 → 分析 → 正文 → 讨论 → 引言摘要 → 终检), and only
+  names it. A stage written as a paragraph (what was done, what is left) is cut in the per-turn line at its first full
+  stop and said: the account belongs in the revision log, the open work in the conversation's list.
 
 The verdict is 未就绪 while any claim is weak or unestablished, any sentence **of the whole draft** (not just what
 changed) matches a `越界` pattern, a required wording is missing, the ledger cannot be read, or a work item is open.

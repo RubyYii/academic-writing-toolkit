@@ -159,6 +159,25 @@ class StateTest(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertIn("主张 C1", buf.getvalue())
 
+    def test_the_stage_is_a_name_and_a_paragraph_there_is_cut_and_said(self):
+        # 09-28: a stage line had grown into an account of the round, what was left and the conversation's list items,
+        # repeated in every turn's line. The author: the stage line holds the stage's name only.
+        long_stage = ("终检，只收正确性。桥梁读数表按第二轮意见重排过，三座桥的补测跑完并进了附表，"
+                      "剩：寄给合作者、上传、推送")
+        with TempDir() as root:
+            ws, cfg = setup(root, CLEAN.replace("阶段：终检", "阶段：" + long_stage))
+            st = S.compute(cfg, ws)
+            self.assertEqual(st["verdict"], S.AUTHOR, "a long stage is untidy, not a reason to hold the paper")
+            line = S.line(st)
+            self.assertTrue(line.startswith("论文状态：待作者终审（阶段：终检，只收正确性…）"), line)
+            self.assertNotIn("剩：", line)
+            self.assertIn(f"阶段写成了一段话（{len(long_stage)} 字）：只写阶段名，过程进日志、待办进对话的清单", line)
+        with TempDir() as root:
+            ws, cfg = setup(root, CLEAN.replace("阶段：终检", "阶段：冻结，只收正确性"))
+            line = S.line(S.compute(cfg, ws))
+            self.assertTrue(line.startswith("论文状态：待作者终审（阶段：冻结，只收正确性）"), line)
+            self.assertNotIn("阶段写成了一段话", line)
+
     def test_an_unreadable_ledger_is_not_read_as_fine(self):
         with TempDir() as root:
             ws, cfg = setup(root)

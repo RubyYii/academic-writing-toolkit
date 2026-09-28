@@ -359,12 +359,41 @@ def _todo_name(st, iid):
     return f"{iid} {title}" + ("（等作者）" if t["state"] == "等作者" else "")
 
 
+# The stage is a name (09-28, the author: the stage line holds the stage's name only). One ledger's stage had grown into
+# an account of the round, what was left and the conversation's list items, kept by hand beside that list and repeated
+# in every turn's line. The line shows the name, cut at the first full stop within the width, and says the rest is there.
+STAGE_MAX = 20  # display width: a CJK character counts one, anything else a half
+
+
+def _width(t):
+    return sum(1 if ord(c) >= 0x2E80 else 0.5 for c in t)
+
+
+def stage_name(stage):
+    """(the stage as the line shows it, the stage's width when it is longer than a name, else None)."""
+    if _width(stage) <= STAGE_MAX:
+        return stage, None
+    cut, w = "", 0
+    for c in stage:
+        w += 1 if ord(c) >= 0x2E80 else 0.5
+        if w > STAGE_MAX:
+            break
+        cut += c
+    m = re.search(r"[。；;.]", cut)
+    if m and m.start() > 0:
+        cut = cut[:m.start()]
+    elif re.match(r"[A-Za-z]", stage[len(cut):len(cut) + 1]) and " " in cut:
+        cut = cut[:cut.rindex(" ")]  # not in the middle of a word
+    return cut.rstrip("，,、 （(") + "…", round(_width(stage))
+
+
 def line(st):
     """The per-turn line. Said every turn, whatever the checks say."""
     if not st.get("configured"):
         return ("论文状态：没登记主张清单（配置的 claims）——循环只知道检查跑没跑，"
                 "不知道主张立没立住、还缺哪个分析")
-    head = f"论文状态：{st['verdict']}" + (f"（阶段：{st['stage']}）" if st.get("stage") else "")
+    shown, long_ = stage_name(st.get("stage") or "")
+    head = f"论文状态：{st['verdict']}" + (f"（阶段：{shown}）" if shown else "")
     bits = []
     if st["claims"]:
         bits.append(f"主张 {len(st['claims'])}：{_count(st)}")
@@ -376,6 +405,8 @@ def line(st):
         bits.append(f"待做开着 {len(open_)}：" + "、".join(f"{t['id']} {t['kind'] or '?'}·{t['state'] or '?'}" for t in open_))
     if st["next"]:
         bits.append("下一步 " + "、".join(_todo_name(st, i) for i in st["next"]))
+    if long_:
+        bits.append(f"阶段写成了一段话（{long_} 字）：只写阶段名，过程进日志、待办进对话的清单")
     if st["verdict"] == AUTHOR:
         bits.append("能不能投由作者定")
     return head + "——" + "；".join(bits)

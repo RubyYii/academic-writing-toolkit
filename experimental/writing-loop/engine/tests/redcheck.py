@@ -808,6 +808,10 @@ MUTATIONS = [
     ("gap", 'skill:readers/scripts/build-reader-packet.py', '            return KEEP + c.group(1) + (LB + c.group(2)[1:-1] + RB if c.group(2) else "")', '            return c.group(1)', 'test_readers.ReadersTest.test_math_shows_its_symbols_and_a_command_without_one_keeps_its_backslash'),
     ("gap", 'skill:readers/scripts/build-reader-packet.py', '    if head and now and now != head:', '    if False:', 'test_readers.ReadersTest.test_a_packet_is_refused_while_the_index_is_behind_the_branch'),
     ("gap", 'skill:readers/scripts/build-reader-packet.py', '    snap = None if override else V.snapshot(check, cfg, sentences, head)', '    snap = V.snapshot(check, cfg, sentences, head)', 'test_readers.ReadersTest.test_other_sections_are_a_comparison_not_the_checks_run'),
+    # 阶段只写阶段名（09-28 作者）：一行里只带名字，写成一段话的截到第一句并说出来，不因此挡论文。
+    ("gap", 'state.py', '    if _width(stage) <= STAGE_MAX:\n        return stage, None', '    if True:\n        return stage, None', 'test_state.StateTest.test_the_stage_is_a_name_and_a_paragraph_there_is_cut_and_said'),
+    ("gap", 'state.py', '    if m and m.start() > 0:\n        cut = cut[:m.start()]', '    if False:\n        cut = cut[:m.start()]', 'test_state.StateTest.test_the_stage_is_a_name_and_a_paragraph_there_is_cut_and_said'),
+    ("gap", 'state.py', '    if long_:\n        bits.append(', '    if False:\n        bits.append(', 'test_state.StateTest.test_the_stage_is_a_name_and_a_paragraph_there_is_cut_and_said'),
 ]
 
 
