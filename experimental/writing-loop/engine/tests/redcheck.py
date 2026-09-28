@@ -431,6 +431,11 @@ MUTATIONS = [
      'test_ring.RingTest.test_a_round_starts_at_the_last_review_decision_and_says_its_precision'),
     ('ring', 'ring.py', '        (items[key] if key else unhung).append(entry)', '        (items[key] if key else items["review"]).append(entry)',
      'test_ring.RingTest.test_the_gate_text_hangs_an_open_item_on_its_stage'),
+    # 过期的读者组说改了多少、能不能接受这次过期（09-28 面板 grill R5）。
+    ('ring', 'ring.py', '    if n <= 0 or total <= 0:\n        return base', '    if True:\n        return base',
+     'test_ring.RingTest.test_a_stale_reader_panel_says_how_much_changed_and_whether_to_accept_or_reread'),
+    ('ring', 'ring.py', 'if n <= max(SMALL_MIN, round(total * SMALL_SHARE))', 'if n < max(SMALL_MIN, round(total * SMALL_SHARE))',
+     'test_ring.RingTest.test_a_stale_reader_panel_says_how_much_changed_and_whether_to_accept_or_reread'),
     ('ring', 'ring.py', '    current = next((s["key"] for s in segments if s["state"] == "hanging"), None) \\\n        or next((s["key"] for s in segments if s["state"] == "open"), None)',
      '    current = next((s["key"] for s in segments if s["state"] == "open"), None)',
      'test_ring.RingTest.test_the_current_stage_is_the_first_with_something_hanging'),

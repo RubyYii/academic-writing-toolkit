@@ -83,6 +83,20 @@ class RingTest(unittest.TestCase):
                         last_change_at="2026-09-24T12:00:00Z")
         self.assertEqual(len(seg(stale, "readers")["items"]), 1)
 
+    def test_a_stale_reader_panel_says_how_much_changed_and_whether_to_accept_or_reread(self):
+        # 09-28 panel grill R5: "the draft changed, re-read" looked the same for one changed word and a restructure.
+        def stale(changed, scope):
+            r = dict(row("readers", V.STALE, last_at="2026-09-24T09:00:00Z", name="读者组"), changed=changed, detail="句子改 3")
+            s = dict(summary(rows=[r]), readers_scope={"sections": ["A"], "sentences": scope, "of": scope})
+            return seg(R.ring(s, last_change_at="2026-09-24T12:00:00Z"), "readers")["items"][0]["detail"]
+        self.assertEqual(stale(3, 400), "句子改 3；改动小（改动 3 处 / 读的范围 400 句），可以接受这次过期、不重读：跟 Claude 说一声")
+        self.assertIn("改动小", stale(8, 400), "2% of 400 is 8: still small")
+        self.assertIn("改动大（改动 9 处 / 读的范围 400 句），要重读", stale(9, 400))
+        self.assertIn("改动小", stale(5, 100), "never fewer than five")
+        self.assertEqual(stale(0, 400), "句子改 3", "no count, no verdict")
+        no_scope = dict(summary(rows=[dict(row("readers", V.STALE, last_at="2026-09-24T09:00:00Z"), changed=3, detail="句子改 3")]))
+        self.assertEqual(seg(R.ring(no_scope, last_change_at="2026-09-24T12:00:00Z"), "readers")["items"][0]["detail"], "句子改 3")
+
     def test_an_open_item_says_what_closes_it_and_which_gate_decides_it(self):
         x = dict(risk("风险", "W1", "改稿结束"), detail="待 改稿结束",
                  evidence="改完后把合成模板装进工具（公开仓，不带原句）。另一句不上环")
