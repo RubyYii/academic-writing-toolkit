@@ -1113,6 +1113,20 @@ class RiskRegisterTest(unittest.TestCase):
             self.assertIn("读不懂", V.reminder_line(s, ws))
             self.assertEqual(s["risks"]["below"], [])
 
+    def test_an_unreadable_scale_line_on_a_decided_item_does_not_hold_the_register_open(self):
+        # A decided item whose 规模 line was a count, not a comparison, was shown as undecided on the notch: the
+        # unread line went to the register's problems, and those are pending rows. It stays said, on the item.
+        with TempDir() as root:
+            text = REGISTER.replace("我们 12 · 同类 40、95 · 单位 查询", "有出入 3 · 共 9 · 单位 条").replace(
+                "- **状态**：未决", f"- **状态**：已决 2026-09-23 Go — 作者 uuid {UUID}")
+            cfg, ws, _ = self.ws_with(root, text)
+            self.on_record(root, cfg)
+            s = V.compute(cfg, ws)
+            self.assertEqual(s["risks"]["problems"], [])
+            self.assertFalse(any("R1" in r["name"] or r["id"] == "_risks" for r in V.pending(s)), V.pending(s))
+            r1 = next(d for d in s["risks"]["decided"] if d["id"] == "R1")
+            self.assertIn("读不懂", r1["scale_note"])
+
     def test_editing_the_register_makes_the_summary_stale(self):
         with TempDir() as root:
             cfg, ws, path = self.ws_with(root, REGISTER)
