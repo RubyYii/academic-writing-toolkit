@@ -64,7 +64,7 @@ def reader():
     spec = importlib.util.spec_from_file_location("fingerprint", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.load
+    return mod
 
 
 def spans(text):
@@ -130,7 +130,8 @@ def main(argv=None):
         a = ap.parse_args(argv)
     except SystemExit as e:
         sys.exit(2 if e.code else 0)
-    load = reader()
+    fp = reader()
+    load = fp.load
     target, base = Path(a.target), Path(a.baseline)
     if not target.exists():
         die(f"target not found: {target}")
@@ -152,7 +153,7 @@ def main(argv=None):
     if len(rows) < a.min_baseline:
         die(f"{len(rows)} baseline document(s) measurable (skipped {len(skipped)}, excluded {len(excluded)}); "
             f"no percentile below {a.min_baseline}")
-    metrics, outliers = {}, []
+    metrics, outliers, edges = {}, [], []
     for k in KEYS:
         vals = sorted(r[k] for r in rows if r[k] is not None)
         v = tm[k]
@@ -161,10 +162,14 @@ def main(argv=None):
             continue
         pct = round(100 * sum(x < v for x in vals) / len(vals))
         out = v < vals[0] or v > vals[-1]
+        low, high = fp.band(vals)
+        edge = not out and not (low <= v <= high)
         metrics[k] = {"value": v, "min": vals[0], "median": statistics.median(vals), "max": vals[-1],
-                      "percentile": pct, "outside": out}
+                      "percentile": pct, "outside": out, "band_low": low, "band_high": high, "edge": edge}
         if out:
             outliers.append(k)
+        elif edge:
+            edges.append(k)
     per_file = {}
     for name, t in parts.items():
         m = measure(t)
@@ -186,7 +191,7 @@ def main(argv=None):
     report = {"target": str(target), "target_sentences": tm["sentences"], "target_words": tm["words"],
               "per_file": per_file, "densest": densest,
               "baseline_documents": len(rows), "baseline_skipped": skipped, "baseline_excluded": excluded,
-              "metrics": metrics, "outliers": outliers}
+              "metrics": metrics, "outliers": outliers, "edge": edges}
     if a.json:
         print(json.dumps(report, ensure_ascii=False, indent=1))
     else:
@@ -194,12 +199,14 @@ def main(argv=None):
         for k in KEYS:
             m = metrics[k]
             if "min" in m:
-                flag = "  *" if m["outside"] else ""
+                flag = "  *" if m["outside"] else ("  ~" if m["edge"] else "")
                 print(f"  {k:<16}{m['value']:>9.3f}   median {m['median']:.3f}   range {m['min']:.3f}–{m['max']:.3f}"
                       f"   pct {m['percentile']:>3}{flag}")
             else:
                 print(f"  {k:<16}not measurable")
         print("outside the baseline range: " + (", ".join(outliers) or "none"))
+        if edges:
+            print("at the edge (inside the range, outside the baseline's 5th-95th percentile band): " + ", ".join(edges))
         if len(per_file) > 1:
             print("per file (descriptive): sentences / median length / clauses per comma / opens with a subordinator")
             for name, m in per_file.items():

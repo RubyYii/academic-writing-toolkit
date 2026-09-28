@@ -630,6 +630,42 @@ class ShownTest(unittest.TestCase):
         self.assertIn("文风·对照参考文献逐节没算", line)
         self.assertNotIn("句子结构·对照目标刊物：", line, "a per-section run with nothing flagged adds nothing")
 
+    def test_a_metric_at_the_edge_of_the_baseline_is_named_apart_from_outliers(self):
+        # 「越界 0」 read as clean while a draft sat below all but one or two venue papers on several metrics: the range
+        # is min-max, and the edge of it said nothing. Inside the range but outside the 5th-95th percentile band is
+        # 「边缘」: named in the summary, the line and the cell, never counted as a finding.
+        out = '{"outliers": ["semicolon_per_1k"], "edge": ["hedge_per_1k", "sentence_length_lag1"]}'
+        verdict, summary = V.interpret("fingerprint-venue", 1, out, "")
+        self.assertEqual(verdict, "findings")
+        self.assertIn("越界 1 项：semicolon_per_1k；边缘 2 项：hedge_per_1k, sentence_length_lag1", summary)
+        self.assertEqual(V.interpret("fingerprint-venue", 0, '{"outliers": [], "edge": []}', "")[1], "越界 0 项")
+        rows = [{"id": "f", "name": "文风·对照目标刊物", "status": V.OK, "verdict": "findings", "result": summary,
+                 "edge": ["hedge_per_1k", "sentence_length_lag1"]},
+                {"id": "s", "name": "句子结构·对照目标刊物", "status": V.OK, "verdict": "ok",
+                 "result": "越界 0 项；边缘 1 项：long_share", "edge": ["long_share"]},
+                {"id": "g", "name": "文风·对照参考文献", "status": V.STALE, "verdict": "ok", "result": "越界 0 项",
+                 "edge": ["hedge_per_1k"], "detail": "句子改 1"}]
+        s = {"head": "abc", "rows": rows, "target": {}}
+        line = V.reminder_line(s, "ws")
+        self.assertIn("边缘 文风·对照目标刊物（hedge_per_1k, sentence_length_lag1）、句子结构·对照目标刊物（long_share）", line)
+        self.assertNotIn("文风·对照参考文献（hedge_per_1k）", line, "an out-of-date run's edges are not current")
+        self.assertIn("边缘 3 项", V.todo_cell(s)["sub"])
+        self.assertEqual([r["id"] for r in V.findings(s)], ["f"], "an edge alone is not a finding")
+
+    def test_a_run_record_carries_its_edges_onto_the_row(self):
+        with TempDir() as root:
+            repo, ws = setup(root)
+            cfg = C.load(ws)
+            with Probe(probe_check(root)):
+                s = V.compute(cfg, ws, do_run=True, force=True)
+                row = next(r for r in s["rows"] if r["id"] == "probe")
+                self.assertEqual(row.get("edge"), [])
+                rec = V.load_run(ws, "probe")
+                rec["result"] = {"outliers": [], "edge": ["x_per_1k"]}
+                (V.runs_dir(ws) / "probe.json").write_text(json.dumps(rec), encoding="utf-8")
+                row = next(r for r in V.compute(cfg, ws)["rows"] if r["id"] == "probe")
+                self.assertEqual(row["edge"], ["x_per_1k"])
+
     def test_the_line_says_which_sections_the_reader_panel_reads(self):
         # The reader panel reads the abstract and introduction by default. Nothing said so, and every other signal
         # about the writing pointed at the same two sections, so the body was never read by anyone.
