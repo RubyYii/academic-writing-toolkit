@@ -324,7 +324,7 @@ def compute(cfg, ws):
     p = Path(path).expanduser()
     st = {"configured": True, "path": str(p), "stage": "", "claims": [], "todo": [], "problems": [], "over": [],
           "absent": [], "index_head": None, "scan_problems": [], "carrying": {}, "negations": [], "warnings": [],
-          "closing": [], "remaining": [], "gates_open": []}
+          "closing": [], "remaining": [], "gates_open": [], "gates_wanted": [], "questioned": False}
     try:
         raw = p.read_text(encoding="utf-8")
     except OSError:
@@ -339,7 +339,9 @@ def compute(cfg, ws):
         extra = extra_sentences(cfg, st["index_head"], st["scan_problems"], ws)
         st["over"], st["absent"] = scan(st["claims"], sentences, extra)
         st.update(question(st["claims"], sentences, extra))
+        st["questioned"] = True
     st["gates_open"] = gates(cfg, st)
+    st["gates_wanted"] = list(((cfg.get("state") or {}).get("required_gates")) or [])
     return judge(st)
 
 
@@ -407,11 +409,20 @@ def table(st):
             out.append(f"      缺：{'、'.join(c['needs'])}")
     for t in st["todo"]:
         out.append(f"  待做 {t['id']}  {t['kind'] or '?'}  {t['status'] or '?'}  {t['title']}")
+    # Silence is said as what it is. A workspace read these rules as not yet built because nothing of them showed:
+    # no method sentence matched, and no gate was configured.
     if st.get("closing"):
         out.append(f"  方法句（排除了别的解释）：{'、'.join(st['closing'])}；对照提到剩余线索的句子："
                    f"{'、'.join(st.get('remaining') or []) or '没有'}——要人读")
+    elif st.get("questioned"):
+        out.append("  方法句（排除了别的解释）：查过全文与图表文字，没有一句是「only X differs / no cue left / 其余相同」"
+                   "这类写法（只认这些写法，换个说法的看不见）")
     for g in st.get("gates_open") or []:
         out.append(f"  门没关  {g}（风险台账里还没有已决的这道门）")
+    if not st.get("gates_wanted"):
+        out.append("  必需的门：没配置（state.required_gates），冻结前的统计审查、上传前的外部领域审阅不会被报")
+    elif not st.get("gates_open"):
+        out.append(f"  必需的门：{'、'.join(st['gates_wanted'])} 都已在风险台账里决定")
     return "\n".join(out)
 
 
