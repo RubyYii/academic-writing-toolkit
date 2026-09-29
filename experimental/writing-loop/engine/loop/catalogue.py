@@ -13,6 +13,8 @@ Per check:
   instead   for a format it cannot read: the check that covers the same ground there, or None when nothing does.
   scope     what makes a past run stale. kind: all | cite | numbers | sections | none (inputs only).
   needs     configuration the check cannot run without, as dotted paths into the workspace config.
+  optin     True when writing that configuration is how a workspace turns the check on: without it the check is
+            不适用 (not turned on), not 缺前提, so nothing asks for a run and it is no gap in the toolkit.
   inputs    function(cfg) -> {role: repo path} of files the check reads besides the draft; they are archived with it,
             and a change to any of them makes the check stale.
   outside   function(cfg) -> [absolute paths] read in place (a venue corpus, an intent card); their content hash is
@@ -376,7 +378,8 @@ CHECKS = [
      "argv": _numbers_argv},
     {"id": "method-ledger", "name": "文字对代码", "kind": "script", "scripts": ["audit/audit-method-ledger.py"],
      "formats": ["latex"], "instead": {},
-     "scope": {"kind": "tree"}, "needs": ["inputs.method_ledger"], "tree": True, "config_keys": ["inputs.method_ledger"],
+     "scope": {"kind": "tree"}, "needs": ["inputs.method_ledger"], "optin": True, "tree": True,
+     "config_keys": ["inputs.method_ledger"],
      "inputs": _method_inputs, "outside": _method_outside, "argv": _method_argv},
     {"id": "generated-copies", "name": "生成物对照", "kind": "script", "scripts": ["audit/audit-generated-copies.py"],
      "formats": ["latex", "markdown"], "instead": {},

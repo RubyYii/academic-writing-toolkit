@@ -652,6 +652,12 @@ def row(check, cfg, ws, head, sentences, index_head=None):
                     "due": False}
         return {**base, "status": WAIVED, "detail": str(reason)}
     missing = [n for n in check["needs"] if K.get(cfg, n) is None]
+    if missing and check.get("optin"):
+        # A check a workspace turns on by writing its config (09-29: the method ledger's check, merged into the
+        # resident loop, hung 「缺前提」 on a manuscript that never asked for it, as a rerun on the notch). Not turned
+        # on is neither out of date nor a gap in the toolkit: it is said in the table, and nowhere asks for a run.
+        return {**base, "status": NOT_APPLICABLE, "optin": True,
+                "detail": "没开启：配置里写 " + "、".join(missing) + " 才查"}
     if missing:
         return {**base, "status": MISSING, "detail": "配置里缺 " + "、".join(missing)}
     problems = TG.problems_for(check["id"], cfg)
@@ -1061,7 +1067,7 @@ def gaps(summary):
     """Checks the toolkit has that cannot read this kind of draft, with nothing covering for them. A gap in the
     toolkit, not a task for this turn: listed in the table, counted on the notch and in the to-do cell, kept out of
     the per-turn line so the line does not become wallpaper the agent learns to skip."""
-    return [r for r in summary["rows"] if r["status"] == NOT_APPLICABLE and not r.get("instead")]
+    return [r for r in summary["rows"] if r["status"] == NOT_APPLICABLE and not r.get("instead") and not r.get("optin")]
 
 
 def waived(summary):

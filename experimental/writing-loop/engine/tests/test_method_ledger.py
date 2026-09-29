@@ -251,6 +251,22 @@ class MethodLedgerInTheLoop(unittest.TestCase):
             self.assertEqual(rec["verdict"], "findings")
             self.assertIn("open-verdict 1", rec["summary"])
 
+    def test_not_turned_on_is_not_a_rerun_or_a_gap(self):
+        # 09-29: merged into the resident loop, the check hung 「缺前提」 on a manuscript that never asked for it, as a
+        # rerun on the notch and a red check stage.
+        from loop import ring as RG
+        with TempDir() as root:
+            ms, ws, cfg = self.setup(root)
+            del cfg["inputs"]["method_ledger"]
+            head = git(ms, "rev-parse", "HEAD")
+            row = V.row(K.by_id("method-ledger"), cfg, ws, head, V.current_sentences(ws)[0])
+            self.assertEqual((row["status"], row.get("optin")), (V.NOT_APPLICABLE, True), row)
+            self.assertIn("没开启", row["detail"])
+            self.assertNotIn(row["status"], V.ATTENTION)
+            self.assertEqual(V.gaps({"rows": [row]}), [], "not turned on is no gap in the toolkit")
+            r = RG.ring({"rows": [row]}, last_change_at="2026-01-02T00:00:00+00:00")
+            self.assertEqual(next(s for s in r["segments"] if s["key"] == "check")["items"], [])
+
     def test_only_an_unpinned_repository_is_watched_outside(self):
         cfg = {"inputs": {"method_ledger": {"path": "m.tsv", "repos": {
             "e0": {"path": "/x/e0", "commit": "abc1234"}, "ws": {"path": "/x/ws"}}}}}
