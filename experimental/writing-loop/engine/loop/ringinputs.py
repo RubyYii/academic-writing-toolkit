@@ -142,10 +142,24 @@ def freeze(cfg, ws):
     return any(stage.startswith(w) for w in words)
 
 
+def parts(cfg, ws):
+    """The part-by-part state (loop/parts.py), or None when no part of a rewrite plan is open or there is no ledger."""
+    if not cfg.get("claims"):
+        return None
+    from . import catalogue as K
+    from . import overview as O
+    from . import parts as P
+    from . import state as S
+    st = S.compute(cfg, ws)
+    path = K.get(cfg, "overview.build_report")
+    build = O.build_report(cfg["repo"], cfg.get("ref") or "HEAD", path) if path else None
+    return P.compute(cfg, ws, st, build)
+
+
 def gather(cfg, ws, coverage, problems):
     out = {}
     for key, fn in (("landing", lambda: landing(cfg)), ("decisions", lambda: decisions(cfg, ws, coverage)),
-                    ("design", lambda: design(cfg)), ("freeze", lambda: freeze(cfg, ws))):
+                    ("design", lambda: design(cfg)), ("freeze", lambda: freeze(cfg, ws)), ("parts", lambda: parts(cfg, ws))):
         try:
             out[key] = fn()
         except Exception as e:  # noqa: BLE001 -- one input the ring cannot read leaves the others

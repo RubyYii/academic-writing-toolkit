@@ -1,7 +1,7 @@
 # Part-by-part revision: what the notch answers while a manuscript is rewritten one part at a time
 
-Status: draft (written 2026-09-29; the author decided the four answers, the plan's place and the reader-panel rule; the
-rest of this document is not approved; nothing implemented)
+Status: implemented (author approved Q1–Q3 as recommended, 2026-09-29; loop and lintel tests and red checks pass locally; CI not run; the author accepted the drafted real plan as recommended, and it went to that manuscript's session to check
+and write into its own ledger, so no real workspace has run the mode yet)
 
 ## Problem
 
@@ -57,7 +57,7 @@ between the plan and the draft is shown, never smoothed over.
 | Step | Seen when |
 |---|---|
 | 讲法 story | the item names a story page and the page carries an approval uuid found in the transcripts; otherwise "not seen" |
-| 候选 candidates | acceptance-ledger rows that name the item's id and whose sentence is **not** in the current draft |
+| 候选 candidates | acceptance-ledger rows whose note tags the part (`部分 N7` or `part N7`) and whose sentence is **not** in the current draft |
 | 等你裁 your decision | there are such candidates |
 | 落稿 landed | the item is `已做 <date> <evidence>`, and a commit on or after that date changed the part's sections |
 | 构建 built | the build report's source commit contains the landing commit |
@@ -123,3 +123,36 @@ Terminology drift across parts (a term renamed in one part and not the others) i
 - **Q3 The real plan.** Recommended: I draft the 写作 items for the manuscript in progress from its commit history
   (parts already landed marked 已做 with their commit). The author and that manuscript's session check the draft before
   it goes into their ledger. The loop does not write their ledger.
+
+## Decided (2026-09-29, the author: as recommended)
+
+- **Q1** A part is one or more sections, named by label prefix or file.
+- **Q2** Terminology across parts is left out of the first version.
+- **Q3** The real plan is drafted from the commit history, shown to the author and that manuscript's session, and not
+  written into their ledger by the loop.
+
+## As built: where it differs from the decisions above
+
+- **Six steps, not five.** The author kept the checks on the notch (A1), so out-of-date checks hang on their own 检查
+  step between 落稿 and 构建.
+- **A candidate names its part as `部分 N7` (or `part N7`).** A bare id collided on the real manuscript. Its own
+  vocabulary used the same string for a preregistered hypothesis, and another ledger used it as a row prefix, and that
+  would have counted seven candidates for a part nobody had started.
+- **An open part's 检查 and 构建 are never "done".** The first screenshot of the real card read 走到 构建 for a part with
+  no candidates yet: the draft's latest build contained the part's file. The whole draft's checks and build say nothing
+  about how far one open part got.
+- **With no step done, lintel places the square on the current step and labels it 走到**; "在" would read better there.
+- The agreement count covers paper-state findings only (over-reach, unscoped quantifiers, dropped qualifiers). The
+  changed-sentence flags are not counted yet.
+
+## Acceptance on one real workspace (2026-09-29, read only)
+
+- The plan was drafted in a scratch copy of the ledger: nine parts by file (the abstract by label prefix), three
+  marked landed on the day.
+- Replay:
+  - part 6 of 9 current, three landed;
+  - each landed part found its landing commit, with no change after it;
+  - nothing changed outside the plan;
+  - one contradiction: the stage says 冻结 with six parts open.
+- The card passes lintel's validator. It was photographed in lintel's own window with the ring computed from the draft
+  plan, which the shot's record says.

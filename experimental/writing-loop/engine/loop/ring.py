@@ -151,8 +151,61 @@ def _readers_detail(r, scope):
     return f"{base}；{verdict}" if base else verdict
 
 
+# While a rewrite goes one part at a time (spec 2026-09-29-part-by-part-revision), the ring is the current part's steps.
+PART_STAGES = [("story", "讲法", SEEN), ("candidates", "候选", SEEN), ("decide", "你裁", SEEN), ("land", "落稿", SEEN),
+               ("check", "检查", SEEN), ("build", "构建", SEEN)]
+
+
+def _part_ring(summary, parts, name):
+    """The ring while parts are open: the current part's steps, the plan's contradictions to decide, progress above
+    the route, agreement under it. The reader panel waits until every part has landed (the author, 09-29)."""
+    risks = (summary or {}).get("risks") or {}
+    open_ = risks.get("open") or []
+    cur = parts["current"]
+    rows = (summary or {}).get("rows") or []
+    checks = [{"id": r.get("id"), "text": f"{r.get('name', r.get('id'))} {r.get('status')}", "detail": r.get("detail") or "",
+               "you": False} for r in rows if r.get("id") != "readers" and r.get("status") in NOT_CURRENT]
+    waiting = [{"id": c["key"][:8], "text": "候选没入稿：" + _first_clause(c["sentence"], 40), "detail": c["reason"][:200],
+                "you": True} for c in cur["waiting"]]
+    story = cur["story"]
+    states = {
+        "story": ("unseen", None) if story is None else (("done", None) if story else ("open", "没认可")),
+        "candidates": ("done", None) if cur["candidates"] else ("open", None),
+        "decide": ("hanging", None) if waiting else (("done", None) if cur["candidates"] else ("open", None)),
+        # The current part has not landed: the whole draft's checks and build say nothing about how far this part got
+        # (09-29 shot: a part with no candidates yet read 走到 构建, because the draft's latest build held its file).
+        "land": ("open", None),
+        "check": ("hanging", None) if checks else ("open", None),
+        "build": ("open", None),
+    }
+    items = {"decide": waiting, "check": checks}
+    segments = []
+    for key, label, seen in PART_STAGES:
+        st, note = states[key]
+        seg = {"key": key, "name": label, "seen": seen, "state": st, "items": items.get(key, [])}
+        if note:
+            seg["note"] = note
+        segments.append(seg)
+    order = [k for k, _, _ in PART_STAGES]
+    done = [k for k in order if states[k][0] == "done"]
+    unhung = [{"id": c["id"], "text": c["text"], "detail": c["detail"], "you": True} for c in parts["contradictions"]]
+    unhung += [{"id": x.get("id"), "text": f"{x.get('kind', '')} {x.get('id')} {x.get('title', '')}".strip(),
+                "detail": _open_detail(x), "you": True} for x in open_]
+    landed = [p for p in parts["parts"] if p.get("landing")]
+    n = len(parts["agreement"])
+    note = (f"落了的部分里 {n} 处对不上" if n else "落了的部分里没查出对不上（只查主张清单的越界、量词与限定词）") \
+        if landed else None
+    return {"title": name, "since": None, "sinceNote": f"逐段改稿：第 {cur['index']}/{parts['total']} 部分",
+            "frozen": False, "frozenNote": note,
+            "progress": f"第 {cur['index']}/{parts['total']} 部分：{cur['title']}（已落 {parts['closed']}）",
+            "current": next((s["key"] for s in segments if s["state"] == "hanging"), None)
+            or next((s["key"] for s in segments if s["state"] == "open"), None),
+            "latest": None, "latest_at": None, "reached": done[-1] if done else None, "segments": segments,
+            "unhung": unhung, "waiting": len(waiting) + len(unhung), "closed": []}
+
+
 def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analysis=None, landing=None,
-         decisions=None, design=None, freeze=False):
+         decisions=None, design=None, freeze=False, parts=None):
     """analysis: the claims ledger's 分析 items ([{id, title, closed, status}]) when the workspace turns the stage on;
     None keeps the seven-stage ring. An open item hangs on 分析 as work to do, not as the author's to decide.
 
@@ -163,7 +216,10 @@ def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analy
                  message could not be found (R2). 你核对 is then seen, and a round ends at a decision or a landing (R4).
       design     {"configured": bool, "at"}: the intent card and when it last changed (R3). Not configured: 设计 leaves
                  the ring.
-      freeze     the manuscript is frozen (R5): four stages, and a stale reader panel is said, not hung as a rerun."""
+      freeze     the manuscript is frozen (R5): four stages, and a stale reader panel is said, not hung as a rerun.
+      parts      parts.compute's result while a part-by-part rewrite is open: the ring is the current part's steps."""
+    if parts:
+        return _part_ring(summary, parts, name)
     # A freeze is earned by a quiet draft, not by the word in the ledger (09-29: the stage said 冻结 while the author
     # rewrote paragraph by paragraph, 541 changes since the reader panel, and the ring read as four stages done, landed,
     # nothing to re-run). More change since the panel than a correctness fix makes (the size the ring already calls
