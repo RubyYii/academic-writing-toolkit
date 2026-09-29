@@ -1,0 +1,12 @@
+{
+ "failure": "A share added for clarity ('one of three') sat against another share of the same total elsewhere in the draft.",
+ "check": "sentence-changes",
+ "argv": [
+  "--target",
+  "{draft}",
+  "--base",
+  "base",
+  "--json"
+ ],
+ "expect_flag": "count_elsewhere"
+}
