@@ -188,7 +188,14 @@ def _method_argv(ctx):
         args += ["--git", str(Path(ctx["cfg"]["repo"]).expanduser())]
     if ctx.get("ws"):
         # row ids seen on earlier runs: a row that vanishes without being retired is reported (G3)
-        args += ["--state", str(Path(ctx["ws"]) / "cache" / "coverage" / "method-ledger-ids.json")]
+        state = Path(ctx["ws"]) / "cache" / "coverage" / "method-ledger-ids.json"
+        if ctx.get("precheck"):
+            # a precheck reads the ids seen so far and records none: it works on a copy
+            copy = Path(ctx["tmp"]) / ".precheck-method-ledger-ids.json"
+            if state.is_file():
+                copy.write_bytes(state.read_bytes())
+            state = copy
+        args += ["--state", str(state)]
     return args
 
 

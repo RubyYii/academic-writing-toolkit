@@ -47,6 +47,7 @@ class RemovalTest(unittest.TestCase):
             self.assertTrue(flag["new"].startswith("删去："), flag)
             reason = V.stop_verdict(cfg, ws)
             self.assertIn(flag["key"], reason or "")
+            self.assertIn(f"loop precheck {ws}", reason, "the other checks update only at the commit: say how to run them")
             V.accepted_path(cfg).write_text(f"{flag['key']}\tsaid again in the conclusion\tauthor\t…\n", encoding="utf-8")
             self.assertIsNone(V.stop_verdict(cfg, ws), "an accepted removal releases the turn")
 

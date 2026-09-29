@@ -549,8 +549,9 @@ def _write_view(ctx):
     return None
 
 
-def run(check, cfg, ws, head, sentences, now=None, timeout=TIMEOUT):
-    """Run one script check at head and record it. The record is written whatever happens, a failure included."""
+def run(check, cfg, ws, head, sentences, now=None, timeout=TIMEOUT, record=True):
+    """Run one script check at head and record it. The record is written whatever happens, a failure included; with
+    record=False (a precheck of the working tree) nothing is written, and a check that keeps state works on a copy."""
     now = now or time.time()
     snap = snapshot(check, cfg, sentences, head)
     rec = {"id": check["id"], "commit": head, "at": dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat(),
@@ -563,17 +564,20 @@ def run(check, cfg, ws, head, sentences, now=None, timeout=TIMEOUT):
             rec.update({"verdict": "failed", "summary": err, "exit": None})
             if check.get("base"):
                 _record_base(rec, prev, base_info, head)
-            save_run(ws, rec)
+            if record:
+                save_run(ws, rec)
             return rec
         ctx = {"cfg": cfg, "ws": str(ws), "tmp": tmp, "inputs": inputs, "head": head,
                "drafts": [p for p in draft_files(cfg, head) + (also_checked(cfg) if reads_also(check) else [])
                           if (Path(tmp) / p).is_file()],
-               "also": [p for p in also_checked(cfg) if reads_also(check) and (Path(tmp) / p).is_file()]}
+               "also": [p for p in also_checked(cfg) if reads_also(check) and (Path(tmp) / p).is_file()],
+               "precheck": not record}
         if check.get("view"):
             err = _write_view(ctx)
             if err:
                 rec.update({"verdict": "failed", "summary": err, "exit": None})
-                save_run(ws, rec)
+                if record:
+                    save_run(ws, rec)
                 return rec
         argv = check["argv"](ctx)
         rec["argv"] = [a.replace(tmp, "<draft>") for a in argv]
@@ -602,7 +606,8 @@ def run(check, cfg, ws, head, sentences, now=None, timeout=TIMEOUT):
         _apply_acceptances(rec, cfg)
     if check.get("base"):
         _record_base(rec, prev, base_info, head)
-    save_run(ws, rec)
+    if record:
+        save_run(ws, rec)
     return rec
 
 
@@ -1375,6 +1380,80 @@ def worktree_check(cfg, ws, timeout=TIMEOUT):
     return out
 
 
+def worktree_commit(cfg):
+    """The working tree as a commit object (git stash create): tracked files as they are now, staged or not. Nothing on
+    disk, in the index or in the stash list changes. None when nothing tracked has changed (HEAD then stands for it);
+    a file never added is not in it."""
+    sha = (_git(cfg["repo"], "stash", "create") or "").strip()
+    return sha or None
+
+
+# What precheck puts each check in, in the order it is said.
+PRE_RED, PRE_CHANGED, PRE_FAILED, PRE_SAME, PRE_OK = "turns_red", "changed", "cannot_run", "still", "passes"
+
+
+def precheck(cfg, ws, only=None, now=None):
+    """Every script check the loop would run, run on the working tree before it is committed, recording nothing
+    (09-29: a round that deleted repeated statements passed the checks its author ran by hand and turned two others red
+    at the commit: the number ledger's copies and the method ledger's dropped rows). Each result is set against the
+    check's last record: a check that passed and now finds something turns red at the commit; one whose finding reads
+    differently has changed.
+
+    Returns {head, worktree, base_head, checks: [{id, name, group, verdict, summary, last_verdict, last_summary}]}."""
+    sentences, index_head = current_sentences(ws)
+    base_head = _git(cfg["repo"], "rev-parse", "--verify", f"{cfg['ref']}^{{commit}}")
+    if not base_head:
+        return {"error": f"ref {cfg.get('ref')} 解析不了", "checks": []}
+    base_head = base_head.strip()
+    wt = worktree_commit(cfg)
+    head = wt or base_head
+    out = {"head": head, "worktree": bool(wt), "base_head": base_head, "checks": []}
+    for check in K.all_checks(cfg):
+        if check["kind"] != "script" or (only and check["id"] not in only):
+            continue
+        if not check.get("auto", True) and not (only and check["id"] in only):
+            continue
+        r = row(check, cfg, ws, base_head, sentences, index_head)
+        if r["status"] in (NOT_APPLICABLE, MISSING, WAIVED):
+            continue
+        rec = run(check, cfg, ws, head, sentences, now=now, record=False)
+        last = load_run(ws, check["id"]) or {}
+        lv, ls = last.get("verdict"), last.get("summary")
+        v, s = rec.get("verdict"), rec.get("summary")
+        if v == "failed":
+            group = PRE_FAILED
+        elif v == "ok":
+            group = PRE_OK
+        elif lv in (None, "ok"):
+            group = PRE_RED
+        elif ls != s:
+            group = PRE_CHANGED
+        else:
+            group = PRE_SAME
+        out["checks"].append({"id": check["id"], "name": check["name"], "group": group, "verdict": v, "summary": s,
+                              "last_verdict": lv, "last_summary": ls})
+    return out
+
+
+def precheck_text(res, name):
+    if res.get("error"):
+        return f"precheck {name}：{res['error']}"
+    by = {g: [c for c in res["checks"] if c["group"] == g] for g in (PRE_RED, PRE_CHANGED, PRE_FAILED, PRE_SAME, PRE_OK)}
+    where = ("工作区（已跟踪文件的未提交改动；从没 git add 过的新文件不在内）" if res["worktree"]
+             else f"工作区与 {res['base_head'][:7]} 相同")
+    lines = [f"precheck {name}：{where}，跑了 {len(res['checks'])} 项检查，什么记录都没写；提交后循环照常更新。"]
+    for g, title in ((PRE_RED, "提交后会变红"), (PRE_CHANGED, "发现有变化"), (PRE_FAILED, "跑不起来")):
+        if by[g]:
+            lines.append(f"{title}（{len(by[g])}）：")
+            for c in by[g]:
+                was = f"{c['last_summary']} → " if c["last_summary"] and g != PRE_FAILED else ""
+                lines.append(f"  {c['name']}：{was}{c['summary']}")
+    if by[PRE_SAME]:
+        lines.append(f"照旧有发现（{len(by[PRE_SAME])}）：" + "、".join(c["name"] for c in by[PRE_SAME]))
+    lines.append(f"通过 {len(by[PRE_OK])} 项")
+    return "\n".join(lines)
+
+
 def stop_verdict(cfg, ws, reply=None):
     """None when the turn may end; otherwise the reason it may not: a flagged rewrite in the working tree, or shown in
     this turn's reply, that is neither fixed nor accepted in the ledger. A check that cannot run is a reason too: an
@@ -1388,7 +1467,9 @@ def stop_verdict(cfg, ws, reply=None):
         return None
     lines = [f"- {where} [{s['key']}] {'、'.join(s['flags'])}：{s['new'][:120]}" for where, s in todo[:8]]
     return (f"有 {len(todo)} 句改句被标出、还没处理（{r.get('summary', '')}）：\n" + "\n".join(lines)
-            + f"\n改掉它们，或在 {accepted_path(cfg)} 每句写一行：键<TAB>理由<TAB>谁定的<TAB>句子。句子一改，这一行就失效。")
+            + f"\n改掉它们，或在 {accepted_path(cfg)} 每句写一行：键<TAB>理由<TAB>谁定的<TAB>句子。句子一改，这一行就失效。"
+            # the gate is the only check that reads the working tree on its own; say how to run the rest before a commit
+            + f"\n其余检查提交后才更新；提交前要看它们，跑 loop precheck {ws}。")
 
 
 SPAN = re.compile(r"```(?:[a-z]*\n)?(.*?)```|`([^`\n]{20,})`|“([^”]{20,})”|「([^」]{20,})」|\"([^\"\n]{20,})\"|^>\s?(.+)$",
