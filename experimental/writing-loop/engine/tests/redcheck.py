@@ -786,7 +786,7 @@ MUTATIONS = [
     ("method", 'catalogue.py', '        args += ["--state", str(Path(ctx["ws"]) / "cache" / "coverage" / "method-ledger-ids.json")]', '        pass',
      'test_method_ledger.MethodLedgerInTheLoop.test_the_check_runs_from_the_config_and_says_what_it_found'),
     # 刘海环（spec 2026-09-29-ring-rounds-and-stages）：拿掉一处，环就又只能停在读者组、落稿点不亮、冻结期照催重读。
-    ("ring2", 'ring.py', '    land_at = landing.get("at") if landing and not landing.get("changed") and _after(landing.get("at"), since) else None', '    land_at = None',
+    ("ring2", 'ring.py', '    land_at = landing.get("at") if landing and not landing.get("changed") and _after(landing.get("at"), since) \\\n        and not freeze_broken else None', '    land_at = None',
      'test_ring.SeenStagesTest.test_a_ready_build_at_the_current_draft_lights_the_landing'),
     ("ring2", 'ring.py', '    if happened["land"] == "changed":\n        notes["land"] = "改过了"', '    if False:\n        notes["land"] = "改过了"',
      'test_ring.SeenStagesTest.test_a_draft_changed_after_the_build_says_so'),
@@ -816,6 +816,10 @@ MUTATIONS = [
      'test_ringinputs.RingInputsTest.test_a_freeze_is_read_from_the_ledger_stage_or_forced'),
     ("ring2", 'lintel.py', '    if r.get("frozenNote"):', '    if False:',
      'test_ring.SeenStagesTest.test_the_frozen_note_goes_out_on_the_card'),
+    ("ring2", 'ring.py', '        if rrow is not None and rrow.get("status") != V.ACCEPTED and n > max(SMALL_MIN, round(total * SMALL_SHARE)):',
+     '        if False:', 'test_ring.FreezeEarnedTest.test_a_large_change_since_the_panel_breaks_the_freeze_and_asks'),
+    ("ring2", 'ring.py', '        and not freeze_broken else None', '        else None',
+     'test_ring.FreezeEarnedTest.test_a_large_change_since_the_panel_breaks_the_freeze_and_asks'),
     ("ring2", 'cli.py', '        ring_inputs = RI.gather(cfg, a.workspace, cov, problems) if cov else None', '        ring_inputs = None',
      'test_lintel.CliAnalysisStageTest.test_with_the_analysis_stage_on_the_card_carries_the_ledgers_open_analysis'),
     # 生成物对照（spec 2026-09-25-generated-copies-and-float-reviews）：数据仓按 HEAD 提交读，行由检查自己的一句话说。
