@@ -47,6 +47,10 @@ def tree_state(ws):
     return out
 
 
+def probe_rows(res):
+    return [c for c in res["checks"] if c["id"] != "_scan"]
+
+
 def edit_intro(repo, extra):
     intro = Path(repo) / "sections/01_intro.tex"
     intro.write_text(intro.read_text(encoding="utf-8") + extra, encoding="utf-8")
@@ -64,7 +68,7 @@ class PrecheckTest(unittest.TestCase):
                 edit_intro(repo, "\nThe gauges were BROKEN.\n")
                 res = V.precheck(cfg, ws)
                 self.assertTrue(res["worktree"], "the working tree, not HEAD")
-                [c] = res["checks"]
+                [c] = probe_rows(res)
                 self.assertEqual((c["group"], c["last_verdict"], c["summary"]), (V.PRE_RED, "ok", "1 条"))
                 self.assertEqual(tree_state(ws), before, "no run record, summary or state file is written")
                 self.assertEqual(seen[-1], True, "a check that keeps state is told it is a precheck")
@@ -77,13 +81,15 @@ class PrecheckTest(unittest.TestCase):
             cfg = C.load(ws)
             with Probe(draft_check(root, needs=["inputs.nothing_here"])):
                 V.compute(cfg, ws, do_run=True)
-                self.assertEqual(V.precheck(cfg, ws)["checks"], [], "a check the workspace does not configure")
+                self.assertEqual(probe_rows(V.precheck(cfg, ws)), [], "a check the workspace does not configure")
             with Probe(draft_check(root)):
                 V.compute(cfg, ws, do_run=True)
                 res = V.precheck(cfg, ws)
                 self.assertFalse(res["worktree"])
                 self.assertEqual(res["head"], res["base_head"])
-                self.assertEqual([c["group"] for c in res["checks"]], [V.PRE_OK])
+                self.assertEqual([c["group"] for c in res["checks"]], [V.PRE_OK, V.PRE_OK], "the probe and scan coverage")
+                self.assertEqual([c["id"] for c in V.precheck(cfg, ws, only={"draftprobe"})["checks"]], ["draftprobe"],
+                                 "--only names what runs; scan coverage is _scan")
 
     def test_a_finding_that_reads_differently_has_changed_and_one_that_does_not_is_still(self):
         with TempDir() as root:
@@ -93,11 +99,11 @@ class PrecheckTest(unittest.TestCase):
             with Probe(draft_check(root)):
                 V.compute(cfg, ws, do_run=True)
                 edit_intro(repo, "Another was BROKEN too.\n")
-                [c] = V.precheck(cfg, ws)["checks"]
+                [c] = probe_rows(V.precheck(cfg, ws))
                 self.assertEqual((c["group"], c["last_summary"], c["summary"]), (V.PRE_CHANGED, "1 条", "2 条"))
                 git(repo, "checkout", "--", "sections/01_intro.tex")
                 (Path(repo) / "main.tex").write_text((Path(repo) / "main.tex").read_text() + "%\n", encoding="utf-8")
-                [c] = V.precheck(cfg, ws)["checks"]
+                [c] = probe_rows(V.precheck(cfg, ws))
                 self.assertEqual(c["group"], V.PRE_SAME)
 
     def test_the_command_exits_1_when_a_check_would_turn_red(self):
@@ -110,6 +116,18 @@ class PrecheckTest(unittest.TestCase):
                 self.assertEqual(cli.cmd_precheck(args), 0)
                 edit_intro(repo, "\nThe gauges were BROKEN.\n")
                 self.assertEqual(cli.cmd_precheck(args), 1)
+
+    def test_a_new_heading_without_a_rule_is_said_before_the_commit(self):
+        # 09-29: three headings added in one round went unscanned by every check until after the commit
+        with TempDir() as root:
+            repo, ws = setup(root)
+            cfg = C.load(ws)
+            with Probe(draft_check(root)):
+                V.compute(cfg, ws, do_run=True)
+                edit_intro(repo, "\\subsection{Gauges Nobody Reads}\n" + " ".join(["Each gauge was read by hand."] * 12) + "\n")
+                [scan] = [c for c in V.precheck(cfg, ws)["checks"] if c["id"] == "_scan"]
+                self.assertEqual((scan["group"], scan["last_verdict"]), (V.PRE_RED, "ok"))
+                self.assertIn("Gauges Nobody Reads", scan["summary"])
 
     def test_the_method_ledger_works_on_a_copy_of_its_state(self):
         with TempDir() as root:

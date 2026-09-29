@@ -1418,21 +1418,37 @@ def precheck(cfg, ws, only=None, now=None):
             continue
         rec = run(check, cfg, ws, head, sentences, now=now, record=False)
         last = load_run(ws, check["id"]) or {}
-        lv, ls = last.get("verdict"), last.get("summary")
-        v, s = rec.get("verdict"), rec.get("summary")
-        if v == "failed":
-            group = PRE_FAILED
-        elif v == "ok":
-            group = PRE_OK
-        elif lv in (None, "ok"):
-            group = PRE_RED
-        elif ls != s:
-            group = PRE_CHANGED
-        else:
-            group = PRE_SAME
-        out["checks"].append({"id": check["id"], "name": check["name"], "group": group, "verdict": v, "summary": s,
-                              "last_verdict": lv, "last_summary": ls})
+        out["checks"].append(_pre_entry(check["id"], check["name"], rec.get("verdict"), rec.get("summary"),
+                                        last.get("verdict"), last.get("summary")))
+    # Scan coverage is not a catalogue check, it is worked out from the draft and the section rules; a heading added
+    # without a rule leaves its prose unmeasured by every check, so it is said before the commit too (09-29: three new
+    # headings went unscanned until after the commit).
+    if only and "_scan" not in only:
+        return out
+    now_scan, was_scan = scan_coverage(cfg, head), scan_coverage(cfg, base_head)
+    if now_scan is not None:
+        verdict = lambda cov: None if cov is None else ("ok" if scan_row(cov)["status"] == OK else "findings")
+        r_now = scan_row(now_scan)
+        out["checks"].append(_pre_entry("_scan", r_now["name"], verdict(now_scan), r_now["detail"], verdict(was_scan),
+                                        scan_row(was_scan)["detail"] if was_scan is not None else None))
     return out
+
+
+def _pre_entry(cid, name, v, s, lv, ls):
+    """One precheck result set against the last one: failed, passes, turns red (passed or never ran before), changed
+    (a finding that reads differently), or still."""
+    if v == "failed":
+        group = PRE_FAILED
+    elif v == "ok":
+        group = PRE_OK
+    elif lv in (None, "ok"):
+        group = PRE_RED
+    elif ls != s:
+        group = PRE_CHANGED
+    else:
+        group = PRE_SAME
+    return {"id": cid, "name": name, "group": group, "verdict": v, "summary": s, "last_verdict": lv,
+            "last_summary": ls}
 
 
 def precheck_text(res, name):
