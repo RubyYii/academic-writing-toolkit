@@ -1,7 +1,13 @@
 # Changed-sentence gate: what a deletion takes with it, and a count that disagrees
 
-Status: draft (written 2026-09-29; the author approved starting on this line of work; nothing in this document is
-approved yet; nothing implemented)
+Status: implemented (written 2026-09-29; the author decided Q1–Q3 as recommended the same day; implemented on
+feat/deletion-gate; tests and red checks pass locally; CI not run; see "As built")
+
+## Decided by the author (2026-09-29)
+
+- **Q1** A share that disagrees is a flag that needs a reason, raised only when D2 finds another share.
+- **Q2** After a removal, the rest of the paragraph is read, with no cap.
+- **Q3** Removed sentences only. Words dropped from a revised sentence are left out.
 
 ## Problem
 
@@ -129,3 +135,34 @@ The per-sentence readings are kept in the private workspace, not here.
   - Recommended: removed sentences only.
   - All three real cases were removals. The revision hits were all noise.
   - Add revisions if a real case turns up.
+
+## As built (2026-09-29)
+
+- **Where.** `audit-sentence-changes.py`:
+  - `sentence_units` keeps the paragraph each sentence came from, and `read_prose` fills it for the base.
+  - `lost_antecedents` implements D1, and `shares_elsewhere` implements D2.
+  - The new flags are `took_antecedent` (on the removal, with the later phrase and sentence) and `count_elsewhere` (with
+    the other sentences).
+  - `compared` counts both apart. The loop's summary line names them when present.
+- **Narrower than D1 as first written.** Each narrowing came from reading the replay:
+  - `that` is not a determiner here. It opens a clause far more often than it points back.
+  - At most one word may sit between the determiner and the noun. Two reached past the noun to a verb.
+  - A word followed by an article is taken for a verb.
+  - Modals and auxiliaries are not nouns, alongside the ordinals.
+- **Replay on the real manuscript (read only, private workspace).**
+  - The three incidents and the one the prototype found are all flagged.
+  - The 43 commits give 13 new flags:
+    - 8 removals that took an antecedent: 3 real, 2 borderline, 3 noise. The third real one was new and is still in the
+      draft.
+    - 5 shares: 4 are the very pair readers confused. 1 sets different measures side by side and is not an error.
+  - Noise is under half, so the stop rule did not fire.
+- **Tests.**
+  - `tests/test_deletion_gate.py` holds 10 tests. On the previous gate, the 4 tests that expect a flag are red. The 6
+    that expect none cannot be red there, because the previous gate flags nothing of the kind; each has a mutation
+    instead.
+  - Two probes, `removed-antecedent` and `share-elsewhere`, are flagged on their bad drafts and not on their twins.
+  - 14 mutations in the `deletion` red-check group.
+- **Left out, as decided.**
+  - Pronouns (it, they) that lost their antecedent.
+  - Nouns dropped from a revised sentence.
+  - Both are named in the gate's limits line.

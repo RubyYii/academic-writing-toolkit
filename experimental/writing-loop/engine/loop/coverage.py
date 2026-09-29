@@ -409,6 +409,11 @@ def interpret(check_id, code, stdout, stderr):
             gone = compared.get("removed")
             if gone:
                 summary += f"；删 {gone} 句（{compared.get('removed_flagged', 0)} 句带着东西）"
+            # spec 2026-09-29-deletion-side-effects: said apart, so a flag the author has not met before is named
+            if compared.get("took_antecedent"):
+                summary += f"；删句后指代可能落空 {compared['took_antecedent']}"
+            if compared.get("count_elsewhere"):
+                summary += f"；比例与别处对不上 {compared['count_elsewhere']}"
         elif "total" in data and "unit" in data and isinstance(data.get("chapters"), list):
             summary = f"{data['total']} 词（{len(data['chapters'])} 个文件）"
         elif "hard_finding_count" in data:

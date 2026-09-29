@@ -65,6 +65,15 @@ loop passes the claims ledger's required wordings), or it holds a number, or a l
 exploratory, of N, in this study ...). A flagged removal needs a reason like a flagged rewrite. The report counts
 removals and flagged removals apart, so "nothing flagged" is not read as "nothing removed".
 
+A removal is also flagged when it took an antecedent: a later sentence of the same paragraph, kept or revised, still
+says "the X" (or this, these, those; at most one word between) where X is a noun of the removed sentence and no earlier
+sentence of the file names X. On one manuscript an abstract lost the only sentence naming its subject, and its last
+sentence, ten sentences on, still spoke of it. The whole paragraph is read because a nearer window missed that case; the
+whole file triples the hits and catches nothing more. Ordinals, modals and a word followed by an article (a verb) are
+not taken for nouns. A changed or added sentence that gains a share ("one of three later sensors") is flagged when the
+draft states another share of the same total of the same noun ("two of the three later sensors"); the other sentences
+are listed beside it. Both need the whole draft, so the --pairs form does not run them. The report counts both apart.
+
 Exit: 0 no changed sentence is flagged (including no change at all, reported as such); 1 at least one flagged;
 2 nothing to compare (no prose in the target or the base, an empty or malformed pairs file, a baseline too small
 to give percentiles) or an argument it does not recognise.
@@ -183,7 +192,8 @@ MIN_VENUE_DOCUMENTS = 5
 STOPWORDS = {"the", "a", "an", "of", "in", "for", "with", "by", "and", "or", "to", "is", "are", "was", "were", "be",
              "that", "this", "it", "its", "on", "at", "as", "from", "not", "we", "our", "their", "they", "than"}
 LIMITS = ("not measured: adjectives outside the suffix and word lists, nouns used as modifiers, relative clauses "
-          "opened by 'that', a comma splice beyond the comma it adds; the writing loop reads committed versions only")
+          "opened by 'that', a comma splice beyond the comma it adds, a pronoun (it, they) a removal left without its "
+          "antecedent, a noun a revision dropped; the writing loop reads committed versions only")
 
 
 def die(msg):
@@ -280,10 +290,15 @@ def read_text(fp, path):
     return fp.load(path)
 
 
-def sentences(text):
+def sentence_units(text):
+    """[(unit, sentence)]: a unit is what a blank line, a heading or a list item closes, a paragraph in prose."""
     text = ABBREV.sub(lambda m: m.group(1), re.sub(r"\s+", " ", text or ""))
-    return [s.strip() for unit in text.split(BREAK.strip()) for s in SPLIT.split(unit.strip())
+    return [(n, s.strip()) for n, unit in enumerate(text.split(BREAK.strip())) for s in SPLIT.split(unit.strip())
             if len(s.split()) >= 3]
+
+
+def sentences(text):
+    return [s for _, s in sentence_units(text)]
 
 
 # ---------------------------------------------------------------- measuring
@@ -396,9 +411,10 @@ def gained(old_sents, new_sents, fn):
 
 # ---------------------------------------------------------------- reading files and pairs
 
-def read_prose(fp, path):
+def read_prose(fp, path, units=None):
     """{file: [sentences]} for a file, or for every prose file under a directory. Directories whose names start with
-    a dot are skipped: the loop puts the previous version beside the draft in one."""
+    a dot are skipped: the loop puts the previous version beside the draft in one. units, when given, is filled with
+    {file: [paragraph number of each sentence]}."""
     path = Path(path)
     files = [path] if path.is_file() else sorted(
         p for p in path.rglob("*") if p.is_file() and not any(part.startswith(".") for part in p.relative_to(path).parts))
@@ -408,7 +424,11 @@ def read_prose(fp, path):
             continue
         t = read_text(fp, p)
         if t and t.strip():
-            out[p.name if path.is_file() else str(p.relative_to(path))] = sentences(t)
+            key = p.name if path.is_file() else str(p.relative_to(path))
+            pairs = sentence_units(t)
+            out[key] = [s for _, s in pairs]
+            if units is not None:
+                units[key] = [u for u, _ in pairs]
     return out
 
 
@@ -508,6 +528,105 @@ def carried(sentence, carriers):
     if q:
         out.append(f"qualifier '{q.group(0)}'")
     return out
+
+
+# A removal can take away what a later "the X" refers to (spec 2026-09-29-deletion-side-effects D1). On one manuscript
+# an abstract lost the only sentence that named its subject, and its last sentence, ten sentences on in the same
+# paragraph, still said "the <subject>"; a reader panel caught it, no check did. The rest of the paragraph is read with
+# no cap (five sentences would have missed that case); the whole file triples the hits and catches nothing more.
+# "that" is left out: in this prose it opens a clause far more often than it points back ("a baseline that knows").
+# At most one word between the determiner and the noun: two reach past the noun to a verb ("the collection already
+# records"). Every real case so far had none or one ("the same failure").
+REFERS = r"\b(?:the|this|these|those)\s+(?:[A-Za-z-]+\s+)?"
+NOT_NOUNS = {"first", "second", "third", "fourth", "fifth", "other", "others", "former", "latter", "same",
+             "following", "last", "next", "above", "below",
+             # modals and auxiliaries: "those scores cannot" is not a reference to "cannot"
+             "cannot", "could", "would", "should", "might", "must", "will", "does", "have", "been", "being"}
+
+
+def noun_key(w):
+    """A word as a noun to look for: lower case, a possessive dropped, a plural folded onto its singular."""
+    w = re.sub(r"['’]s?$", "", w.lower())
+    return w[:-1] if w.endswith("s") and not w.endswith("ss") and len(w) > 4 else w
+
+
+def names(key):
+    return re.compile(r"\b" + re.escape(key) + r"(?:s|es)?(?![a-z])", re.I)
+
+
+def lost_antecedents(removed, changes, base, units, target):
+    """{(file, removed sentence): [{phrase, sentence}]}: a later sentence of the same paragraph, kept or revised, that
+    says the/this/these + a noun of the removed sentence, when no earlier sentence of the file still names that noun."""
+    news_of = {}
+    for _, olds, news in changes:
+        for o in olds:
+            news_of.setdefault(o, []).extend(news)
+    out = {}
+    for f, r in removed:
+        ss, us, ts = base.get(f) or [], units.get(f) or [], target.get(f) or []
+        if r not in ss or not ts or len(us) != len(ss):
+            continue
+        i = ss.index(r)
+        keys = sorted({noun_key(w) for w in content(r) if len(w) >= 4} - NOT_NOUNS)
+        tn = [norm(t) for t in ts]
+        hits = []
+        for k in range(i + 1, len(ss)):
+            if us[k] != us[i]:
+                break
+            for t in ([ss[k]] if norm(ss[k]) in tn else news_of.get(ss[k], [])):
+                if norm(t) not in tn:
+                    continue
+                before = " ".join(ts[:tn.index(norm(t))])
+                for key in keys:
+                    # followed by an article, the word is a verb ("this manuscript addresses a question")
+                    m = re.search(REFERS + re.escape(key) + r"(?:s|es)?(?![a-z])(?!\s+(?:a|an|the)\b)", t, re.I)
+                    # one entry per noun phrase: "the candidate" and "the candidate pool" are one place to read
+                    if m and not names(key).search(before) and not any(
+                            h["sentence"] == t and (h["phrase"] in m.group(0) or m.group(0) in h["phrase"])
+                            for h in hits):
+                        hits.append({"phrase": m.group(0), "sentence": t})
+        if hits:
+            out[(f, r)] = hits
+    return out
+
+
+# A share that disagrees with the draft's other shares of the same total (D2). On one manuscript a denominator added for
+# clarity ("one of three later ...") sat against "two of the three later ..." elsewhere; the gate flagged the sentence
+# for a comma only. Listing every count of the same noun set about twenty unrelated sentences beside it; keeping the
+# total fixed and the share different left the ones that disagreed.
+COUNT_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+               "ten": 10, "eleven": 11, "twelve": 12}
+_N = r"(" + "|".join(COUNT_WORDS) + r"|\d+)"
+SHARE = re.compile(r"\b" + _N + r"\s+of\s+(?:the\s+)?" + _N + r"\s+(?:[A-Za-z-]+\s+){0,2}?([A-Za-z-]+s)\b", re.I)
+
+
+def _count(w):
+    return COUNT_WORDS.get(w.lower(), int(w) if w.isdigit() else None)
+
+
+def shares(s):
+    """[(share, total, noun, text)] for each "K of (the) N <noun>s" in a sentence."""
+    out = []
+    for m in SHARE.finditer(s):
+        k, n = _count(m.group(1)), _count(m.group(2))
+        if k is not None and n is not None and k <= n:
+            out.append((k, n, noun_key(m.group(3)), m.group(0)))
+    return out
+
+
+def shares_elsewhere(olds, news, draft):
+    """[{share, sentences}]: each share a new sentence gained whose noun and total the draft counts with another share."""
+    had = {(k, n, key) for o in olds for k, n, key, _ in shares(o)}
+    found = []
+    for s in news:
+        for k, n, key, text in shares(s):
+            if (k, n, key) in had:
+                continue
+            others = [t for t in draft if t not in news and
+                      any(n2 == n and key2 == key and k2 != k for k2, n2, key2, _ in shares(t))]
+            if others:
+                found.append({"share": text, "sentences": others})
+    return found
 
 
 def read_carriers(path):
@@ -747,37 +866,51 @@ def main():
         if not (a.target and a.base):
             die("give --target and --base (the version before the edit), or --pairs")
         target = read_prose(fp, a.target) if Path(a.target).exists() else {}
-        base = read_prose(fp, a.base) if Path(a.base).exists() else {}
+        units = {}
+        base = read_prose(fp, a.base, units) if Path(a.base).exists() else {}
         if not any(target.values()):
             die(f"no prose in the target {a.target}")
         if not any(base.values()):
             die(f"no prose in the base {a.base}: nothing to compare the draft with")
         changes, removed = pair_changes(target, base)
         compared = {"target_sentences": sum(map(len, target.values())), "base_sentences": sum(map(len, base.values()))}
+    # What a removal took with it and a share that disagrees need the whole draft; a pairs file has none.
+    lost = lost_antecedents(removed, changes, base, units, target) if not a.pairs else {}
+    draft = [s for ss in target.values() for s in ss] if not a.pairs else []
     venue = venue_distribution(fp, a.baseline, a.venue_cache) if a.baseline else None
     results = []
     for where, olds, news in changes:
         r = judge(olds, news, venue)
         r["where"] = where
+        found = shares_elsewhere(olds, news, draft) if draft else []
+        if found:
+            r["flags"].append("count_elsewhere")
+            r["shares_elsewhere"] = found
         if where in verdicts:
             r["verdict"], r["reason"] = verdicts[where]
         results.append(r)
     removed_flagged = 0
     for where, old in removed:
         what = carried(old, carriers)
-        if not what:
+        took = lost.get((where, old)) or []
+        if not what and not took:
             continue
         removed_flagged += 1
         results.append({"old": old, "new": "", "kind": "removed", "where": where, "features_old": features(old),
                         "features_new": None, "added": {}, "dense": [], "venue_percentile": {}, "carried": what,
-                        "flags": ["removed_carrier"], "pieces": 0, "olds": 1})
+                        "antecedent": took,
+                        "flags": (["removed_carrier"] if what else []) + (["took_antecedent"] if took else []),
+                        "pieces": 0, "olds": 1})
         if where in verdicts:
             results[-1]["verdict"], results[-1]["reason"] = verdicts[where]
     flagged = [r for r in results if r["flags"]]
     kinds = Counter(r["kind"] for r in results)
     compared.update({"changed": len(results) - removed_flagged, "revised": kinds["revised"], "split": kinds["split"],
                      "merged": kinds["merged"], "added": kinds["added"], "removed": len(removed),
-                     "removed_flagged": removed_flagged})
+                     "removed_flagged": removed_flagged,
+                     # counted apart (D3), so their volume on a real draft can be read
+                     "took_antecedent": sum(1 for r in results if "took_antecedent" in r["flags"]),
+                     "count_elsewhere": sum(1 for r in results if "count_elsewhere" in r["flags"])})
     unjudged = kinds["added"] if venue is None else 0   # judged against DEFAULT_CEILING, not a venue
     linked = Counter(t for r in results for t in r.get("links_added", []))
     out = {"schema_version": 2, "compared": compared, "changed": len(results) - removed_flagged, "flagged": len(flagged),
@@ -791,7 +924,9 @@ def main():
            "verdicts": verdict_table(results) if verdicts else None,
            "sentences": results,
            "issues": [{"where": r["where"], "flags": r["flags"], "added": r["added"], "new": r["new"],
-                       **({"old": r["old"], "carried": r["carried"]} if r["kind"] == "removed" else {})}
+                       **({"old": r["old"], "carried": r["carried"], "antecedent": r["antecedent"]}
+                          if r["kind"] == "removed" else {}),
+                       **({"shares_elsewhere": r["shares_elsewhere"]} if r.get("shares_elsewhere") else {})}
                       for r in flagged]}
     if a.json:
         print(json.dumps(out, ensure_ascii=False, indent=1))
@@ -808,8 +943,10 @@ def main():
                   + "(" + ", ".join(f"{k} {v}" for k, v in DEFAULT_CEILING.items()) + ")")
         for r in flagged:
             if r["kind"] == "removed":
-                print(f"\n[{r['where']}] removed: {', '.join(r['carried'])}")
+                print(f"\n[{r['where']}] removed: {', '.join(r['carried'] + ['took an antecedent'] * bool(r['antecedent']))}")
                 print(f"  was: {r['old']}")
+                for h in r["antecedent"]:
+                    print(f"  a later sentence still says '{h['phrase']}': {h['sentence']}")
                 continue
             fo, fn = r["features_old"], r["features_new"]
             size = f"{fo['words']}->{fn['words']} words" if fo else f"{fn['words']} words, added"
@@ -818,6 +955,10 @@ def main():
             if r["old"]:
                 print(f"  was: {r['old']}")
             print(f"  now: {r['new']}")
+            for x in r.get("shares_elsewhere") or []:
+                print(f"  '{x['share']}' beside the draft's other shares of the same total:")
+                for t in x["sentences"]:
+                    print(f"    {t}")
         if not results and not removed:
             print("no sentence changed")
         vt = out["verdicts"]
