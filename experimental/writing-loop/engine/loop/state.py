@@ -23,6 +23,7 @@ The ledger is Markdown, like the risk register:
     - 必须出现：<regex> ‖ <regex>    each must match at least one sentence
     - 必须出现：<regex> @ A, I1      ... in each named place (a label prefix: A the abstract, I1 its first paragraph)
     - 承载：<regex> ‖ <regex>        the sentences that state the claim, listed for a grill whether changed or not
+    - 限定词：<regex> ‖ <regex>      each must match every sentence 承载 finds: the allowed wording's qualifiers
     - 依据：<test or run>            required when the claim is a universal negation (no / none / never / 没有 ...)
     - 缺：N1、N2
 
@@ -30,6 +31,15 @@ The ledger is Markdown, like the risk register:
     - 类型：分析 | 出处 | 交付 | 写作 | 决定
     - 改变：C1
     - 状态：未做 | 在做 | 等作者 | 已做 YYYY-MM-DD <evidence> | 不做 YYYY-MM-DD <reason>
+
+    全称量词查：A、I1                 where universal quantifiers are held to a set (default: the abstract, A)
+    全称量词不查：<regex> ‖ <regex>   quantified phrases a person has read and let stand (each query ...)
+
+    ## 集合 S1 <what the set is>
+    - 名词：<regex>                   the noun a quantifier ranges over (encoders?)
+    - 定义：<regex>                   the sentence that says what is in the set
+    - 大小：<n>                       shown, not checked
+    - 集合外：<regex> ‖ <regex>       names of systems outside the set: a sentence using the noun with one is listed
 
 The whole draft is scanned, not what changed: a claim corrected in one section and left as it was in the abstract is
 the failure this exists for. Whatever cannot be read is said and counts against readiness, never skipped.
@@ -39,10 +49,13 @@ import os
 import re
 from pathlib import Path
 
-HEAD = re.compile(r"^##\s+(主张|待做)\s+(\S+)\s+(.+?)\s*$", re.M)
-FIELD = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?(证据|强度|允许的说法|越界|必须出现|承载|依据|缺|类型|改变|状态)(?:\*\*)?\s*[:：]\s*"
+HEAD = re.compile(r"^##\s+(主张|待做|集合)\s+(\S+)\s+(.+?)\s*$", re.M)
+FIELD = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?(证据|强度|允许的说法|越界|必须出现|承载|限定词|依据|缺|类型|改变|状态|名词|定义|大小|集合外)(?:\*\*)?\s*[:：]\s*"
                    r"(?:\*\*)?\s*(.*?)\s*$", re.M)
 STAGE = re.compile(r"^\s*(?:\*\*)?阶段(?:\*\*)?\s*[:：]\s*(.+?)\s*$", re.M)
+SCOPE_AT = re.compile(r"^\s*(?:\*\*)?全称量词查(?:\*\*)?\s*[:：]\s*(.+?)\s*$", re.M)
+SCOPE_SKIP = re.compile(r"^\s*(?:\*\*)?全称量词不查(?:\*\*)?\s*[:：]\s*(.+?)\s*$", re.M)
+SET_NEEDS = ("名词", "定义")
 STRENGTHS = ("强", "中", "弱", "未立", "推论", "范围")
 WEAK = ("弱", "未立")
 KINDS = ("分析", "出处", "交付", "写作", "决定")
@@ -65,6 +78,16 @@ CLOSING = re.compile(r"\bonly (?:the )?\w+(?: \w+)? differs?\b|\bno (?:other |no
                      r"\ball else (?:being )?equal\b|只有.{0,12}不同|没有.{0,8}线索(?:剩下|留下)|其余(?:都)?相同", re.I)
 REMAINING = re.compile(r"\b(cues?|shortcuts?|confound\w*|not control\w*|uncontrolled|leak\w*|residual)\b|线索|捷径|混淆|未控制|没有控制", re.I)
 PLACE_SEP = re.compile(r"\s+@\s+")
+# A universal quantifier and the words after it (09-28: an abstract said "every" of a kind of system; which systems
+# was said only far into the introduction, and the body used the same word for systems added later; an outside review
+# read it the wide way, while the reader panel, the changed-sentence check and the ledger had all passed it).
+QUANT = re.compile(r"\b(every|all|each|none of|no)\s+((?:[\w'-]+\s+){0,3}[\w'-]+)|"
+                   r"(所有|全部|任何|每一?[个位项种篇张条组]?)(\S{1,8})", re.I)
+QUANT_LEAD = {"of", "the", "our", "its", "their", "these", "those", "his", "her", "this", "that"}
+NUMERAL = re.compile(r"^(\d[\d,.]*|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
+                     r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|"
+                     r"ninety|hundred|[一二两三四五六七八九十百千0-9])", re.I)
+DEFAULT_SCOPE_AT = ["A"]
 
 NOT_READY = "未就绪"
 AUTHOR = "待作者终审"
@@ -107,10 +130,21 @@ def _must(text, where, problems):
 
 def parse(raw):
     """(stage, claims, todo, problems) from the ledger's text. Items quoted in a fenced block are examples."""
+    d = read_ledger(raw)
+    return d["stage"], d["claims"], d["todo"], d["problems"]
+
+
+def read_ledger(raw):
+    """The ledger as a dict: stage, claims, todo, sets, where quantifiers are held to a set (scope_at), the phrases let
+    stand (scope_skip) and problems."""
     text = re.sub(r"(?ms)^```.*?^```", "", raw)
-    problems, claims, todo = [], [], []
+    problems, claims, todo, sets = [], [], [], []
     m = STAGE.search(text)
     stage = m.group(1) if m else ""
+    m = SCOPE_AT.search(text)
+    scope_at = _ids(m.group(1)) if m else list(DEFAULT_SCOPE_AT)
+    m = SCOPE_SKIP.search(text)
+    scope_skip = _patterns(m.group(1), "全称量词不查", problems) if m else []
     heads = list(HEAD.finditer(text))
     if not heads:
         problems.append("清单里没有一项（要 `## 主张 <id> <主张>` 或 `## 待做 <id> <事>`）")
@@ -125,7 +159,15 @@ def parse(raw):
             problems.append(f"{kind} {iid} 重复了")
         seen.add(iid)
         where = f"{kind} {iid}"
-        if kind == "主张":
+        if kind == "集合":
+            missing = [k for k in SET_NEEDS if not fields.get(k)]
+            if missing:
+                problems.append(f"{where} 缺「{'、'.join(missing)}」")
+            nouns = _patterns(fields.get("名词"), where, problems)
+            defs = _patterns(fields.get("定义"), where, problems)
+            sets.append({"id": iid, "title": title, "noun": nouns, "define": defs, "size": fields.get("大小", ""),
+                         "outside": _patterns(fields.get("集合外"), where, problems)})
+        elif kind == "主张":
             must, places = _must(fields.get("必须出现"), where, problems)
             missing = [k for k in CLAIM_NEEDS if not fields.get(k)]
             strength = fields.get("强度", "")
@@ -137,7 +179,10 @@ def parse(raw):
                            "evidence": fields.get("证据", ""), "allowed": fields.get("允许的说法", ""),
                            "over": _patterns(fields.get("越界"), where, problems),
                            "must": must, "places": places, "carry": _patterns(fields.get("承载"), where, problems),
+                           "qualify": _patterns(fields.get("限定词"), where, problems),
                            "basis": fields.get("依据", ""), "needs": _ids(fields.get("缺"))})
+            if claims[-1]["qualify"] and not fields.get("承载"):
+                problems.append(f"{where} 写了限定词没写承载：限定词查的是承载句，没有承载就一句也查不到")
         else:
             missing = [k for k in TODO_NEEDS if not fields.get(k)]
             if missing:
@@ -166,7 +211,8 @@ def parse(raw):
         for n in t["changes"]:
             if n not in known_claims:
                 problems.append(f"待做 {t['id']} 改变的 {n} 不是清单里的主张")
-    return stage, claims, todo, problems
+    return {"stage": stage, "claims": claims, "todo": todo, "sets": sets, "scope_at": scope_at,
+            "scope_skip": scope_skip, "problems": problems}
 
 
 EXTRA_SCAN_VERSION = 1  # bump when extraction changes, so a cached scan is not reused
@@ -277,6 +323,72 @@ def question(claims, sentences, extra=()):
     return {"carrying": carrying, "negations": negations, "warnings": warnings, "closing": closing, "remaining": remaining}
 
 
+def _label(s):
+    return s.get("label") or s.get("sid") or "?"
+
+
+def _quantified(text):
+    """(the quantified phrase, the words it ranges over with articles dropped) for each universal quantifier."""
+    out = []
+    for m in QUANT.finditer(text or ""):
+        if m.group(1):
+            words = m.group(2).split()
+            while words and words[0].lower() in QUANT_LEAD:
+                words = words[1:]
+            out.append((m.group(0), " ".join(words[:3])))
+        else:
+            out.append((m.group(0), m.group(4)))
+    return out
+
+
+def scope(sets, places, skip, sentences, extra=()):
+    """Universal quantifiers held to a set (FOR-AWT encoder-scope 1). In the places named, every / all / each / no
+    + noun either says its size where it stands (all five systems) or ranges over a set in the ledger whose defining
+    sentence comes first; a set's noun used anywhere with a name outside the set is listed for a person to read."""
+    unscoped, early, undefined, outside = [], [], [], []
+    first = {}
+    for x in sets:
+        first[x["id"]] = next((i for i, s in enumerate(sentences)
+                               if any(rx.search(s.get("text") or "") for _, rx in x["define"])), None)
+        if x["define"] and first[x["id"]] is None:
+            undefined.append(x["id"])
+        if x["outside"]:
+            labels = [_label(s) for s in list(sentences) + list(extra)
+                      if any(rx.search(s.get("text") or "") for _, rx in x["noun"])
+                      and any(rx.search(s.get("text") or "") for _, rx in x["outside"])]
+            if labels:
+                outside.append({"set": x["id"], "labels": labels})
+    for i, s in enumerate(sentences):
+        if not any(in_place(_label(s), p) for p in places):
+            continue
+        for phrase, rest in _quantified(s.get("text")):
+            if not rest or NUMERAL.match(rest) or any(rx.search(phrase) for _, rx in skip):
+                continue
+            x = next((x for x in sets if any(rx.search(rest) for _, rx in x["noun"])), None)
+            if x is None:
+                unscoped.append({"label": _label(s), "phrase": phrase})
+            elif first[x["id"]] is not None and first[x["id"]] > i:
+                early.append({"set": x["id"], "label": _label(s), "phrase": phrase,
+                              "defined": _label(sentences[first[x["id"]]])})
+    return {"unscoped": unscoped, "early": early, "undefined": undefined, "outside": outside}
+
+
+def qualify(claims, sentences):
+    """Sentences that carry a claim without a qualifier its allowed wording needs (FOR-AWT encoder-scope 2: the
+    ledger's allowed wording named two qualifiers; a discussion sentence had neither and passed, because only 越界
+    and 必须出现 were patterns)."""
+    out = []
+    for c in claims:
+        if not c.get("qualify") or not c.get("carry"):
+            continue
+        for raw, rx in c["qualify"]:
+            labels = [_label(s) for s in sentences if any(r.search(s.get("text") or "") for _, r in c["carry"])
+                      and not rx.search(s.get("text") or "")]
+            if labels:
+                out.append({"claim": c["id"], "pattern": raw, "labels": labels})
+    return out
+
+
 def gates(cfg, st):
     """Required gates (config state.required_gates: words a gate's title must hold) not yet decided in the risk
     register. A person closes them; the loop only reports them open."""
@@ -305,6 +417,14 @@ def judge(st):
         blockers.append(f"越界 {len(labels)} 句")
     if st["absent"]:
         blockers.append("缺该有的说法 " + "、".join(sorted({a["claim"] for a in st["absent"]})))
+    if st.get("unqualified"):
+        blockers.append("承载句缺限定词 " + "、".join(sorted({u["claim"] for u in st["unqualified"]})))
+    if st.get("unscoped"):
+        blockers.append(f"全称量词没对集合 {len(st['unscoped'])} 处")
+    if st.get("early"):
+        blockers.append("集合在用之后才定义 " + "、".join(sorted({e["set"] for e in st["early"]})))
+    if st.get("undefined"):
+        blockers.append("集合的定义句找不到 " + "、".join(st["undefined"]))
     if st.get("negations"):
         blockers.append("全称否定没写依据 " + "、".join(st["negations"]))
     if st.get("gates_open"):
@@ -324,13 +444,16 @@ def compute(cfg, ws):
     p = Path(path).expanduser()
     st = {"configured": True, "path": str(p), "stage": "", "claims": [], "todo": [], "problems": [], "over": [],
           "absent": [], "index_head": None, "scan_problems": [], "carrying": {}, "negations": [], "warnings": [],
-          "closing": [], "remaining": [], "gates_open": [], "gates_wanted": [], "questioned": False}
+          "closing": [], "remaining": [], "gates_open": [], "gates_wanted": [], "questioned": False, "sets": [],
+          "scope_at": [], "unqualified": [], "unscoped": [], "early": [], "undefined": [], "outside": []}
     try:
         raw = p.read_text(encoding="utf-8")
     except OSError:
         st["problems"].append(f"主张清单读不到：{p}")
         return judge(st)
-    st["stage"], st["claims"], st["todo"], st["problems"] = parse(raw)
+    d = read_ledger(raw)
+    st.update(stage=d["stage"], claims=d["claims"], todo=d["todo"], problems=d["problems"], sets=d["sets"],
+              scope_at=d["scope_at"])
     from . import coverage as V
     sentences, st["index_head"] = V.current_sentences(ws)
     if sentences is None:
@@ -339,6 +462,8 @@ def compute(cfg, ws):
         extra = extra_sentences(cfg, st["index_head"], st["scan_problems"], ws)
         st["over"], st["absent"] = scan(st["claims"], sentences, extra)
         st.update(question(st["claims"], sentences, extra))
+        st["unqualified"] = qualify(st["claims"], sentences)
+        st.update(scope(d["sets"], d["scope_at"], d["scope_skip"], sentences, extra))
         st["questioned"] = True
     st["gates_open"] = gates(cfg, st)
     st["gates_wanted"] = list(((cfg.get("state") or {}).get("required_gates")) or [])
@@ -475,6 +600,8 @@ def table(st):
                        else f"      缺「{a['pattern']}」：整篇没有一句")
         if c["id"] in (st.get("carrying") or {}):
             out.append(f"      承载句：{'、'.join(st['carrying'][c['id']]) or '一句也没有'}")
+        for u in (x for x in st.get("unqualified") or [] if x["claim"] == c["id"]):
+            out.append(f"      承载句缺限定词「{u['pattern']}」：{'、'.join(u['labels'])}")
         if c["id"] in (st.get("negations") or []):
             out.append("      全称否定：要写「依据」（哪个检验、检验力多少）")
         for w in (x for x in st.get("warnings") or [] if x["claim"] == c["id"]):
@@ -483,6 +610,19 @@ def table(st):
             out.append(f"      缺：{'、'.join(c['needs'])}")
     for t in st["todo"]:
         out.append(f"  待做 {t['id']}  {t['kind'] or '?'}  {t['status'] or '?'}  {t['title']}")
+    for x in st.get("sets") or []:
+        out.append(f"  集合 {x['id']}  {x['title']}" + (f"（{x['size']}）" if x["size"] else ""))
+        for e in (y for y in st.get("early") or [] if y["set"] == x["id"]):
+            out.append(f"      {e['label']}「{e['phrase']}」用在定义（{e['defined']}）之前：写出数目，或把定义挪到前面")
+        if x["id"] in (st.get("undefined") or []):
+            out.append("      定义句找不到：「定义」的正则一句也没对上")
+        for o in (y for y in st.get("outside") or [] if y["set"] == x["id"]):
+            out.append(f"      名词用在集合外的系统上：{'、'.join(o['labels'])}——要人读，读者会不会把它们算进去")
+    for u in st.get("unscoped") or []:
+        out.append(f"  全称量词没对集合  {u['label']}「{u['phrase']}」：写出数目、登记集合，或读过后写进「全称量词不查」")
+    if st.get("questioned") and not st.get("unscoped") and not st.get("early"):
+        out.append(f"  全称量词：查过 {'、'.join(st.get('scope_at') or [])}，每一处都写了数目或对上了集合"
+                   "（只认 every / all / each / none of / no 与 所有 / 全部 / 任何 / 每）")
     # Silence is said as what it is. A workspace read these rules as not yet built because nothing of them showed:
     # no method sentence matched, and no gate was configured.
     if st.get("closing"):

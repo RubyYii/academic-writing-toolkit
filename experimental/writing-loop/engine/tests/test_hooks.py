@@ -793,7 +793,7 @@ class StateChangeTest(unittest.TestCase):
             from test_state import CLEAN
             ledger.write_text(CLEAN, encoding="utf-8")
             fifth = ctx_of(LH.handle(prompt_payload(repo, prompt_id="p5"), regs))
-            self.assertIn("上一条消息以来，论文状态有变化——论文状态 未就绪 → 待作者终审；已解：没立住 C2、越界 1 句。", fifth)
+            self.assertIn("上一条消息以来，论文状态有变化——论文状态 未就绪 → 待作者终审；已解：没立住 C2、越界 1 句、全称量词没对集合 1 处。", fifth)
 
     def test_through_willow_the_change_is_still_said_by_this_hook(self):
         from unittest import mock

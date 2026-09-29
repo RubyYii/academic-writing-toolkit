@@ -59,6 +59,7 @@ LEDGER = """# 主张清单
 """
 
 CLEAN = """阶段：终检
+全称量词不查：every bridge
 
 ## 主张 C1 两座桥的读数是 12
 - 证据：表 1
@@ -73,8 +74,8 @@ CLEAN = """阶段：终检
 """
 
 
-def setup(root, ledger=LEDGER):
-    repo = make_repo(root, [({"main.tex": MAIN, "sections/01_intro.tex": INTRO}, "v1", 1_700_000_000)])
+def setup(root, ledger=LEDGER, main=MAIN):
+    repo = make_repo(root, [({"main.tex": main, "sections/01_intro.tex": INTRO}, "v1", 1_700_000_000)])
     ws = workspace(root, repo, "main", glob=["main.tex", "sections/01_intro.tex"])
     cfg = C.load(ws)
     cfg["draft"]["format"] = "latex"
@@ -177,6 +178,84 @@ class StateTest(unittest.TestCase):
             line = S.line(S.compute(cfg, ws))
             self.assertTrue(line.startswith("论文状态：待作者终审（阶段：冻结，只收正确性）"), line)
             self.assertNotIn("阶段写成了一段话", line)
+
+    def test_a_universal_quantifier_in_the_abstract_says_its_size_or_names_a_set(self):
+        # 09-28: an abstract said "every" of a kind of system; which ones came much later, and the word was also used
+        # for systems added since. An outside review read it the wide way; every check had passed it.
+        with TempDir() as root:
+            ws, cfg = setup(root)
+            st = S.compute(cfg, ws)
+            self.assertEqual([(u["label"][0], u["phrase"]) for u in st["unscoped"]], [("A", "every bridge is safe")])
+            self.assertIn("全称量词没对集合 1 处", S.line(st))
+            self.assertIn("全称量词没对集合", S.table(st))
+        with TempDir() as root:
+            ws, cfg = setup(root, main=MAIN.replace("every bridge is safe", "all three gauges are sound"))
+            st = S.compute(cfg, ws)
+            self.assertEqual(st["unscoped"], [], "a quantifier that says its size is scoped where it stands")
+            self.assertIn("每一处都写了数目或对上了集合", S.table(st), "silence is said as what was looked at")
+        with TempDir() as root:
+            ws, cfg = setup(root, "全称量词不查：every bridge\n" + LEDGER)
+            self.assertEqual(S.compute(cfg, ws)["unscoped"], [], "a phrase a person has read and let stand")
+        with TempDir() as root:
+            ws, cfg = setup(root, "全称量词查：I\n" + LEDGER)
+            self.assertEqual(S.compute(cfg, ws)["unscoped"], [], "the places are the ledger's to name")
+
+    def test_a_set_used_before_it_is_defined_or_never_defined_is_said(self):
+        bridges = "\n## 集合 S1 测过的桥\n- 名词：bridges?\n- 定义：{define}\n- 大小：2\n"
+        with TempDir() as root:
+            ws, cfg = setup(root, LEDGER + bridges.format(define="Gauges on two bridges"))
+            st = S.compute(cfg, ws)
+            self.assertEqual(st["unscoped"], [])
+            [e] = st["early"]
+            self.assertEqual((e["set"], e["label"][0], e["defined"][0]), ("S1", "A", "I"))
+            self.assertIn("集合在用之后才定义 S1", S.line(st))
+            self.assertIn("用在定义", S.table(st))
+        with TempDir() as root:
+            ws, cfg = setup(root, LEDGER + bridges.format(define="audit a bridge survey"))
+            st = S.compute(cfg, ws)
+            self.assertEqual(st["early"], [], "defined in the abstract before the quantifier: in order")
+        with TempDir() as root:
+            ws, cfg = setup(root, LEDGER + bridges.format(define="a sentence nobody wrote"))
+            st = S.compute(cfg, ws)
+            self.assertEqual(st["undefined"], ["S1"])
+            self.assertIn("集合的定义句找不到 S1", S.line(st))
+        with TempDir() as root:
+            ws, cfg = setup(root, LEDGER + "\n## 集合 S1 测过的桥\n- 大小：2\n")
+            self.assertTrue(any("集合 S1 缺「名词、定义」" in p for p in S.compute(cfg, ws)["problems"]))
+
+    def test_the_sets_noun_used_with_a_name_outside_it_is_listed_for_a_person(self):
+        extra = "\n## 集合 S1 测过的桥\n- 名词：bridges?\n- 定义：audit a bridge survey\n- 集合外：gauges?\n"
+        with TempDir() as root:
+            ws, cfg = setup(root, CLEAN + extra)
+            st = S.compute(cfg, ws)
+            [o] = st["outside"]
+            self.assertEqual((o["set"], sorted({lab[0] for lab in o["labels"]})), ("S1", ["A", "I"]))
+            self.assertIn("名词用在集合外的系统上", S.table(st))
+            self.assertEqual(st["verdict"], S.AUTHOR, "reading it is a person's call, not a blocker")
+
+    def test_a_carrying_sentence_without_the_allowed_qualifier_is_said(self):
+        # 09-28: the allowed wording named two qualifiers; a discussion sentence had neither and passed, because only
+        # the forbidden and the required wordings were patterns.
+        c1 = "- 必须出现：do not test whether drivers"
+        with TempDir() as root:
+            ws, cfg = setup(root, CLEAN.replace("- 越界：three bridges", "- 越界：three bridges\n- 承载：two bridges\n"
+                                                                    "- 限定词：gauges? ‖ in 2025"))
+            st = S.compute(cfg, ws)
+            [u] = st["unqualified"]
+            self.assertEqual((u["claim"], u["pattern"], u["labels"][0][0]), ("C1", "in 2025", "I"))
+            self.assertEqual(st["verdict"], S.NOT_READY)
+            self.assertIn("承载句缺限定词 C1", S.line(st))
+            self.assertIn("承载句缺限定词「in 2025」", S.table(st))
+        with TempDir() as root:
+            ws, cfg = setup(root, LEDGER.replace(c1, c1 + "\n- 限定词：gauges?"))
+            st = S.compute(cfg, ws)
+            self.assertTrue(any("写了限定词没写承载" in p for p in st["problems"]), st["problems"])
+
+    def test_quantifiers_are_read_in_english_and_chinese(self):
+        self.assertEqual(S._quantified("We read all of the five gauges."), [("all of the five gauges", "five gauges")])
+        self.assertTrue(S.NUMERAL.match(S._quantified("所有五座桥都更稳")[0][1]))
+        self.assertEqual(S._quantified("每个仪表都更准")[0][1][:2], "仪表")
+        self.assertEqual(S._quantified("None of the gauges fails")[0][1], "gauges fails")
 
     def test_an_unreadable_ledger_is_not_read_as_fine(self):
         with TempDir() as root:
