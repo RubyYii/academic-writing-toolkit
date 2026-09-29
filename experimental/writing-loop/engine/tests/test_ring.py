@@ -263,20 +263,21 @@ class SeenStagesTest(unittest.TestCase):
         self.assertEqual(seg(r, "design")["state"], "done")
 
     def test_frozen_the_ring_has_four_stages_and_does_not_ask_for_a_panel(self):
-        rows = [row("fingerprint", V.OK, self.CHECK), dict(row("readers", V.STALE, "2026-01-01T00:00:00+00:00"), changed=40)]
+        # a correctness-sized change: a larger one breaks the freeze (FreezeEarnedTest)
+        rows = [row("fingerprint", V.OK, self.CHECK), dict(row("readers", V.STALE, "2026-01-01T00:00:00+00:00"), changed=3)]
         r = R.ring(summary(rows=rows), last_change_at=self.CHANGE, freeze=True,
                    landing={"commit": "abc1234", "at": "2026-01-02T12:00:00+00:00", "changed": False})
         self.assertEqual([s["key"] for s in r["segments"]], ["comment", "rewrite", "check", "land"])
         self.assertFalse(any(i["id"] == "readers" for s in r["segments"] for i in s["items"]), "no panel rerun")
-        self.assertEqual(r["frozenNote"], "冻结期不重读（改动 40 处）")
+        self.assertEqual(r["frozenNote"], "冻结期不重读（改动 3 处）")
         self.assertEqual(r["reached"], "land")
 
     def test_the_frozen_note_goes_out_on_the_card(self):
         from loop import lintel as LN
-        rows = [dict(row("readers", V.STALE, "2026-01-01T00:00:00+00:00"), changed=40)]
+        rows = [dict(row("readers", V.STALE, "2026-01-01T00:00:00+00:00"), changed=3)]
         out = LN._ring(summary(rows=rows), name="t", last_comment_at=None, last_change_at=None,
                        ring_inputs={"freeze": True})
-        self.assertEqual(out["frozenNote"], "冻结期不重读（改动 40 处）")
+        self.assertEqual(out["frozenNote"], "冻结期不重读（改动 3 处）")
         self.assertNotIn("frozenNote", LN._ring(summary(rows=rows), name="t", last_comment_at=None, last_change_at=None))
 
     def test_reached_and_current_are_two_things(self):
@@ -285,3 +286,33 @@ class SeenStagesTest(unittest.TestCase):
         r = R.ring(s, last_change_at=self.CHANGE, landing={"commit": "abc1234", "at": "2026-01-02T12:00:00+00:00",
                                                             "changed": False})
         self.assertEqual((r["reached"], r["current"]), ("land", "review"))
+
+
+class FreezeEarnedTest(unittest.TestCase):
+    """A freeze is earned by a quiet draft (09-29: the stage said 冻结 while paragraphs were rewritten; the ring read
+    four stages done and landed, the panel not to be re-read)."""
+    LAND = {"commit": "abc1234", "at": "2026-01-02T12:00:00+00:00", "changed": False}
+
+    def ring(self, changed):
+        rows = [row("fingerprint", V.OK, "2026-01-02T10:05:00+00:00"),
+                dict(row("readers", V.STALE, "2026-01-01T00:00:00+00:00"), changed=changed)]
+        s = dict(summary(rows=rows), readers_scope={"sentences": 800})
+        return R.ring(s, last_change_at="2026-01-02T10:00:00+00:00", freeze=True, landing=self.LAND)
+
+    def test_a_large_change_since_the_panel_breaks_the_freeze_and_asks(self):
+        r = self.ring(541)
+        self.assertIn("readers", [s["key"] for s in r["segments"]], "shown as a rewrite: the full ring")
+        self.assertTrue(any(i["id"] == "readers" for i in seg(r, "readers")["items"]), "the panel is a rerun again")
+        [ask] = [i for i in r["unhung"] if i["id"] == "冻结"]
+        self.assertTrue(ask["you"])
+        self.assertIn("541", ask["text"])
+        self.assertEqual(r["waiting"], 1)
+        self.assertEqual((seg(r, "land")["state"], seg(r, "land").get("note")), ("open", "还在改"),
+                         "ready to upload is not landed while the draft is being rewritten")
+        self.assertIn("按改稿显示", r["frozenNote"])
+
+    def test_a_correctness_sized_change_keeps_the_freeze(self):
+        r = self.ring(3)
+        self.assertEqual([s["key"] for s in r["segments"]], ["comment", "rewrite", "check", "land"])
+        self.assertFalse(any(i["id"] == "冻结" for i in r["unhung"]))
+        self.assertEqual(seg(r, "land")["state"], "done")

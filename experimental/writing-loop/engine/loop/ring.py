@@ -164,6 +164,17 @@ def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analy
       design     {"configured": bool, "at"}: the intent card and when it last changed (R3). Not configured: 设计 leaves
                  the ring.
       freeze     the manuscript is frozen (R5): four stages, and a stale reader panel is said, not hung as a rerun."""
+    # A freeze is earned by a quiet draft, not by the word in the ledger (09-29: the stage said 冻结 while the author
+    # rewrote paragraph by paragraph, 541 changes since the reader panel, and the ring read as four stages done, landed,
+    # nothing to re-run). More change since the panel than a correctness fix makes (the size the ring already calls
+    # small enough to accept without re-reading) and the ring is shown as a rewrite, with the contradiction to decide.
+    freeze_broken = None
+    if freeze:
+        rrow = next((r for r in (summary or {}).get("rows") or [] if r.get("id") == "readers"), None)
+        n = (rrow or {}).get("changed") or 0
+        total = ((summary or {}).get("readers_scope") or {}).get("sentences") or 0
+        if rrow is not None and rrow.get("status") != V.ACCEPTED and n > max(SMALL_MIN, round(total * SMALL_SHARE)):
+            freeze_broken, freeze = n, False
     stage_list = stages(analysis is not None and not freeze, freeze, design is None or bool(design.get("configured")))
     keys = {k for k, _, _ in stage_list}
     risks = (summary or {}).get("risks") or {}
@@ -193,6 +204,10 @@ def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analy
                                    "you": False})
     readers = next((r for r in rows if r.get("id") == "readers"), None)
     frozen_note = None
+    if freeze_broken:
+        frozen_note = f"阶段写着冻结，读者组之后改了 {freeze_broken} 处：按改稿显示"
+        unhung.append({"id": "冻结", "text": f"阶段写着冻结，读者组之后改了 {freeze_broken} 处",
+                       "detail": "改回改稿阶段（主张清单的阶段行），或确认这些都是正确性修补、接受这次过期", "you": True})
     if readers is not None and "readers" not in keys:
         # Frozen: a stale panel is said, with how much changed, and never asked for (R5).
         if readers.get("status") in NOT_CURRENT or _before(readers.get("last_at"), last_change_at):
@@ -217,7 +232,8 @@ def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analy
         mine = [d["at"] for d in decisions if _after(d.get("at"), since) and not _before(d.get("at"), last_change_at)]
         review_at = max(mine, key=_utc) if mine else None
     # 落稿 (R1): the build is ready and nothing the draft is made of changed since its commit.
-    land_at = landing.get("at") if landing and not landing.get("changed") and _after(landing.get("at"), since) else None
+    land_at = landing.get("at") if landing and not landing.get("changed") and _after(landing.get("at"), since) \
+        and not freeze_broken else None
     design_at = design.get("at") if design and design.get("configured") and _after(design.get("at"), since) else None
     happened = {
         "analysis": any(since is None or d >= str(since)[:10] for d in done_on) if analysis is not None else None,
@@ -235,6 +251,8 @@ def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analy
         notes["design"] = "这一轮没动"  # 意图卡这一轮没改：不是没做，也不是卡在这里
     if happened["land"] == "changed":
         notes["land"] = "改过了"  # 构建之后稿子又改了
+    elif freeze_broken and landing is not None:
+        notes["land"] = "还在改"  # 构建可上传，但稿子还在改：可上传不等于落稿
     segments = []
     for key, label, seen in stage_list:
         sight = seen
@@ -294,4 +312,4 @@ def ring(summary, *, last_comment_at=None, last_change_at=None, name=None, analy
         since_note = "还没有落稿或裁定：从头算起"
     return {"title": name, "since": since, "sinceNote": since_note, "frozen": bool(freeze), "frozenNote": frozen_note,
             "current": current, "latest": latest, "latest_at": latest_at, "reached": reached, "segments": segments, "unhung": unhung,
-            "waiting": len(open_), "closed": closed}
+            "waiting": len(open_) + (1 if freeze_broken else 0), "closed": closed}
