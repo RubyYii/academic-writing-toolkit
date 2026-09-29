@@ -73,6 +73,14 @@ class LostAntecedentTest(unittest.TestCase):
             d = gate(root, para(FILLER[0], gone, *later), para(FILLER[0], *later))
             self.assertEqual(flags(d, "took_antecedent"), [])
 
+    def test_a_participle_after_a_noun_is_not_a_noun(self):
+        # "the sensors added later" was taken to point back to a removed "was added afterwards"
+        with TempDir() as root:
+            gone = "The comparison was added afterwards."
+            d = gate(root, para(FILLER[0], gone, "Only the sensors added later read the deck."),
+                     para(FILLER[0], "Only the sensors added later read the deck."))
+            self.assertEqual(flags(d, "took_antecedent"), [])
+
     def test_a_revised_later_sentence_is_read_too(self):
         with TempDir() as root:
             d = gate(root, para(INTRO, FILLER[0], LAST),
@@ -118,12 +126,74 @@ class ShareElsewhereTest(unittest.TestCase):
             self.assertEqual(flags(json.loads(r.stdout), "count_elsewhere"), [])
 
 
+def gate_files(root, base, target):
+    b, t = Path(root) / "base", Path(root) / "target"
+    for d, files in ((b, base), (t, target)):
+        for name, text in files.items():
+            (d / name).parent.mkdir(parents=True, exist_ok=True)
+            (d / name).write_text("\\section{" + name[:-4] + "}\n" + text + "\n", encoding="utf-8")
+    r = subprocess.run([sys.executable, str(GATE), "--base", str(b), "--target", str(t), "--json"],
+                       capture_output=True, text=True)
+    assert r.returncode in (0, 1), r.stderr[-400:]
+    return json.loads(r.stdout)
+
+
+SAME = "Ten of the eighteen gauges differ from their drawings beyond rounding."
+
+
+class DuplicateTest(unittest.TestCase):
+    """FOR-AWT 46: a round that removed repeated statements wrote a sentence that matched another letter for letter."""
+
+    def test_a_rewrite_that_matches_another_sentence_but_for_a_reference_is_flagged(self):
+        with TempDir() as root:
+            d = gate_files(root, {"a.tex": para(FILLER[0], SAME), "b.tex": para(FILLER[1], "Some gauges were replaced in May.")},
+                           {"a.tex": para(FILLER[0], SAME),
+                            "b.tex": para(FILLER[1], SAME[:-1] + " (Section~\\ref{sec:a}).")})
+            [s] = flags(d, "duplicates_elsewhere")
+            self.assertEqual(s["duplicates"], [{"where": "a.tex", "sentence": SAME}])
+            self.assertEqual(d["compared"]["duplicates_elsewhere"], 1)
+
+    def test_a_verbatim_copy_is_found_by_count(self):
+        with TempDir() as root:
+            d = gate_files(root, {"a.tex": para(FILLER[0], SAME), "b.tex": FILLER[1]},
+                           {"a.tex": para(FILLER[0], SAME), "b.tex": para(FILLER[1], SAME)})
+            [s] = flags(d, "duplicates_elsewhere")
+            self.assertEqual((s["kind"], s["where"], s["duplicates"]), ("copied", "b.tex", [{"where": "a.tex", "sentence": SAME}]),
+                             "reported where the copy landed, beside where it already stood")
+
+    def test_a_move_is_not_a_copy(self):
+        with TempDir() as root:
+            d = gate_files(root, {"a.tex": para(FILLER[0], SAME), "b.tex": FILLER[1]},
+                           {"a.tex": FILLER[0], "b.tex": para(FILLER[1], SAME)})
+            self.assertEqual(flags(d, "duplicates_elsewhere"), [])
+
+    def test_a_repeat_the_base_already_had_is_not_flagged(self):
+        with TempDir() as root:
+            both = {"a.tex": para(FILLER[0], SAME), "b.tex": para(FILLER[1], SAME)}
+            d = gate_files(root, both, {**both, "a.tex": para(FILLER[2], SAME)})
+            self.assertEqual(flags(d, "duplicates_elsewhere"), [])
+
+    def test_a_short_sentence_is_not_compared(self):
+        with TempDir() as root:
+            short = "Results are shown below."
+            d = gate_files(root, {"a.tex": para(FILLER[0], short), "b.tex": FILLER[1]},
+                           {"a.tex": para(FILLER[0], short), "b.tex": para(FILLER[1], short)})
+            self.assertEqual(flags(d, "duplicates_elsewhere"), [])
+
+
 class LoopSummaryTest(unittest.TestCase):
     def test_the_loop_names_the_new_flags_apart(self):
         with TempDir() as root:
             d = gate(root, para(INTRO, FILLER[0], LAST), para(FILLER[0], LAST))
             _, summary = V.interpret("sentence-changes", 1, json.dumps(d), "")
             self.assertIn("删句后指代可能落空 1", summary)
+
+    def test_the_loop_names_a_duplicate(self):
+        with TempDir() as root:
+            d = gate_files(root, {"a.tex": para(FILLER[0], SAME), "b.tex": FILLER[1]},
+                           {"a.tex": para(FILLER[0], SAME), "b.tex": para(FILLER[1], SAME)})
+            _, summary = V.interpret("sentence-changes", 1, json.dumps(d), "")
+            self.assertIn("与别处一字不差 1", summary)
 
 
 if __name__ == "__main__":

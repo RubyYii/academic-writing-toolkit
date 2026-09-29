@@ -414,6 +414,8 @@ def interpret(check_id, code, stdout, stderr):
                 summary += f"；删句后指代可能落空 {compared['took_antecedent']}"
             if compared.get("count_elsewhere"):
                 summary += f"；比例与别处对不上 {compared['count_elsewhere']}"
+            if compared.get("duplicates_elsewhere"):
+                summary += f"；与别处一字不差 {compared['duplicates_elsewhere']}"
         elif "total" in data and "unit" in data and isinstance(data.get("chapters"), list):
             summary = f"{data['total']} 词（{len(data['chapters'])} 个文件）"
         elif "hard_finding_count" in data:

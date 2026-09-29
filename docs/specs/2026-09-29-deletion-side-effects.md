@@ -166,3 +166,23 @@ The per-sentence readings are kept in the private workspace, not here.
   - Pronouns (it, they) that lost their antecedent.
   - Nouns dropped from a revised sentence.
   - Both are named in the gate's limits line.
+
+## After release (2026-09-29): two changes from the first real round
+
+The manuscript's own session reported both, each with a reproduction, after the first round of part-by-part rewriting
+under the new gate. In that round `took_antecedent` caught three real cases, and `count_elsewhere` did not fire.
+
+- **A past participle is not a noun.** Removing a sentence that said something "was added afterwards" flagged a later
+  "the <things> added later". Words ending in -ed (not -eed) are no longer taken for nouns.
+- **`duplicates_elsewhere`.** A sentence rewritten while removing repetition came out matching a sentence of another
+  section, differing only by a cross-reference, and the gate flagged a parenthesis.
+  - A changed or added sentence of six words or more is now compared with every other sentence of the draft, on
+    letters and digits alone. A parenthesis left empty by a removed `\ref` ("(Section )") does not count as a
+    difference.
+  - Pairing takes a sentence the base already had as unchanged, so a verbatim copy is found by count instead: the draft
+    holds the sentence more often than the base did. A move keeps the count, so it is not flagged.
+  - The copy is reported in the file that gained it.
+  - A repeat reworded rather than copied is not seen. The limits line says so.
+- **Replay** (read only): the reported case is flagged, and the participle case no longer is. Over 46 commits, 4
+  sentences were flagged as duplicates, each a verbatim cross-section repeat. The other flags are unchanged.
+- **Tests:** 7 more in `test_deletion_gate.py` (4 red on the previous gate), and 8 more mutations.
