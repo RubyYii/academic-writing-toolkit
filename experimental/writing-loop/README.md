@@ -107,7 +107,13 @@ is wrong". So the line now starts with the paper's state, read from a claims led
 
 - **主张** items: each claim, where the evidence is, its strength (强 / 中 / 弱 / 未立 / 推论 / 范围), the strongest
   wording the evidence allows, optional regexes for wordings that go beyond it (`越界`) or must be present
-  (`必须出现`), and the work items it waits on (`缺`).
+  (`必须出现`), the sentences that state it (`承载`) and qualifiers each of those sentences must keep (`限定词`),
+  and the work items it waits on (`缺`).
+- **集合** items: the set a universal quantifier ranges over (the systems compared, say): its noun, the sentence that
+  defines it, its size, and names outside it that the same noun might be read to cover. In the abstract (or the
+  places `全称量词查：` names), every / all / each / none of / no + noun must either say its size where it stands
+  ("all five systems") or range over a set whose defining sentence comes first. A sentence using the set's noun with
+  a name outside the set is listed for a person to read. Phrases read and let stand go in `全称量词不查：`.
 - **待做** items: work that changes a claim, typed 分析 / 出处 / 交付 / 写作 / 决定, so an analysis or a source to find
   sits in the same queue as rewriting. Closing one takes a date and the evidence (`已做 YYYY-MM-DD …`) or the reason
   (`不做 YYYY-MM-DD …`).
@@ -116,7 +122,8 @@ is wrong". So the line now starts with the paper's state, read from a claims led
   stop and said: the account belongs in the revision log, the open work in the conversation's list.
 
 The verdict is 未就绪 while any claim is weak or unestablished, any sentence **of the whole draft** (not just what
-changed) matches a `越界` pattern, a required wording is missing, the ledger cannot be read, or a work item is open.
+changed) matches a `越界` pattern, a required wording is missing, a sentence carrying a claim drops one of its
+qualifiers, a universal quantifier is not held to a set, the ledger cannot be read, or a work item is open.
 Otherwise it is 待作者终审. There is no green: whether the paper can be submitted is the author's decision. The line
 names the next open items in the ledger's order, and the overview's first 待办 cell shows the same verdict. Without
 a ledger the line says the loop does not know whether the claims stand.
@@ -170,6 +177,9 @@ author's call.
 - Trigger inference is a heuristic. A change set whose rows point to more than one trigger, or mix a trigger with "not traceable", is marked *mixed* rather than resolved.
 - The paper state is only as good as the ledger. `越界` patterns are regexes the author or agent writes; a claim put
   another way gets past them. The state says what the ledger records; it does not judge a claim itself.
+- Qualifiers are checked within the sentence 承载 finds; a qualifier stated in the sentence before does not count.
+  Universal quantifiers are found by their words only (every / all / each / none of / no, 所有 / 全部 / 任何 / 每);
+  "the encoders outperform" with no quantifier ranges over a set just as widely and is not seen.
 - The ledger check is string matching against saved source text. It shows that a quoted span exists in the source, not that the sentence represents the source faithfully.
 - Messages and card text are currently in Chinese.
 - There is no Windows support yet: `bin/loop` is a POSIX shell script and health.json locking uses `fcntl`.
