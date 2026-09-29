@@ -784,7 +784,7 @@ MUTATIONS = [
      'test_method_ledger.MethodLedgerInTheLoop.test_not_turned_on_is_not_a_rerun_or_a_gap'),
     ("method", 'coverage.py', ' and not r.get("instead") and not r.get("optin")]', ' and not r.get("instead")]',
      'test_method_ledger.MethodLedgerInTheLoop.test_not_turned_on_is_not_a_rerun_or_a_gap'),
-    ("method", 'catalogue.py', '        args += ["--state", str(Path(ctx["ws"]) / "cache" / "coverage" / "method-ledger-ids.json")]', '        pass',
+    ("method", 'catalogue.py', '        args += ["--state", str(state)]', '        pass',
      'test_method_ledger.MethodLedgerInTheLoop.test_the_check_runs_from_the_config_and_says_what_it_found'),
     # 刘海环（spec 2026-09-29-ring-rounds-and-stages）：拿掉一处，环就又只能停在读者组、落稿点不亮、冻结期照催重读。
     ("ring2", 'ring.py', '    land_at = landing.get("at") if landing and not landing.get("changed") and _after(landing.get("at"), since) \\\n        and not freeze_broken else None', '    land_at = None',
@@ -977,6 +977,25 @@ MUTATIONS = [
      'test_deletion_gate.DuplicateTest.test_a_short_sentence_is_not_compared'),
     ('deletion', 'coverage.py', '            if compared.get("duplicates_elsewhere"):', '            if False:',
      'test_deletion_gate.LoopSummaryTest.test_the_loop_names_a_duplicate'),
+    # loop precheck：提交前在工作区上跑全部检查、什么都不写（FOR-AWT 47）
+    ('precheck', 'coverage.py', '    if record:\n        save_run(ws, rec)\n    return rec', '    if True:\n        save_run(ws, rec)\n    return rec',
+     'test_precheck.PrecheckTest.test_an_uncommitted_edit_that_turns_a_check_red_is_said_and_nothing_is_written'),
+    ('precheck', 'coverage.py', '    sha = (_git(cfg["repo"], "stash", "create") or "").strip()', '    sha = ""',
+     'test_precheck.PrecheckTest.test_an_uncommitted_edit_that_turns_a_check_red_is_said_and_nothing_is_written'),
+    ('precheck', 'coverage.py', '               "precheck": not record}', '               "precheck": False}',
+     'test_precheck.PrecheckTest.test_an_uncommitted_edit_that_turns_a_check_red_is_said_and_nothing_is_written'),
+    ('precheck', 'coverage.py', '        elif lv in (None, "ok"):\n            group = PRE_RED', '        elif False:\n            group = PRE_RED',
+     'test_precheck.PrecheckTest.test_an_uncommitted_edit_that_turns_a_check_red_is_said_and_nothing_is_written'),
+    ('precheck', 'coverage.py', '        elif ls != s:\n            group = PRE_CHANGED', '        elif False:\n            group = PRE_CHANGED',
+     'test_precheck.PrecheckTest.test_a_finding_that_reads_differently_has_changed_and_one_that_does_not_is_still'),
+    ('precheck', 'coverage.py', '        if r["status"] in (NOT_APPLICABLE, MISSING, WAIVED):\n            continue', '        if False:\n            continue',
+     'test_precheck.PrecheckTest.test_a_clean_tree_is_checked_at_head_and_a_check_not_configured_is_left_out'),
+    ('precheck', 'catalogue.py', '        if ctx.get("precheck"):\n            # a precheck reads', '        if False:\n            # a precheck reads',
+     'test_precheck.PrecheckTest.test_the_method_ledger_works_on_a_copy_of_its_state'),
+    ('precheck', 'cli.py', '    return 1 if any(c["group"] in (V.PRE_RED, V.PRE_CHANGED, V.PRE_FAILED) for c in res["checks"]) else 0', '    return 1 if any(c["group"] in (V.PRE_CHANGED, V.PRE_FAILED) for c in res["checks"]) else 0',
+     'test_precheck.PrecheckTest.test_the_command_exits_1_when_a_check_would_turn_red'),
+    ('precheck', 'coverage.py', '            + f"\\n其余检查提交后才更新；提交前要看它们，跑 loop precheck {ws}。")', '            )',
+     'test_removals.RemovalTest.test_a_removed_sentence_that_carried_a_required_wording_holds_the_turn_until_accepted'),
 ]
 
 

@@ -32,6 +32,7 @@ bin/loop ack <workspace>             # the author has seen the refused writes an
 bin/loop bench                       # event -> updated index, through the hook path, on a throwaway workspace
 bin/loop lintel <workspace>          # resident notch producer: reads index/, syncs cards, keeps the heartbeat
 bin/loop state <workspace>           # whether the paper's claims stand (exit 0 only at 待作者终审)
+bin/loop precheck <workspace>        # every script check on the uncommitted working tree, recording nothing (exit 1 if one would turn red)
 ```
 
 Rebuilds reuse two caches under `cache/`: per-transition alignments (keyed by the sentences and the engine code) and a per-file record of which session files hold the branch. `rebuild --check` gives the same bytes with or without them, and an unreadable cache file is recomputed rather than trusted.

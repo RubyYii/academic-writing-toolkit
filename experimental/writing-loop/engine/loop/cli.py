@@ -205,6 +205,26 @@ def cmd_coverage(a):
     return 1 if (V.attention(s) or (s.get("target") or {}).get("problems")) else 0
 
 
+def cmd_precheck(a):
+    """Every script check on the working tree before a commit, recording nothing. Exit 1 when a check would turn red
+    at the commit, reads differently from its last record, or cannot run."""
+    from . import coverage as V
+    try:
+        cfg = C.load(a.workspace)
+    except (OSError, ValueError) as e:
+        print(f"precheck：读不出工作区配置：{e}", file=sys.stderr)
+        return 2
+    only = set(a.only.split(",")) if a.only else None
+    res = V.precheck(cfg, a.workspace, only=only)
+    if a.json:
+        print(json.dumps(res, ensure_ascii=False, indent=1))
+    else:
+        print(V.precheck_text(res, cfg.get("name") or a.workspace))
+    if res.get("error"):
+        return 2
+    return 1 if any(c["group"] in (V.PRE_RED, V.PRE_CHANGED, V.PRE_FAILED) for c in res["checks"]) else 0
+
+
 def cmd_state(a):
     """Whether the paper's claims stand: the claims ledger against the whole draft. Exit 0 only at 待作者终审."""
     from . import state as S
@@ -455,6 +475,13 @@ def main(argv=None):
     v.add_argument("--only", help="comma-separated check ids to run")
     v.add_argument("--json", action="store_true")
     v.set_defaults(fn=cmd_coverage)
+
+    pc = sub.add_parser("precheck", help="run every script check on the working tree before a commit, recording "
+                                         "nothing (exit 1 if one would turn red or change)")
+    pc.add_argument("workspace")
+    pc.add_argument("--only", help="comma-separated check ids")
+    pc.add_argument("--json", action="store_true")
+    pc.set_defaults(fn=cmd_precheck)
 
     st = sub.add_parser("state", help="whether the paper's claims stand: the claims ledger against the whole draft")
     st.add_argument("workspace")
