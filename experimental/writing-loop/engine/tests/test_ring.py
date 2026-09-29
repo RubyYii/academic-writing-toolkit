@@ -209,3 +209,79 @@ class AnalysisStageTest(unittest.TestCase):
         before = [{"id": "N1", "title": "五个模型跑遮字", "closed": True, "status": "已做 2026-01-20 run-5"}]
         self.assertEqual(seg(R.ring(summary(decided=decided), analysis=before), "analysis")["state"], "unseen",
                          "an analysis done before the round began is not this round's")
+
+
+class SeenStagesTest(unittest.TestCase):
+    """Spec 2026-09-29-ring-rounds-and-stages: every stage on the ring is seen or is not on it; a round ends at a
+    landing or a decision; a frozen manuscript gets four stages. Synthetic times throughout."""
+    CHANGE, CHECK, READ = "2026-01-02T10:00:00+00:00", "2026-01-02T10:05:00+00:00", "2026-01-02T11:00:00+00:00"
+
+    def base(self, **kw):
+        rows = [row("fingerprint", V.OK, self.CHECK), dict(row("readers", V.OK, self.READ), changed=0)]
+        return R.ring(summary(rows=rows), last_comment_at="2026-01-02T09:00:00+00:00", last_change_at=self.CHANGE, **kw)
+
+    def test_without_the_new_inputs_the_ring_stands_at_the_reader_panel(self):
+        # The failure the author asked about: nothing past 读者组 can light up.
+        r = self.base()
+        self.assertEqual(r["reached"], "readers")
+        self.assertEqual((seg(r, "review")["state"], seg(r, "land")["state"]), ("open", "unseen"))
+
+    def test_a_ready_build_at_the_current_draft_lights_the_landing(self):
+        r = self.base(landing={"commit": "abc1234", "at": "2026-01-02T12:00:00+00:00", "changed": False})
+        self.assertEqual((seg(r, "land")["state"], seg(r, "land")["seen"]), ("done", R.SEEN))
+        self.assertEqual(r["reached"], "land")
+
+    def test_a_draft_changed_after_the_build_says_so(self):
+        r = self.base(landing={"commit": "abc1234", "at": "2026-01-02T08:00:00+00:00", "changed": True})
+        self.assertEqual((seg(r, "land")["state"], seg(r, "land").get("note")), ("open", "改过了"))
+        self.assertNotEqual(r["reached"], "land")
+
+    def test_a_decision_after_the_last_change_is_the_review(self):
+        r = self.base(decisions=[{"id": "D1", "at": "2026-01-02T11:30:00+00:00"}])
+        self.assertEqual(seg(r, "review")["state"], "done")
+        self.assertEqual(r["reached"], "review")
+        r = self.base(decisions=[{"id": "D1", "at": "2026-01-02T09:30:00+00:00"}])
+        self.assertEqual(seg(r, "review")["state"], "open", "decided before the last rewrite: not a review of it")
+
+    def test_a_round_starts_after_the_latest_landing_or_decision_once_something_moves(self):
+        land = {"commit": "abc1234", "at": "2026-01-01T12:00:00+00:00", "changed": True}
+        r = self.base(landing=land, decisions=[{"id": "D0", "at": "2025-12-30T12:00:00+00:00"}])
+        self.assertEqual(r["since"], land["at"], "the draft moved after the landing: a new round from it")
+        self.assertIn("落稿或裁定", r["sinceNote"])
+        r = self.base(landing={"commit": "abc1234", "at": "2026-01-02T12:00:00+00:00", "changed": False},
+                      decisions=[{"id": "D0", "at": "2025-12-30T12:00:00+00:00"}])
+        self.assertEqual(r["since"], "2025-12-30T12:00:00+00:00", "nothing moved since the landing: its round is shown")
+
+    def test_without_an_intent_card_design_leaves_the_ring(self):
+        r = self.base(design={"configured": False, "at": None})
+        self.assertNotIn("design", [s["key"] for s in r["segments"]])
+        r = self.base(design={"configured": True, "at": "2025-06-01T00:00:00+00:00"},
+                      decisions=[{"id": "D0", "at": "2025-12-30T12:00:00+00:00"}])
+        self.assertEqual((seg(r, "design")["state"], seg(r, "design").get("note")), ("unseen", "这一轮没动"))
+        self.assertNotEqual(r["current"], "design", "an untouched intent card is not where the round waits")
+        r = self.base(design={"configured": True, "at": "2026-01-02T08:00:00+00:00"})
+        self.assertEqual(seg(r, "design")["state"], "done")
+
+    def test_frozen_the_ring_has_four_stages_and_does_not_ask_for_a_panel(self):
+        rows = [row("fingerprint", V.OK, self.CHECK), dict(row("readers", V.STALE, "2026-01-01T00:00:00+00:00"), changed=40)]
+        r = R.ring(summary(rows=rows), last_change_at=self.CHANGE, freeze=True,
+                   landing={"commit": "abc1234", "at": "2026-01-02T12:00:00+00:00", "changed": False})
+        self.assertEqual([s["key"] for s in r["segments"]], ["comment", "rewrite", "check", "land"])
+        self.assertFalse(any(i["id"] == "readers" for s in r["segments"] for i in s["items"]), "no panel rerun")
+        self.assertEqual(r["frozenNote"], "冻结期不重读（改动 40 处）")
+        self.assertEqual(r["reached"], "land")
+
+    def test_the_frozen_note_goes_out_on_the_card(self):
+        from loop import lintel as LN
+        rows = [dict(row("readers", V.STALE, "2026-01-01T00:00:00+00:00"), changed=40)]
+        out = LN._ring(summary(rows=rows), name="t", last_comment_at=None, last_change_at=None,
+                       ring_inputs={"freeze": True})
+        self.assertEqual(out["frozenNote"], "冻结期不重读（改动 40 处）")
+        self.assertNotIn("frozenNote", LN._ring(summary(rows=rows), name="t", last_comment_at=None, last_change_at=None))
+
+    def test_reached_and_current_are_two_things(self):
+        # R6: how far the round got, and where it waits, are both exported.
+        s = summary(open_=[risk("风险", "E1", "改稿核对页")], rows=[row("fingerprint", V.OK, self.CHECK)])
+        r = R.ring(s, last_change_at=self.CHANGE, landing={"commit": "abc1234", "at": "2026-01-02T12:00:00+00:00",
+                                                            "changed": False})
+        self.assertEqual((r["reached"], r["current"]), ("land", "review"))
