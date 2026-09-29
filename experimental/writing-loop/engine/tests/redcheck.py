@@ -814,6 +814,8 @@ MUTATIONS = [
      'test_ringinputs.RingInputsTest.test_a_decision_is_timed_by_its_message_and_a_miss_is_not_rescanned'),
     ("ring2", 'ringinputs.py', '    return any(stage.startswith(w) for w in words)', '    return False',
      'test_ringinputs.RingInputsTest.test_a_freeze_is_read_from_the_ledger_stage_or_forced'),
+    ("ring2", 'lintel.py', '    if r.get("frozenNote"):', '    if False:',
+     'test_ring.SeenStagesTest.test_the_frozen_note_goes_out_on_the_card'),
     ("ring2", 'cli.py', '        ring_inputs = RI.gather(cfg, a.workspace, cov, problems) if cov else None', '        ring_inputs = None',
      'test_lintel.CliAnalysisStageTest.test_with_the_analysis_stage_on_the_card_carries_the_ledgers_open_analysis'),
     # 生成物对照（spec 2026-09-25-generated-copies-and-float-reviews）：数据仓按 HEAD 提交读，行由检查自己的一句话说。

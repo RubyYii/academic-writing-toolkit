@@ -1,6 +1,6 @@
 # The manuscript ring: stages that can be seen, rounds that end, and a freeze mode
 
-Status: implemented on the loop side (author approved Q1–Q3 as recommended, 2026-09-29; unit tests and red check pass locally; CI not run). R6's two labels in lintel itself are not done.
+Status: implemented (author approved Q1–Q3 as recommended, 2026-09-29; loop and lintel tests and red checks pass locally; lintel screenshots taken; CI not run)
 
 Takes over two items that `2026-09-25-review-gap-closure.md` §4.6 left as design only:
 - a way for 落稿 to be seen;
@@ -143,10 +143,11 @@ landing or a review, whichever came later. A frozen manuscript gets a shorter ri
   looked for again only when the transcripts have grown.
 - An intent card not changed within the round is drawn "not seen" with the note 这一轮没动, so the round never waits
   on it. A landing followed by a draft change is "not yet" with the note 改过了.
-- The frozen panel note (`frozenNote`) is not exported to lintel yet: lintel rejects unknown fields, so it waits for
-  the lintel side. The per-turn coverage line still lists the stale panel, as the spec asked.
-- R6 on the loop side is the existing `reached` and `current` fields. lintel still draws one square; the 走到 / 卡在
-  labels are the next step, with screenshots.
+- The frozen panel note goes out as `frozenNote`. lintel rejects unknown fields, so a host that accepts it must run
+  before a loop that exports it: lintel first, then the loop. The per-turn coverage line still lists the stale panel.
+- R6: lintel writes 走到 at `reached` and 卡在 at `current` when they differ, coloured by that stage's state; on a
+  seven-stage ring an adjacent 卡在 is left to its coloured node, on four or five stages it is written. The legend's
+  做到这里 is 走到.
 
 ## Acceptance on one real workspace (2026-09-29, read only)
 
@@ -155,3 +156,6 @@ landing or a review, whichever came later. A frozen manuscript gets a shorter ri
   not re-read in a freeze. Every decided register item was timed by its message.
 - Minutes later the manuscript committed a text change after that build; 落稿 then read 改过了.
 - A card carrying the new ring passes lintel's own validator.
+- Screenshots of lintel's own window (current appearance only; the system appearance was not changed): the real card
+  written by the loop at this branch (four stages, 走到 落稿, the frozen note, no rerun), and a synthetic variant with
+  one stage stale to show 卡在. Light and dark were not both taken.

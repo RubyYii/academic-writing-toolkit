@@ -271,6 +271,14 @@ class SeenStagesTest(unittest.TestCase):
         self.assertEqual(r["frozenNote"], "冻结期不重读（改动 40 处）")
         self.assertEqual(r["reached"], "land")
 
+    def test_the_frozen_note_goes_out_on_the_card(self):
+        from loop import lintel as LN
+        rows = [dict(row("readers", V.STALE, "2026-01-01T00:00:00+00:00"), changed=40)]
+        out = LN._ring(summary(rows=rows), name="t", last_comment_at=None, last_change_at=None,
+                       ring_inputs={"freeze": True})
+        self.assertEqual(out["frozenNote"], "冻结期不重读（改动 40 处）")
+        self.assertNotIn("frozenNote", LN._ring(summary(rows=rows), name="t", last_comment_at=None, last_change_at=None))
+
     def test_reached_and_current_are_two_things(self):
         # R6: how far the round got, and where it waits, are both exported.
         s = summary(open_=[risk("风险", "E1", "改稿核对页")], rows=[row("fingerprint", V.OK, self.CHECK)])
