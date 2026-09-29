@@ -29,6 +29,8 @@ The ledger is Markdown, like the risk register:
 
     ## 待做 N1 <what>
     - 类型：分析 | 出处 | 交付 | 写作 | 决定
+    - 节：W、sections/02_x.tex        a 写作 item with sections is a part of a part-by-part rewrite (loop/parts.py)
+    - 讲法：<story page path>         optional: the plain-language story the author approved for the part
     - 改变：C1
     - 状态：未做 | 在做 | 等作者 | 已做 YYYY-MM-DD <evidence> | 不做 YYYY-MM-DD <reason>
 
@@ -50,7 +52,7 @@ import re
 from pathlib import Path
 
 HEAD = re.compile(r"^##\s+(主张|待做|集合)\s+(\S+)\s+(.+?)\s*$", re.M)
-FIELD = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?(证据|强度|允许的说法|越界|必须出现|承载|限定词|依据|缺|类型|改变|状态|名词|定义|大小|集合外)(?:\*\*)?\s*[:：]\s*"
+FIELD = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?(证据|强度|允许的说法|越界|必须出现|承载|限定词|依据|缺|类型|改变|状态|名词|定义|大小|集合外|节|讲法)(?:\*\*)?\s*[:：]\s*"
                    r"(?:\*\*)?\s*(.*?)\s*$", re.M)
 STAGE = re.compile(r"^\s*(?:\*\*)?阶段(?:\*\*)?\s*[:：]\s*(.+?)\s*$", re.M)
 SCOPE_AT = re.compile(r"^\s*(?:\*\*)?全称量词查(?:\*\*)?\s*[:：]\s*(.+?)\s*$", re.M)
@@ -201,7 +203,10 @@ def read_ledger(raw):
                 if status:
                     problems.append(f"{where} 的状态读不懂：{status[:20]}（已做、不做要写日期和证据或理由）")
             todo.append({"id": iid, "title": title, "kind": k if k in KINDS else "", "state": state,
-                         "closed": closed, "status": status, "changes": _ids(fields.get("改变"))})
+                         "closed": closed, "status": status, "changes": _ids(fields.get("改变")),
+                         # a part of a part-by-part rewrite (spec 2026-09-29-part-by-part-revision): its sections, by
+                         # label prefix (W, I2) or file, and the story page the author approved for it
+                         "sections": _ids(fields.get("节")), "story": fields.get("讲法", "")})
     known_todo, known_claims = {t["id"] for t in todo}, {c["id"] for c in claims}
     for c in claims:
         for n in c["needs"]:

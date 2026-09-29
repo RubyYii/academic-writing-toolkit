@@ -527,6 +527,9 @@ def _ring(coverage, *, name, last_comment_at, last_change_at, analysis=None, rin
     for k, v in (("current", r["current"]), ("latest", r["latest"]), ("reached", r.get("reached"))):
         if v:
             out[k] = v
+    if r.get("progress"):
+        # 逐段改稿：航线上方那一句「第 4/7 部分：…（已落 3）」（spec 2026-09-29-part-by-part-revision；lintel 收这个字段之后才导出）。
+        out["progress"] = _clip(r["progress"], 64)
     if r.get("frozenNote"):
         # 冻结期读者组过期那一句：lintel 画在航线下，不算要重跑（spec 2026-09-29 R5；lintel 收这个字段之后才导出）。
         out["frozenNote"] = _clip(r["frozenNote"], 64)
