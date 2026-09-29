@@ -125,6 +125,26 @@ printing `63.5\%` — and the relation is recorded, never inferred. Report
 `-`. On a real manuscript the first token tried flagged two sentences that carry
 the scope in other words; `technique` passed both.
 
+**I. Method ledger — is each sentence about what was done still bound to where it was done?**
+
+```
+python3 .claude/skills/audit/scripts/audit-method-ledger.py --base-dir . --ledger method-ledger.tsv \
+    --repo e0=~/dev/experiments@<commit> --full sections/03_data.tex --git . --state <ids.json> --json
+```
+
+For sentences with no claim, number or citation: methods, data, design, what a
+figure shows. A row (`id loc sentence claim_type pointer evidence verdict note
+checked`) points at code, config or output in a repository pinned at a commit.
+Pointers are read out of the cell's text: `path`, `path:12-20` (pinned code
+only), `path#a.b[*].c` (resolved in the JSON or YAML), `path@"fragment"`,
+`\label{x}`, `commit:<sha>`. Report `sentence-changed`, `pointer-missing`,
+`pointer-by-line`, `no-pointer`, `open-verdict`, `retired-but-present` and
+`row-dropped` as **High**; `note-contradicts-verdict` and `unledgered` as
+**Medium**. `partial` rows are pending, neither pass nor fail. A deleted
+sentence's row is kept as `retired <commit>`, never removed. `--migrate-headings`
+prints a diff that moves run-in `\paragraph` headings out of sentence cells and
+writes nothing. Nothing to examine exits 2.
+
 **G. Claim ledger — does a LaTeX manuscript's claim match its archived source?**
 
    ```
