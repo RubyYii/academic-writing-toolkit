@@ -72,7 +72,11 @@ sentence, ten sentences on, still spoke of it. The whole paragraph is read becau
 whole file triples the hits and catches nothing more. Ordinals, modals and a word followed by an article (a verb) are
 not taken for nouns. A changed or added sentence that gains a share ("one of three later sensors") is flagged when the
 draft states another share of the same total of the same noun ("two of the three later sensors"); the other sentences
-are listed beside it. Both need the whole draft, so the --pairs form does not run them. The report counts both apart.
+are listed beside it. A changed, added or copied sentence of six words or more that matches another sentence of the
+draft on its letters and digits (a cross-reference or a parenthesis the reader cannot see is not a difference) is
+flagged as duplicating it, with the other place named; a verbatim copy is found by count, since pairing takes a
+sentence the base already had as unchanged, and a move keeps the count. These need the whole draft, so the --pairs
+form does not run them. The report counts each apart.
 
 Exit: 0 no changed sentence is flagged (including no change at all, reported as such); 1 at least one flagged;
 2 nothing to compare (no prose in the target or the base, an empty or malformed pairs file, a baseline too small
@@ -193,7 +197,8 @@ STOPWORDS = {"the", "a", "an", "of", "in", "for", "with", "by", "and", "or", "to
              "that", "this", "it", "its", "on", "at", "as", "from", "not", "we", "our", "their", "they", "than"}
 LIMITS = ("not measured: adjectives outside the suffix and word lists, nouns used as modifiers, relative clauses "
           "opened by 'that', a comma splice beyond the comma it adds, a pronoun (it, they) a removal left without its "
-          "antecedent, a noun a revision dropped; the writing loop reads committed versions only")
+          "antecedent, a noun a revision dropped, a repeat reworded rather than copied; the writing loop reads committed "
+          "versions only")
 
 
 def die(msg):
@@ -544,6 +549,9 @@ NOT_NOUNS = {"first", "second", "third", "fourth", "fifth", "other", "others", "
              "cannot", "could", "would", "should", "might", "must", "will", "does", "have", "been", "being"}
 
 
+PARTICIPLE = re.compile(r"[^e]ed$", re.I)   # added, used; need, speed and seed stay nouns
+
+
 def noun_key(w):
     """A word as a noun to look for: lower case, a possessive dropped, a plural folded onto its singular."""
     w = re.sub(r"['’]s?$", "", w.lower())
@@ -567,7 +575,8 @@ def lost_antecedents(removed, changes, base, units, target):
         if r not in ss or not ts or len(us) != len(ss):
             continue
         i = ss.index(r)
-        keys = sorted({noun_key(w) for w in content(r) if len(w) >= 4} - NOT_NOUNS)
+        # a past participle is not a noun: "the sensors added later" does not point back to "was added"
+        keys = sorted({noun_key(w) for w in content(r) if len(w) >= 4 and not PARTICIPLE.search(w)} - NOT_NOUNS)
         tn = [norm(t) for t in ts]
         hits = []
         for k in range(i + 1, len(ss)):
@@ -627,6 +636,59 @@ def shares_elsewhere(olds, news, draft):
             if others:
                 found.append({"share": text, "sentences": others})
     return found
+
+
+# A sentence written the same as another in the draft. On one manuscript a round that removed repeated statements
+# rewrote a results sentence into one that matched a dataset sentence letter for letter; only a cross-reference told
+# them apart, and the gate flagged a parenthesis. Sentences are compared on letters and digits alone. Pairing takes a
+# sentence already in the base as unchanged (so a move is free), which hides a copy; a copy is found by count instead:
+# the draft holds the sentence more often than the base did.
+DUP_MIN_WORDS = 6
+
+
+# What is left of a parenthesis once its \ref is gone: "(Section )", "(see Table )", "( )".
+REF_LEFTOVER = re.compile(r"\(\s*(?:see\s+)?(?:(?:supplementary\s+)?(?:sections?|tables?|figures?|figs?\.?|appendix|"
+                          r"appendices|eqs?\.?|equations?)\s*(?:and\s+)?)*\)", re.I)
+
+
+def same_key(s):
+    return re.sub(r"[^a-z0-9]", "", REF_LEFTOVER.sub("", s).lower())
+
+
+def duplicated(changes, target, base):
+    """({(file, new sentence): [{where, sentence}]} for changed or added sentences that match another sentence of the
+    draft, [(file, sentence, [{where, sentence}])] for sentences the draft holds more often than the base did)."""
+    tpos = [(f, s) for f, ss in target.items() for s in ss if len(s.split()) >= DUP_MIN_WORDS]
+    tkeys = Counter(same_key(s) for _, s in tpos)
+    bkeys = Counter(same_key(s) for ss in base.values() for s in ss if len(s.split()) >= DUP_MIN_WORDS)
+
+    def others(f, s):
+        k, out, skipped = same_key(s), [], False
+        for f2, t in tpos:
+            if same_key(t) != k:
+                continue
+            if not skipped and f2 == f and t == s:
+                skipped = True
+                continue
+            out.append({"where": f2, "sentence": t})
+        return out
+
+    in_changes, changed_keys = {}, set()
+    for f, _, news in changes:
+        for s in news:
+            changed_keys.add(same_key(s))
+            if len(s.split()) >= DUP_MIN_WORDS and tkeys[same_key(s)] >= 2:
+                in_changes[(f, s)] = others(f, s)
+    copies = []
+    # the copy is reported where the file gained the sentence, not where it already stood
+    tfile = Counter((f, same_key(s)) for f, s in tpos)
+    bfile = Counter((f, same_key(s)) for f, ss in base.items() for s in ss if len(s.split()) >= DUP_MIN_WORDS)
+    for k, n in tkeys.items():
+        if n >= 2 and n > bkeys.get(k, 0) and k not in changed_keys:
+            at = [(f, s) for f, s in tpos if same_key(s) == k]
+            f, s = next(((f, s) for f, s in at if tfile[(f, k)] > bfile.get((f, k), 0)), at[0])
+            copies.append((f, s, others(f, s)))
+    return in_changes, copies
 
 
 def read_carriers(path):
@@ -877,6 +939,7 @@ def main():
     # What a removal took with it and a share that disagrees need the whole draft; a pairs file has none.
     lost = lost_antecedents(removed, changes, base, units, target) if not a.pairs else {}
     draft = [s for ss in target.values() for s in ss] if not a.pairs else []
+    dups, copies = duplicated(changes, target, base) if not a.pairs else ({}, [])
     venue = venue_distribution(fp, a.baseline, a.venue_cache) if a.baseline else None
     results = []
     for where, olds, news in changes:
@@ -886,6 +949,10 @@ def main():
         if found:
             r["flags"].append("count_elsewhere")
             r["shares_elsewhere"] = found
+        same = [d for s in news for d in dups.get((where, s), [])]
+        if same:
+            r["flags"].append("duplicates_elsewhere")
+            r["duplicates"] = same
         if where in verdicts:
             r["verdict"], r["reason"] = verdicts[where]
         results.append(r)
@@ -903,6 +970,11 @@ def main():
                         "pieces": 0, "olds": 1})
         if where in verdicts:
             results[-1]["verdict"], results[-1]["reason"] = verdicts[where]
+    for where, s, same in copies:
+        # a copy of a sentence the draft already had: pairing took it as unchanged, the count shows it
+        results.append({"old": None, "new": s, "kind": "copied", "where": where, "features_old": None,
+                        "features_new": features(s), "added": {}, "dense": [], "venue_percentile": {},
+                        "duplicates": same, "flags": ["duplicates_elsewhere"], "pieces": 1, "olds": 0})
     flagged = [r for r in results if r["flags"]]
     kinds = Counter(r["kind"] for r in results)
     compared.update({"changed": len(results) - removed_flagged, "revised": kinds["revised"], "split": kinds["split"],
@@ -910,7 +982,9 @@ def main():
                      "removed_flagged": removed_flagged,
                      # counted apart (D3), so their volume on a real draft can be read
                      "took_antecedent": sum(1 for r in results if "took_antecedent" in r["flags"]),
-                     "count_elsewhere": sum(1 for r in results if "count_elsewhere" in r["flags"])})
+                     "count_elsewhere": sum(1 for r in results if "count_elsewhere" in r["flags"]),
+                     "copied": kinds["copied"],
+                     "duplicates_elsewhere": sum(1 for r in results if "duplicates_elsewhere" in r["flags"])})
     unjudged = kinds["added"] if venue is None else 0   # judged against DEFAULT_CEILING, not a venue
     linked = Counter(t for r in results for t in r.get("links_added", []))
     out = {"schema_version": 2, "compared": compared, "changed": len(results) - removed_flagged, "flagged": len(flagged),
@@ -926,7 +1000,8 @@ def main():
            "issues": [{"where": r["where"], "flags": r["flags"], "added": r["added"], "new": r["new"],
                        **({"old": r["old"], "carried": r["carried"], "antecedent": r["antecedent"]}
                           if r["kind"] == "removed" else {}),
-                       **({"shares_elsewhere": r["shares_elsewhere"]} if r.get("shares_elsewhere") else {})}
+                       **({"shares_elsewhere": r["shares_elsewhere"]} if r.get("shares_elsewhere") else {}),
+                       **({"duplicates": r["duplicates"]} if r.get("duplicates") else {})}
                       for r in flagged]}
     if a.json:
         print(json.dumps(out, ensure_ascii=False, indent=1))
@@ -949,12 +1024,14 @@ def main():
                     print(f"  a later sentence still says '{h['phrase']}': {h['sentence']}")
                 continue
             fo, fn = r["features_old"], r["features_new"]
-            size = f"{fo['words']}->{fn['words']} words" if fo else f"{fn['words']} words, added"
+            size = f"{fo['words']}->{fn['words']} words" if fo else f"{fn['words']} words, {r['kind']}"
             extra = "; ".join(f"{k}: {', '.join(v)}" for k, v in r["added"].items())
             print(f"\n[{r['where']}] {r['kind']}: {', '.join(r['flags'])}  ({size})" + (f"  [{extra}]" if extra else ""))
             if r["old"]:
                 print(f"  was: {r['old']}")
             print(f"  now: {r['new']}")
+            for d in r.get("duplicates") or []:
+                print(f"  the same, letter for letter, as [{d['where']}]: {d['sentence']}")
             for x in r.get("shares_elsewhere") or []:
                 print(f"  '{x['share']}' beside the draft's other shares of the same total:")
                 for t in x["sentences"]:

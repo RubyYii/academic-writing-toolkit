@@ -938,7 +938,7 @@ MUTATIONS = [
      'test_deletion_gate.LostAntecedentTest.test_the_next_paragraph_is_not_read'),
     ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', 'if m and not names(key).search(before) and not any(', 'if m and not any(',
      'test_deletion_gate.LostAntecedentTest.test_a_noun_still_named_earlier_is_not_lost'),
-    ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', 'keys = sorted({noun_key(w) for w in content(r) if len(w) >= 4} - NOT_NOUNS)', 'keys = sorted({noun_key(w) for w in content(r) if len(w) >= 4})',
+    ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', 'keys = sorted({noun_key(w) for w in content(r) if len(w) >= 4 and not PARTICIPLE.search(w)} - NOT_NOUNS)', 'keys = sorted({noun_key(w) for w in content(r) if len(w) >= 4 and not PARTICIPLE.search(w)})',
      'test_deletion_gate.LostAntecedentTest.test_ordinals_modals_and_verbs_are_not_nouns'),
     ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', '"cannot", "could", "would", "should", "might", "must", "will", "does", "have", "been", "being"}', '"being"}',
      'test_deletion_gate.LostAntecedentTest.test_ordinals_modals_and_verbs_are_not_nouns'),
@@ -960,6 +960,23 @@ MUTATIONS = [
      'test_deletion_gate.ShareElsewhereTest.test_a_share_that_disagrees_is_flagged_with_the_other_sentences'),
     ('deletion', 'coverage.py', '            if compared.get("took_antecedent"):', '            if False:',
      'test_deletion_gate.LoopSummaryTest.test_the_loop_names_the_new_flags_apart'),
+    # 与别处一字不差的句子、过去分词不算名词（FOR-AWT 46）
+    ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', 'if len(w) >= 4 and not PARTICIPLE.search(w)} - NOT_NOUNS)', 'if len(w) >= 4} - NOT_NOUNS)',
+     'test_deletion_gate.LostAntecedentTest.test_a_participle_after_a_noun_is_not_a_noun'),
+    ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', '    return re.sub(r"[^a-z0-9]", "", REF_LEFTOVER.sub("", s).lower())', '    return re.sub(r"[^a-z0-9]", "", s.lower())',
+     'test_deletion_gate.DuplicateTest.test_a_rewrite_that_matches_another_sentence_but_for_a_reference_is_flagged'),
+    ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', '        same = [d for s in news for d in dups.get((where, s), [])]', '        same = []',
+     'test_deletion_gate.DuplicateTest.test_a_rewrite_that_matches_another_sentence_but_for_a_reference_is_flagged'),
+    ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', '            copies.append((f, s, others(f, s)))', '            pass',
+     'test_deletion_gate.DuplicateTest.test_a_verbatim_copy_is_found_by_count'),
+    ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', '            f, s = next(((f, s) for f, s in at if tfile[(f, k)] > bfile.get((f, k), 0)), at[0])', '            f, s = at[0]',
+     'test_deletion_gate.DuplicateTest.test_a_verbatim_copy_is_found_by_count'),
+    ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', '        if n >= 2 and n > bkeys.get(k, 0) and k not in changed_keys:', '        if n >= 2 and k not in changed_keys:',
+     'test_deletion_gate.DuplicateTest.test_a_repeat_the_base_already_had_is_not_flagged'),
+    ('deletion', 'skill:audit/scripts/audit-sentence-changes.py', 'DUP_MIN_WORDS = 6', 'DUP_MIN_WORDS = 3',
+     'test_deletion_gate.DuplicateTest.test_a_short_sentence_is_not_compared'),
+    ('deletion', 'coverage.py', '            if compared.get("duplicates_elsewhere"):', '            if False:',
+     'test_deletion_gate.LoopSummaryTest.test_the_loop_names_a_duplicate'),
 ]
 
 
