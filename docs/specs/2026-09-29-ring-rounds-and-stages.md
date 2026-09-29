@@ -1,6 +1,6 @@
 # The manuscript ring: stages that can be seen, rounds that end, and a freeze mode
 
-Status: draft (written 2026-09-29; not approved by the author; nothing implemented)
+Status: implemented on the loop side (author approved Q1–Q3 as recommended, 2026-09-29; unit tests and red check pass locally; CI not run). R6's two labels in lintel itself are not done.
 
 Takes over two items that `2026-09-25-review-gap-closure.md` §4.6 left as design only:
 - a way for 落稿 to be seen;
@@ -127,3 +127,31 @@ landing or a review, whichever came later. A frozen manuscript gets a shorter ri
   threshold, which risks the same nagging.
 - **Q3 设计 without an intent card.** Recommended: drop it from the ring. The alternative, "not seen", is what the ring
   shows now, and it reads as a stage never done.
+
+## Decided (2026-09-29, the author: as recommended)
+
+- **Q1** A freeze is read from the claims ledger's stage name (冻结, 终检), with `ring.freeze` to force it.
+- **Q2** In a freeze a stale reader panel is said with its change size and never hung as a rerun.
+- **Q3** Without an intent card, 设计 leaves the ring.
+
+## As built
+
+- `loop/ringinputs.py` gathers the four inputs. Each is read on its own; one that fails is reported and leaves the
+  ring's old behaviour for that part. `ring.ring` takes them as optional arguments; without them it is unchanged, and
+  every earlier ring test passes unmodified except one that asserted 设计 on a workspace with no intent card.
+- Decision times come from the author message's uuid in the transcripts. Found times are cached; a uuid not found is
+  looked for again only when the transcripts have grown.
+- An intent card not changed within the round is drawn "not seen" with the note 这一轮没动, so the round never waits
+  on it. A landing followed by a draft change is "not yet" with the note 改过了.
+- The frozen panel note (`frozenNote`) is not exported to lintel yet: lintel rejects unknown fields, so it waits for
+  the lintel side. The per-turn coverage line still lists the stale panel, as the spec asked.
+- R6 on the loop side is the existing `reached` and `current` fields. lintel still draws one square; the 走到 / 卡在
+  labels are the next step, with screenshots.
+
+## Acceptance on one real workspace (2026-09-29, read only)
+
+- Before: seven stages, the marker at 读者组, the panel hung as a rerun.
+- After: frozen (the ledger's stage), four stages, reached 落稿 at the build's source commit, and the panel said as
+  not re-read in a freeze. Every decided register item was timed by its message.
+- Minutes later the manuscript committed a text change after that build; 落稿 then read 改过了.
+- A card carrying the new ring passes lintel's own validator.

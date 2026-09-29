@@ -489,14 +489,15 @@ RING_SIGHT = {"看得见": "seen", "推出来": "inferred", "只有提交": "com
 RING_LABELS = {"title": "这一轮", "current": "当前", "latest": "最近动静", "unhung": "没挂上环节", "closed": "已关的门", "waiting": "等你"}
 
 
-def _ring(coverage, *, name, last_comment_at, last_change_at, analysis=None):
+def _ring(coverage, *, name, last_comment_at, last_change_at, analysis=None, ring_inputs=None):
     """The manuscript ring as lintel draws it (plan step 4a; `ring.ring` computes it): each stage's state, sight and
     the few words in its box. A stage an item waits on is 等你 when an item is the author's to decide, 过期 when only
     a check or the reader panel is out of date. A ring that cannot be computed says so; it is never dropped."""
     from . import ring as RG
     try:
         r = RG.ring(coverage, last_comment_at=_iso(last_comment_at) if last_comment_at else None,
-                    last_change_at=_iso(last_change_at) if last_change_at else None, name=name, analysis=analysis)
+                    last_change_at=_iso(last_change_at) if last_change_at else None, name=name, analysis=analysis,
+                    **(ring_inputs or {}))
     except Exception as e:  # noqa: BLE001 -- the card still goes up; the ring says it could not be computed
         return {"name": _clip(name, 64), "since": "", "segments": [], "unhung": [], "waiting": 0, "closed": [],
                 "labels": RING_LABELS, "error": f"环算不出来：{type(e).__name__}：{_clip(str(e), 200)}"}
@@ -516,6 +517,8 @@ def _ring(coverage, *, name, last_comment_at, last_change_at, analysis=None):
         note = {"waiting": f"等你 {mine}", "stale": "过期", "done": "做过", "open": "还没到", "unseen": "看不见"}[state]
         if g["key"] == "analysis" and g["items"]:
             note = f"要做 {len(g['items'])}"
+        elif g.get("note") and not g["items"]:
+            note = g["note"]  # 这一轮没动（设计）、改过了（落稿）：比状态本身多一层意思
         segs.append({"key": g["key"], "name": g["name"], "state": state, "sight": RING_SIGHT[g["seen"]], "sightNote": g["seen"],
                      "note": note, "items": [item(x) for x in g["items"][:32]]})
     out = {"name": _clip(name, 64), "since": r["sinceNote"], "segments": segs, "unhung": [item(x) for x in r["unhung"][:32]],
@@ -547,7 +550,7 @@ def _within(note):
 
 
 def build(summary, *, now, problems=(), notices=(), overview=None, coverage=NOT_GIVEN, turn=None, readers=None,
-          built_at=None, denials=(), overrides=(), note=None, analysis=None):
+          built_at=None, denials=(), overrides=(), note=None, analysis=None, ring_inputs=None):
     """从索引摘要（`index.summarize`）生成活动：一个稿件一个，永远只有一个。
     `problems` 是引擎自己的毛病；`notices` 是该知道但不是故障的事（被拦下的写入）。
     `turn` 是最近一轮（`turns.current`），`readers` 是最近一次读者组（`turns.readers_run`），`built_at` 是索引最近一次建成的时刻；
@@ -696,7 +699,8 @@ def build(summary, *, now, problems=(), notices=(), overview=None, coverage=NOT_
     }
     ring = None
     if coverage is not NOT_GIVEN and coverage is not None:
-        ring = _ring(coverage, name=ws, last_comment_at=start, last_change_at=when_lc, analysis=analysis)
+        ring = _ring(coverage, name=ws, last_comment_at=start, last_change_at=when_lc, analysis=analysis,
+                     ring_inputs=ring_inputs)
         a["ring"] = ring
     if ring is not None and not ring.get("error") and not (problems or clock or flagged):
         # 胶囊写这一篇、等你几件（spec V2，第 4 步）：看过也留着——等你的事没裁完就一直在。

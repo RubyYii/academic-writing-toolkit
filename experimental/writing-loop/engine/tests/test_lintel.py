@@ -845,7 +845,8 @@ class CliAnalysisStageTest(unittest.TestCase):
             segs = {s["key"]: s for s in (act.get("ring") or {}).get("segments") or []}
             self.assertIn("analysis", segs, act.get("ring"))
             self.assertEqual(segs["analysis"]["note"], "要做 1")
-            self.assertEqual([k for k in segs][:4], ["comment", "design", "analysis", "rewrite"])
+            # No intent card in this workspace: 设计 leaves the ring (spec 2026-09-29-ring-rounds-and-stages R3).
+        self.assertEqual([k for k in segs][:4], ["comment", "analysis", "rewrite", "check"])
 
 
 class ResidentTest(unittest.TestCase):

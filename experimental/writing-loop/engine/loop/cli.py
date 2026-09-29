@@ -345,8 +345,13 @@ def cmd_lintel(a):
                 analysis = [t for t in S.compute(cfg, a.workspace).get("todo") or [] if t.get("kind") == "分析"]
             except Exception as e:  # noqa: BLE001
                 problems.append(f"分析环：{type(e).__name__}：{e}")
+        cov = V.load_summary(a.workspace, cfg)
+        # What the ring sees past the coverage summary: a landing, the register's decisions, the intent card, a freeze
+        # (spec 2026-09-29-ring-rounds-and-stages). One that cannot be read leaves the ring as it was for that part.
+        from . import ringinputs as RI
+        ring_inputs = RI.gather(cfg, a.workspace, cov, problems) if cov else None
         acts = LN.build(summary, now=_t.time(), problems=problems, notices=notices, overview=ov, analysis=analysis,
-                        coverage=V.load_summary(a.workspace, cfg), turn=turn, readers=readers,
+                        ring_inputs=ring_inputs, coverage=cov, turn=turn, readers=readers,
                         built_at=(HL.load(a.workspace).get("last_ok") or {}).get("t"),
                         denials=HL.guard_denials(a.workspace), overrides=HL.gate_overrides(a.workspace),
                         note=OUT.read(a.workspace))
