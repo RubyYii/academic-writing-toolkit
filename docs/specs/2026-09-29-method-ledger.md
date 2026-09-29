@@ -1,6 +1,6 @@
 # Method ledger: sentences about what was done, bound to where it was done
 
-Status: draft (written 2026-09-29; not approved by the author; nothing implemented)
+Status: implemented (author approved Q1–Q3 as recommended, 2026-09-29; unit tests and red check pass locally; CI not run; acceptance 3 not yet read by a person)
 
 ## Problem
 
@@ -170,3 +170,37 @@ A pointer that does not parse is `pointer-missing` with the reason, never skippe
   manuscript that is frozen for correctness can opt in without every workspace turning 未就绪.
 - **Q3 A migration helper.** It would rewrite the heading-prefixed rows (G5), which are mechanical. Recommended: yes,
   as a one-shot script that prints a diff. The ledger in the manuscript repository is never written.
+
+## Decided (2026-09-29, the author: as recommended)
+
+- **Q1** Line numbers into a pinned repository are allowed; into the manuscript's own `.tex` they are an error.
+- **Q2** Open verdicts do not hold the paper state by default. A manuscript opts in with a required gate.
+- **Q3** `--migrate-headings` prints the diff for heading-prefixed sentence cells and writes nothing.
+
+## As built: where it differs from the decisions above
+
+- **Pointers are recognised in the cell's text (D3).** The real ledger writes prose around its pointers ("§2",
+  "the function f"), separates them with `;` or `；`, and gives bare file names and paths from a subdirectory.
+  Requiring every cell to parse whole would have reported hundreds of rows that point correctly. What is checked is
+  every pointer found; a cell with none is `no-pointer`.
+- **Lookup order.** Pinned repositories at their commit, the manuscript at the index commit, unpinned repositories'
+  working copies, the manuscript's working copy, and last the pinned repositories' working copies. A file found only
+  in that last place counts as found and is said ("only on disk, not in the locked commit"). A bare name matches a
+  file of that name anywhere; a path matches as a suffix; a bare name is also looked for inside zip archives the same
+  cell names. These follow the manuscript's own checker, so the two agree.
+- **Keys.** `a,b` after `#`: each later part is tried as a sibling of the first key's last segment, then as a key of
+  its own. `[k=v]` selects an element by a field; `[x..y]` needs both ends, where an end may be a whole word inside a
+  key; in a JSON Schema a field is found by name among `properties` and `$defs`.
+- **Sentences (D2, D7).** A row may hold a heading's own words, so a sentence is found with headings removed or as
+  written. `--full` files are split by the script itself, not by the loop's index: the script runs outside the
+  engine.
+
+## Acceptance on the real ledger (2026-09-29, a read-only copy)
+
+- 2: the manuscript's checker and this one agree on the five shared kinds (0 each). The first run disagreed on 57
+  pointers; every one was a lookup or key-syntax difference in this script, fixed above, none a finding.
+- 3: new findings are 17 `match` rows whose notes carry flag words, to be read by a person; every key pointer
+  resolved; 3 pointers are only on disk outside the locked commit.
+- 4: a fake key, a fake selector value, a fake label, a line number into the manuscript, a dropped row and a retired
+  row whose sentence is present each turned red. The first fake key did not: a counter added to the key branch had
+  bypassed the key check itself. Fixed, and the injection repeated.

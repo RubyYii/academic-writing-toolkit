@@ -155,6 +155,54 @@ def _numbers_inputs(cfg):
     return out
 
 
+def method_ledger_cfg(cfg):
+    """inputs.method_ledger: {"path": <tsv in the manuscript>, "repos": {name: {"path", "commit" | "commit_file",
+    "prefixes"}}, "full": [draft files every sentence of which needs a row], "note_flags": <regex>,
+    "manuscript_prefixes": [...]} (spec 2026-09-29-method-ledger). A bare string is the path alone."""
+    v = get(cfg, "inputs.method_ledger")
+    if isinstance(v, str) and v:
+        return {"path": v}
+    return v if isinstance(v, dict) and isinstance(v.get("path"), str) and v["path"] else None
+
+
+def _method_argv(ctx):
+    m = method_ledger_cfg(ctx["cfg"]) or {}
+    args = _py(ctx, "audit/audit-method-ledger.py") + ["--base-dir", ".", "--ledger", m.get("path", ""), "--json"]
+    for name, r in (m.get("repos") or {}).items():
+        if not isinstance(r, dict) or not r.get("path"):
+            continue
+        args += ["--repo", f"{name}={r['path']}" + (f"@{r['commit']}" if r.get("commit") else "")]
+        if r.get("commit_file"):
+            args += ["--repo-commit-file", f"{name}={r['commit_file']}"]
+        for pre in r.get("prefixes") or []:
+            args += ["--repo-prefix", f"{name}={pre}"]
+    for pre in m.get("manuscript_prefixes") or []:
+        args += ["--manuscript-prefix", pre]
+    for f in m.get("full") or []:
+        args += ["--full", f]
+    if m.get("note_flags"):
+        args += ["--note-flags", m["note_flags"]]
+    if ctx["cfg"].get("repo"):
+        args += ["--git", str(Path(ctx["cfg"]["repo"]).expanduser())]
+    if ctx.get("ws"):
+        # row ids seen on earlier runs: a row that vanishes without being retired is reported (G3)
+        args += ["--state", str(Path(ctx["ws"]) / "cache" / "coverage" / "method-ledger-ids.json")]
+    return args
+
+
+def _method_inputs(cfg):
+    m = method_ledger_cfg(cfg)
+    return {"ledger": m["path"]} if m else {}
+
+
+def _method_outside(cfg):
+    """An unpinned repository is read as its working copy: its HEAD commit makes the check stale. A pinned one moves
+    only when the config (or the commit file in the draft) does."""
+    m = method_ledger_cfg(cfg) or {}
+    return [f"git:{r['path']}" for r in (m.get("repos") or {}).values()
+            if isinstance(r, dict) and r.get("path") and not r.get("commit") and not r.get("commit_file")]
+
+
 def _generated_inputs(cfg):
     return {"manifest": get(cfg, "inputs.generated")}
 
@@ -326,6 +374,10 @@ CHECKS = [
      "scope": {"kind": "numbers"}, "needs": ["inputs.number_ledger"],
      "inputs": _numbers_inputs, "outside": _no_outside, "also": True,
      "argv": _numbers_argv},
+    {"id": "method-ledger", "name": "文字对代码", "kind": "script", "scripts": ["audit/audit-method-ledger.py"],
+     "formats": ["latex"], "instead": {},
+     "scope": {"kind": "tree"}, "needs": ["inputs.method_ledger"], "tree": True, "config_keys": ["inputs.method_ledger"],
+     "inputs": _method_inputs, "outside": _method_outside, "argv": _method_argv},
     {"id": "generated-copies", "name": "生成物对照", "kind": "script", "scripts": ["audit/audit-generated-copies.py"],
      "formats": ["latex", "markdown"], "instead": {},
      "scope": {"kind": "tree"}, "needs": ["inputs.generated"], "tree": True, "timeout": 600,
