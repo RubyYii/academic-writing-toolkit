@@ -127,6 +127,12 @@ the point.
   changed and what you verified, not the tool's transcript.
 - **A human approves.** Automated review is welcome as input and is never the
   approval. Do not let one agent's output stand as the review of another's.
+- **Codex review.** `.github/workflows/codex-review.yml` asks Codex to review a
+  pull request when it is opened, reopened or marked ready, and again whenever
+  the `codex-review` label is added; its one comment is updated in place. It
+  needs the `OPENAI_API_KEY` repository secret, so it is not a gate: without the
+  key, and on fork pull requests, which never receive secrets, it skips and says
+  so in the run summary. Its comment is input under the rule above.
 - **Conflicts.** Resolve by merging `main` into your branch. Search the whole
   file afterwards, not only the conflict markers: a superseded line that sits
   outside a conflict region merges cleanly and silently.
