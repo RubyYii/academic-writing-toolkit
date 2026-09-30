@@ -984,9 +984,9 @@ MUTATIONS = [
      'test_precheck.PrecheckTest.test_an_uncommitted_edit_that_turns_a_check_red_is_said_and_nothing_is_written'),
     ('precheck', 'coverage.py', '               "precheck": not record}', '               "precheck": False}',
      'test_precheck.PrecheckTest.test_an_uncommitted_edit_that_turns_a_check_red_is_said_and_nothing_is_written'),
-    ('precheck', 'coverage.py', '        elif lv in (None, "ok"):\n            group = PRE_RED', '        elif False:\n            group = PRE_RED',
+    ('precheck', 'coverage.py', '    elif lv in (None, "ok"):\n        group = PRE_RED', '    elif False:\n        group = PRE_RED',
      'test_precheck.PrecheckTest.test_an_uncommitted_edit_that_turns_a_check_red_is_said_and_nothing_is_written'),
-    ('precheck', 'coverage.py', '        elif ls != s:\n            group = PRE_CHANGED', '        elif False:\n            group = PRE_CHANGED',
+    ('precheck', 'coverage.py', '    elif ls != s:\n        group = PRE_CHANGED', '    elif False:\n        group = PRE_CHANGED',
      'test_precheck.PrecheckTest.test_a_finding_that_reads_differently_has_changed_and_one_that_does_not_is_still'),
     ('precheck', 'coverage.py', '        if r["status"] in (NOT_APPLICABLE, MISSING, WAIVED):\n            continue', '        if False:\n            continue',
      'test_precheck.PrecheckTest.test_a_clean_tree_is_checked_at_head_and_a_check_not_configured_is_left_out'),
@@ -996,6 +996,15 @@ MUTATIONS = [
      'test_precheck.PrecheckTest.test_the_command_exits_1_when_a_check_would_turn_red'),
     ('precheck', 'coverage.py', '            + f"\\n其余检查提交后才更新；提交前要看它们，跑 loop precheck {ws}。")', '            )',
      'test_removals.RemovalTest.test_a_removed_sentence_that_carried_a_required_wording_holds_the_turn_until_accepted'),
+    # precheck 的 _scan 项：没有规则的新标题，提交前就报出
+    ('precheck', 'coverage.py', '    now_scan, was_scan = scan_coverage(cfg, head), scan_coverage(cfg, base_head)', '    now_scan, was_scan = scan_coverage(cfg, base_head), scan_coverage(cfg, base_head)',
+     'test_precheck.PrecheckTest.test_a_new_heading_without_a_rule_is_said_before_the_commit'),
+    ('precheck', 'coverage.py', '        verdict = lambda cov: None if cov is None else ("ok" if scan_row(cov)["status"] == OK else "findings")', '        verdict = lambda cov: None if cov is None else "ok"',
+     'test_precheck.PrecheckTest.test_a_new_heading_without_a_rule_is_said_before_the_commit'),
+    ('precheck', 'coverage.py', '    if now_scan is not None:\n', '    if False:\n',
+     'test_precheck.PrecheckTest.test_a_clean_tree_is_checked_at_head_and_a_check_not_configured_is_left_out'),
+    ('precheck', 'coverage.py', '    if only and "_scan" not in only:\n        return out', '    if False:\n        return out',
+     'test_precheck.PrecheckTest.test_a_clean_tree_is_checked_at_head_and_a_check_not_configured_is_left_out'),
 ]
 
 
