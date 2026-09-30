@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test.sh — runs the regression test suite (249 automated tests, labelled T2-T267: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences + T258 the edge of the baseline + T259-T267 a found snippet is not a read one, and claims with no \cite) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
+# scripts/test.sh — runs the regression test suite (250 automated tests, labelled T2-T268: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences + T258 the edge of the baseline + T259-T267 a found snippet is not a read one, and claims with no \cite + T268 paragraph openers) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
 # Self-contained; saves and restores any state it mutates.
 # Exit 0 if all tests pass, 1 if any fail. CI-suitable.
 # Note: pipefail is intentionally NOT enabled. Several tests assert that a
@@ -3691,6 +3691,62 @@ for script, key, flag in (("fp", "semicolon_per_1k", "outside_range"), ("st", "c
     assert not m["middle"][flag] and not m["middle"]["edge"] and key not in r["middle"]["edge"], (script, m["middle"])
 PYEOF
     local rc=$?
+    rm -rf "$tmp"
+    return $rc
+}
+
+# --- T268: paragraph openers ---------------------------------------------------------
+test_T268() {
+    # An author rejected an abstract and an introduction that led with figures after every sentence-level check had
+    # passed them. audit-openers.py lists paragraphs whose first sentence carries a number or a formula (MATH in the
+    # prose view) or opens on a table or figure; a year, a metric's name (Recall@10), a pointer (Section 3), a list
+    # marker and a model's version (BLIP 2) are not figures. It points and does not judge: exit 1 with the list,
+    # exit 2 when there is nothing to read.
+    local tmp out rc
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/draft/chapters" "$tmp/empty"
+    cat > "$tmp/draft/chapters/01-intro.md" <<'MDEOF'
+## Introduction
+
+Readers who cannot read the source language need another way into a collection. A search system can offer one.
+
+The pilot reached 37.5% accuracy on the held-out split, which is what motivated the rest of this study.
+
+MATH of the queries return the target in first place, a share no other system reaches.
+
+Table lists the corpora used here and the size of each.
+
+In 2019 the archive opened its catalogue to outside readers, and the requests changed.
+
+Recall@10 is the share of queries whose target appears among the first ten results.
+
+As shown in Figure, the curve flattens after the fifth step.
+
+We follow the protocol of Section 3 (e.g. the same splits), and report every run.
+
+Across the three archives, Recall@ MATH rises as the candidate pool shrinks.
+
+We compare BLIP 2 with two older captioners on the same corpus.
+
+- a list item with 12 numbers 3 4
+MDEOF
+    out=$(python3 "$REPO_ROOT/scripts/audit-openers.py" --base-dir "$tmp/draft" --json 2>/dev/null)
+    rc=$?
+    [ "$rc" = "1" ] || { rm -rf "$tmp"; echo "expected exit 1 with findings, got $rc"; return 1; }
+    python3 - "$out" <<'PYEOF2'
+import json, sys
+d = json.loads(sys.argv[1])
+got = sorted((x["location"].rsplit(":", 1)[1], x["kind"]) for x in d["issues"])
+want = sorted([("5", "number-opener"), ("7", "number-opener"), ("9", "float-opener"), ("15", "float-opener")])
+assert got == want, got
+assert d["paragraphs"] == 10, d["paragraphs"]
+assert "首句带数字或公式 2 段" in d["summary_zh"] and "以图表开头 2 段" in d["summary_zh"], d["summary_zh"]
+PYEOF2
+    rc=$?
+    if [ "$rc" = "0" ]; then
+        python3 "$REPO_ROOT/scripts/audit-openers.py" --base-dir "$tmp/empty" --json >/dev/null 2>&1
+        [ "$?" = "2" ] || { echo "expected exit 2 on a base-dir with no chapters"; rc=1; }
+    fi
     rm -rf "$tmp"
     return $rc
 }
@@ -7616,6 +7672,7 @@ run_test "T264 claim ledger: --pairs puts every snippet of a claim under it, wit
 run_test "T265 claim ledger: a row read as wrong lists the other sentences citing that key" test_T265
 run_test "T266 changed-sentence audit: an edit that unbinds a claim-ledger row names the row" test_T266
 run_test "T267 claim ledger: a determiner, digits in a name, a sequence first and a compound -only are not high-risk" test_T267
+run_test "T268 paragraph openers: figure-first paragraphs are listed; a year, a metric name, a pointer and a model version are not" test_T268
 
 header ""
 if [[ "$RUN_RETIRED" == "1" ]]; then

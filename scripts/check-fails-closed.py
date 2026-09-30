@@ -99,6 +99,8 @@ CHECKS = {
         lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--json"],
     "scripts/audit-logic.py":
         lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--json"],
+    "scripts/audit-openers.py":
+        lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--json"],
     "scripts/audit-public-content.py":
         lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--json"],
     # A fixture validator for the writing-control bench; an empty bench is not a valid one (exit 1).

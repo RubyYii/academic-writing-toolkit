@@ -483,6 +483,15 @@ CHECKS = [
      "scope": {"kind": "all"}, "needs": [],
      "inputs": _none, "outside": _no_outside,
      "argv": lambda ctx: _py(ctx, "scripts/audit-logic.py") + ["--base-dir", ctx.get("view", "."), "--json"]},
+    # Paragraphs whose first sentence leads with a number, a formula, or a table or figure. A pointer for reading, not
+    # a verdict: data paragraphs rightly open with data. Added after an author rejected figure-first openings that
+    # every sentence-level check had passed.
+    {"id": "paragraph-openers", "name": "段首", "kind": "script",
+     "scripts": ["scripts/audit-openers.py", "audit/prose-view.py"],
+     "formats": ["markdown", "latex"], "instead": {}, "view": True,
+     "scope": {"kind": "all"}, "needs": [],
+     "inputs": _none, "outside": _no_outside,
+     "argv": lambda ctx: _py(ctx, "scripts/audit-openers.py") + ["--base-dir", ctx.get("view", "."), "--json"]},
     {"id": "word-count", "name": "字数", "kind": "script", "scripts": ["map/count-words.mjs", "audit/prose-view.py"],
      "formats": ["markdown", "latex"], "instead": {}, "view": True,
      "scope": {"kind": "all"}, "needs": [],
