@@ -16,6 +16,11 @@ ROOT = ENGINE.parent  # experimental/writing-loop: engine/ and hooks/ are copied
 
 # (step, file, old, new, test id). A bare file name is under engine/loop; a path with "/" is under ROOT.
 MUTATIONS = [
+    # 主张台账分清「找到」与「读过」（spec 2026-09-30-claim-ledger-reading）：接线拿掉，对应测试必须变红。
+    ("claimledger", 'catalogue.py', '    if get(cfg, "inputs.bib"):\n        out["bib"] = get(cfg, "inputs.bib")', '    pass', 'test_catalogue.ClaimLedgerWiringTest.test_the_ledger_audit_gets_the_bibliography_and_the_names_table'),
+    ("claimledger", 'catalogue.py', '    if (ctx.get("inputs") or {}).get("bib"):\n        args += ["--bib", ctx["inputs"]["bib"]]', '    pass', 'test_catalogue.ClaimLedgerWiringTest.test_the_ledger_audit_gets_the_bibliography_and_the_names_table'),
+    ("claimledger", 'catalogue.py', '    for p in claim_ledgers(ctx["cfg"]):\n        args += ["--ledger", p]', '    pass', 'test_catalogue.ClaimLedgerWiringTest.test_the_changed_sentence_check_gets_every_claim_ledger_as_an_absolute_path'),
+    ("claimledger", 'catalogue.py', ' + [str(accepted_rewrites_path(cfg))] + claim_ledgers(cfg)', ' + [str(accepted_rewrites_path(cfg))]', 'test_catalogue.ClaimLedgerWiringTest.test_the_changed_sentence_check_gets_every_claim_ledger_as_an_absolute_path'),
     ("cov", 'skill:readers/scripts/build-reader-packet.py', '        if t[k] == "\\\\":\n            k += 2\n            continue\n', '',
      'test_readers.ReadersTest.test_alt_text_with_an_escaped_brace_or_a_short_form_and_a_table_spec_do_not_leak_or_swallow'),
     ("cov", 'skill:readers/scripts/build-reader-packet.py', '    t = drop_env_args(t)', '    pass',

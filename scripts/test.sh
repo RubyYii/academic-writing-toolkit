@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test.sh — runs the regression test suite (240 automated tests, labelled T2-T258: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences + T258 the edge of the baseline) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
+# scripts/test.sh — runs the regression test suite (249 automated tests, labelled T2-T267: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences + T258 the edge of the baseline + T259-T267 a found snippet is not a read one, and claims with no \cite) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
 # Self-contained; saves and restores any state it mutates.
 # Exit 0 if all tests pass, 1 if any fail. CI-suitable.
 # Note: pipefail is intentionally NOT enabled. Several tests assert that a
@@ -3786,6 +3786,278 @@ assert not [f for f in d['findings'] if f['kind']=='copies-changed'], [f for f i
         || { echo "a scope that matches nothing passed: $status $out"; return 1; }
 }
 
+# --- T259-T266: the claim ledger separates a found snippet from a read one, and claims with no \cite are still claims
+# (spec docs/specs/2026-09-30-claim-ledger-reading.md). Synthetic sources and sentences throughout.
+reading_fixture() {
+    # $1 = dir. One sentence whose row holds a real snippet about something else (and a number the source does not
+    # give); one claim supported by two rows; one sentence that points at "the benchmarks cited here" with no \cite;
+    # one that names a registered work with no \cite; one cited negative claim with no row.
+    mkdir -p "$1/sections" "$1/sources"
+    cat > "$1/sections/s.tex" <<'EOF'
+\section{Related work}
+FooNet reported a speed of ninety frames a second on the test clips~\cite{foo}.
+BarBench showed that lighting and background both change the scores~\cite{bar}.
+The tools cited here handle only printed text.
+BarBench, whose authors fixed the lighting, is the closest benchmark.
+Earlier work did not test handwritten text~\cite{foo}.
+EOF
+    cat > "$1/refs.bib" <<'EOF'
+@inproceedings{foo, title={FooNet}, author={A. Author}, year={2020}}
+@inproceedings{bar, title={BarBench: a benchmark}, shorttitle={BarBench}, author={B. Author}, year={2021}}
+EOF
+    printf 'The dataset contains ten thousand clips. We report a speed of seventy one frames a second on the test clips.\n' > "$1/sources/foo.txt"
+    printf 'We fix the lighting. The background is also shown to change the scores.\n' > "$1/sources/bar.txt"
+    printf 'claim\tcite_key\tsnippet\tsource_file\tlevel\tread\tversion\n' > "$1/ledger.tsv"
+    printf 'FooNet reported a speed of ninety frames a second on the test clips\tfoo\tThe dataset contains ten thousand clips.\tsources/foo.txt\tfulltext\t\t\n' >> "$1/ledger.tsv"
+    printf 'BarBench showed that lighting and background both change the scores\tbar\tWe fix the lighting.\tsources/bar.txt\tfulltext\t\tarXiv v2\n' >> "$1/ledger.tsv"
+    printf 'BarBench showed that lighting and background both change the scores\tbar\tThe background is also shown to change the scores.\tsources/bar.txt\tfulltext\t\t\n' >> "$1/ledger.tsv"
+}
+
+reading_json() {
+    python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$1" --ledger "$1/ledger.tsv" --bib "$1/refs.bib" --json "${@:2}" 2>&1
+}
+
+test_T259() {
+    # A found snippet is not a read one: a numeric claim whose snippets hold none of its numbers is a finding until an
+    # author has read it; the report counts found, draft-read and author-read rows.
+    local tmp out status out2
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(reading_json "$tmp"); status=$?
+    python3 - "$tmp/ledger.tsv" <<'EOF'
+import sys
+p = sys.argv[1]
+lines = open(p, encoding="utf-8").read().split("\n")
+parts = lines[1].split("\t")
+parts[5] = "author: the snippet counts clips; the sentence adds a speed of ninety frames the source does not give"
+lines[1] = "\t".join(parts)
+open(p, "w", encoding="utf-8").write("\n".join(lines))
+EOF
+    out2=$(reading_json "$tmp")
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='unread-high-risk']
+assert len(u)==1 and 'ninety' in u[0]['detail'] and not u[0].get('prompt'), u
+assert d['reading']=={'found':3,'author':0,'draft':0,'unread':3}, d['reading']
+" || return 1
+    [ "$status" = "1" ] || { echo "expected exit 1 before the reading, got $status"; return 1; }
+    echo "$out2" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert not [f for f in d['findings'] if f['kind']=='unread-high-risk'], d['findings']
+assert d['reading']['author']==1, d['reading']
+" || return 1
+}
+
+test_T260() {
+    # A claim that is neither negative nor scoped nor numeric is counted as not read, and is not a finding.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(reading_json "$tmp")
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='unread-high-risk']
+assert len(u)==1 and all('bar' not in f['cite_key'] for f in u), u
+assert d['reading']['unread']==3, d['reading']
+" || return 1
+    # The same claim made negative, then scoped, is high-risk.
+    local word kind
+    for pair in "never change:negative" "only lighting and background both change:scope"; do
+        word=${pair%%:*}; kind=${pair##*:}
+        tmp=$(mktemp -d) || return 1
+        reading_fixture "$tmp"
+        if [ "$kind" = "negative" ]; then
+            sed -i.bak "s/both change/$word/" "$tmp/sections/s.tex" "$tmp/ledger.tsv"
+        else
+            sed -i.bak "s/lighting and background both change/$word/" "$tmp/sections/s.tex" "$tmp/ledger.tsv"
+        fi
+        out=$(reading_json "$tmp")
+        rm -rf "$tmp"
+        echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='unread-high-risk' and f['cite_key']=='bar']
+assert len(u)==1 and u[0]['detail'].startswith('$kind'), (u, '$kind')
+" || return 1
+    done
+}
+
+test_T261() {
+    # "The benchmarks cited here ..." with no \cite is listed in the full scan, and is a hard finding in gate mode
+    # when this change added it.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(reading_json "$tmp")
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='uncited-literature-claim']
+assert len(u)==1 and u[0]['prompt'] and 'cited here' in u[0]['detail'], u
+" || { rm -rf "$tmp"; return 1; }
+    (cd "$tmp" && git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm base) || { rm -rf "$tmp"; return 1; }
+    printf 'Prior studies handle only colour photos.\n' >> "$tmp/sections/s.tex"
+    out=$(reading_json "$tmp" --gate-since HEAD); status=$?
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='uncited-literature-claim']
+new=[f for f in u if not f['prompt']]
+assert len(new)==1 and 'Prior studies' in new[0]['detail'], u
+assert any(f['prompt'] and 'cited here' in f['detail'] for f in u), u
+" || return 1
+    [ "$status" = "1" ] || { echo "expected exit 1 in gate mode, got $status"; return 1; }
+}
+
+test_T262() {
+    # A work the bibliography names (shorttitle) mentioned with no \cite is listed; the report says how many cited
+    # keys have no name.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(reading_json "$tmp")
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='named-work-without-cite']
+assert len(u)==1 and 'BarBench' in u[0]['detail'] and u[0]['cite_key']=='bar', u
+assert d['names']=={'named_works':1,'cited_keys_without_name':1}, d['names']
+" || return 1
+}
+
+test_T263() {
+    # "Earlier work did not evaluate X~\cite{foo}" with no row is a finding, not a credit prompt.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(reading_json "$tmp")
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='unledgered-negative-claim']
+assert len(u)==1 and not u[0].get('prompt') and 'did not test' in u[0]['detail'], u
+assert not [f for f in d['findings'] if f['kind']=='unledgered-credit' and 'did not' in f['detail']], d['findings']
+" || return 1
+}
+
+test_T264() {
+    # --pairs puts every snippet of one claim under it, with the version the evidence came from.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp" --ledger "$tmp/ledger.tsv" --pairs 2>&1)
+    rm -rf "$tmp"
+    printf '%s\n' "$out" | python3 -c "
+import sys
+t=sys.stdin.read()
+block=t.split('claim: BarBench showed')[1].split('claim:')[0]
+assert '(2 snippets)' in block, block
+assert block.count('snippet:')==2 and 'arXiv v2' in block, block
+" || return 1
+}
+
+test_T265() {
+    # A row the author read as wrong lists the other sentences that cite the same key, to read again.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    python3 - "$tmp/ledger.tsv" <<'EOF'
+import sys
+p = sys.argv[1]
+lines = open(p, encoding="utf-8").read().split("\n")
+parts = lines[1].split("\t")
+parts[5] = "author: wrong, the source reports seventy one frames"
+lines[1] = "\t".join(parts)
+open(p, "w", encoding="utf-8").write("\n".join(lines))
+EOF
+    out=$(reading_json "$tmp")
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='recheck-same-key']
+assert len(u)==1 and u[0]['prompt'] and 'Earlier work did not test' in u[0]['sentence'], u
+" || return 1
+}
+
+test_T266() {
+    # The changed-sentence audit names the claim-ledger rows an edit takes a bound claim out of; without a ledger it
+    # does not; a ledger that is not there is said.
+    local tmp out out2 out3
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    mkdir -p "$tmp/cur/sections" "$tmp/base/sections"
+    cp "$tmp/sections/s.tex" "$tmp/base/sections/"
+    sed 's/a speed of ninety frames a second/a high speed/' "$tmp/sections/s.tex" > "$tmp/cur/sections/s.tex"
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --target "$tmp/cur" --base "$tmp/base" --ledger "$tmp/ledger.tsv" --json 2>&1)
+    out2=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --target "$tmp/cur" --base "$tmp/base" --json 2>&1)
+    out3=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --target "$tmp/cur" --base "$tmp/base" --ledger "$tmp/nope.tsv" --json 2>&1)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+b=[s for s in d['sentences'] if 'bound_in_ledger' in s['flags']]
+assert len(b)==1 and b[0]['ledger_rows']==['ledger.tsv:2'], d['sentences']
+" || return 1
+    echo "$out2" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert not [s for s in d['sentences'] if 'bound_in_ledger' in s['flags']], d['sentences']
+" || return 1
+    echo "$out3" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d['ledgers_missing'] and d['ledgers_missing'][0].endswith('nope.tsv'), d.get('ledgers_missing')
+" || return 1
+}
+
+test_T267() {
+    # Measured on one real ledger, four kinds of words made most high-risk hits noise: "one" as a determiner, digits
+    # inside a name, "first ... then" as a sequence, and "-only" inside a compound. None of them makes a claim high-risk;
+    # a standalone count and "the first" still do.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/sections" "$tmp/sources"
+    cat > "$tmp/sections/s.tex" <<'EOF'
+\section{Related work}
+One method sorts the photos by colour~\cite{a}.
+The model ResNet50-v1.5 labels the photos~\cite{b}.
+The tool first crops the photo and then resizes it~\cite{c}.
+A text-only baseline ignores the photo~\cite{d}.
+The survey covers seven datasets~\cite{e}.
+This was the first benchmark of its kind~\cite{f}.
+EOF
+    printf 'Some words that support nothing in particular.\n' > "$tmp/sources/x.txt"
+    printf 'claim\tcite_key\tsnippet\tsource_file\tlevel\n' > "$tmp/ledger.tsv"
+    local k claim
+    while IFS='|' read -r k claim; do
+        printf '%s\t%s\tSome words that support nothing in particular.\tsources/x.txt\tfulltext\n' "$claim" "$k" >> "$tmp/ledger.tsv"
+    done <<'EOF'
+a|One method sorts the photos by colour
+b|The model ResNet50-v1.5 labels the photos
+c|The tool first crops the photo and then resizes it
+d|A text-only baseline ignores the photo
+e|The survey covers seven datasets
+f|This was the first benchmark of its kind
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp" --ledger "$tmp/ledger.tsv" --json 2>&1)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+keys=sorted(f['cite_key'] for f in d['findings'] if f['kind']=='unread-high-risk')
+assert keys==['e','f'], keys
+" || return 1
+}
+
 run_test "T2  symlink corruption + repair"        test_T2
 run_test "T3  sync drift detection + restore"     test_T3
 run_test "T4  CLAUDE.md edit propagates to both"  test_T4
@@ -7335,6 +7607,15 @@ run_test "T255 number ledger: two ledgers read together, each counting its copie
 run_test "T256 changed-sentence audit: a link to the previous sentence is reported, not flagged" test_T256
 run_test "T257 fingerprint: share of sentences that open with a linking adverbial" test_T257
 run_test "T258 prose audits name the metrics at the edge of the baseline (outside its 5th-95th percentile band)" test_T258
+run_test "T259 claim ledger: a numeric claim whose snippets hold none of its numbers is a finding until an author reads it" test_T259
+run_test "T260 claim ledger: an ordinary claim not read is counted, a negative or scoped one is a finding" test_T260
+run_test "T261 claim ledger: 'cited here' with no \\cite is listed, and is a finding in gate mode when new" test_T261
+run_test "T262 claim ledger: a work the bibliography names, mentioned with no \\cite, is listed" test_T262
+run_test "T263 claim ledger: a cited negative claim with no row is a finding, not a credit" test_T263
+run_test "T264 claim ledger: --pairs puts every snippet of a claim under it, with its version" test_T264
+run_test "T265 claim ledger: a row read as wrong lists the other sentences citing that key" test_T265
+run_test "T266 changed-sentence audit: an edit that unbinds a claim-ledger row names the row" test_T266
+run_test "T267 claim ledger: a determiner, digits in a name, a sequence first and a compound -only are not high-risk" test_T267
 
 header ""
 if [[ "$RUN_RETIRED" == "1" ]]; then

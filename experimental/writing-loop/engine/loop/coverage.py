@@ -1536,6 +1536,9 @@ def chat_rewrites(cfg, ws, reply, timeout=TIMEOUT):
         for opt in ("--baseline", "--venue-cache"):
             if opt in script:
                 argv += [opt, script[script.index(opt) + 1]]
+        for i, x in enumerate(script):
+            if x == "--ledger":
+                argv += ["--ledger", script[i + 1]]
         try:
             r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         except (subprocess.TimeoutExpired, OSError):

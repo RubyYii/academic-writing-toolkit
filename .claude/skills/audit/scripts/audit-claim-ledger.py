@@ -20,6 +20,33 @@ archived source, and the audit checks that binding in both directions:
                                  its source and has no ledger row
   qualifier-dropped              PROMPT: a hedge in the snippet that the claim
                                  does not carry ("expected", "some", "may")
+  unread-high-risk               a negative, scope or numeric claim that no
+                                 author has read against its snippets
+  unledgered-negative-claim      "X did not do Y" about a cited work, with no row
+  uncited-literature-claim       PROMPT (hard in gate mode for a new sentence):
+                                 "cited here", "prior work"... with no \\cite
+  named-work-without-cite        PROMPT (the same): a registered work named with
+                                 no \\cite
+  recheck-same-key               PROMPT: a row the author read as wrong; the other
+                                 sentences citing that key, to read again
+
+Found is not read (spec docs/specs/2026-09-30-claim-ledger-reading.md). A snippet
+that is verbatim in its source can still be about something else; on one real
+manuscript two such rows stayed green until a person read the source. So a row
+may carry a `read` column, `author: <what the snippet says, what the sentence
+adds>` or `draft: <the same, written by an agent>`, and the report counts found,
+draft-read and author-read rows. Only high-risk claims that no author has read
+are findings: a negative claim, a scope claim ("only", "first", "outside"), or a
+number the claim's snippets do not contain. Every snippet of a claim is read
+together (`--pairs` groups rows by claim across all ledgers): one claim judged
+against one of its three rows was once "corrected" wrongly. An optional `version`
+column records where the evidence came from (an arXiv version, say, while the
+bibliography cites the proceedings version).
+
+Claims with no \\cite are still claims. A sentence that points at the literature
+("the benchmarks cited here", "prior work") or names a work the bibliography
+registers (by --names, or by its shorttitle in --bib) with no \\cite is listed.
+Works with no name are not checked, and the report says how many.
 
 What it does NOT do: judge whether a claim says more than its snippet in
 words the snippet never used. Machine judgement of that was measured on a
@@ -69,6 +96,7 @@ import sys
 from pathlib import Path
 
 COLUMNS = ["claim", "cite_key", "snippet", "source_file", "level"]
+OPTIONAL = ["read", "version"]
 LEVELS = {"fulltext", "abstract-only", "metadata"}
 # Verbs that make a citing sentence a claim about its source rather than a
 # credit line ("we use X~\cite{y}").
@@ -79,6 +107,24 @@ REPORTING = re.compile(
 NEGATIVE = re.compile(
     r"\b(did not|does not|do not|never|no prior|nobody|none of|neither|is not|are not|was not|were not"
     r"|first to|the only)\b", re.I)
+# A claim that a cited work lacks something ("did not evaluate", "no prior"). The copular negations of NEGATIVE are
+# left out: "an absolute score is not meaningful in isolation" reports a view, it does not say the work left anything
+# out, and an existing fixture carries exactly that sentence.
+NEGATIVE_WORK = re.compile(
+    r"\b(did not|does not|do not|never|no prior|nobody|none of|neither|first to|the only)\b", re.I)
+# "first" only as a claim of priority ("the first", "first to"): "X first masks the text, then ..." is a sequence.
+# "only" inside a compound ("hypothesis-only") names a thing, it does not limit a claim.
+SCOPE = re.compile(r"(?<!-)\b(only|solely|exclusively|outside|beyond (?:the|their|its) scope|the first|first to|no prior|none)\b",
+                   re.I)
+# A number standing alone: digits inside a name (ColQwen2.5-v0.2) are not a count, and "one" is mostly a determiner or
+# a pronoun ("one framework", "the one"). Measured on one real ledger, those two made six of ten hits noise.
+NUMBER = re.compile(
+    r"(?<![\w.-])(\d[\d.,]*\d|\d)(?![\w-])|\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty"
+    r"|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|half|twice|double|triple)\b", re.I)
+POINTING = re.compile(
+    r"\b(cited (?:here|above|below|earlier)|(?:prior|previous|earlier) (?:work|works|studies|benchmarks|methods)"
+    r"|the literature|existing (?:work|works|benchmarks|methods|datasets|studies)"
+    r"|these (?:benchmarks|studies|works))\b", re.I)
 HEDGE = ["expected", "may", "might", "can", "could", "some", "many", "often", "typically", "likely",
          "possibly", "approximately", "about", "partly", "partially", "only", "largely", "mostly"]
 CITE = re.compile(r"\\[a-zA-Z]*cite[a-zA-Z]*\*?(?:\[[^\]]*\])*\{([^}]*)\}")
@@ -116,6 +162,16 @@ def split_cited(text):
     return out
 
 
+def split_all(text):
+    """Every sentence of `text`, with its keys (empty when it cites nothing)."""
+    out = []
+    for sentence in re.split(r"(?<=[.])\s+(?=[A-Z\\])", clean_tex(text)):
+        keys = [k.strip() for group in CITE.findall(sentence) for k in group.split(",") if k.strip()]
+        if sentence.strip():
+            out.append((sentence.strip(), keys))
+    return out
+
+
 def manuscript_files(base, also=()):
     """[(path, label)]: every .tex under base, then each --also-file (a supplement outside base, say), each once.
     09-27: moving text into a supplement at the repository root took it out of the base directory, and 13 ledger
@@ -139,8 +195,8 @@ def citing_sentences(base, also=()):
     return out
 
 
-def sentences_at_ref(base, ref, also=()):
-    """Normalised citing sentences as they stood at `ref`.
+def sentences_at_ref(base, ref, also=(), every=False):
+    """Normalised citing sentences (every sentence, with every=True) as they stood at `ref`.
 
     Files that did not exist there contribute nothing, so every sentence of a
     newly added file counts as new.
@@ -160,7 +216,7 @@ def sentences_at_ref(base, ref, also=()):
                                capture_output=True, text=True)
         if shown.returncode:
             continue
-        before.update(norm(s) for s, _ in split_cited(shown.stdout))
+        before.update(norm(s) for s, _ in (split_all if every else split_cited)(shown.stdout))
     return before
 
 
@@ -186,6 +242,47 @@ def uncovered(keys, sentence, credits):
     return [k for k in keys if not any(p == "" or p in prose for p in credits.get(k, []))]
 
 
+def read_names(names_files, bib_files):
+    """name -> key, from name<TAB>key tables and from `shorttitle` in bibliographies."""
+    names = {}
+    for f in bib_files:
+        text = Path(f).expanduser().read_text(encoding="utf-8", errors="replace")
+        for m in re.finditer(r"@\w+\s*\{\s*([^,\s]+)\s*,(.*?)(?=\n@|\Z)", text, re.S):
+            t = re.search(r"shorttitle\s*=\s*(?:\{([^{}]*)\}|\"([^\"]*)\")", m.group(2), re.I)
+            name = t and (t.group(1) if t.group(1) is not None else t.group(2)).strip()
+            if name:
+                names[name] = m.group(1)
+    for f in names_files:
+        for line in Path(f).expanduser().read_text(encoding="utf-8").splitlines():
+            line = line.split("#")[0].rstrip()
+            if "\t" in line:
+                name, key = line.split("\t", 1)
+                if name.strip() and key.strip():
+                    names[name.strip()] = key.strip()
+    return names
+
+
+def reading(row):
+    """author / draft / "" (found only)."""
+    r = row.get("read", "").strip().lower()
+    return "author" if r.startswith("author:") else ("draft" if r.startswith("draft:") else "")
+
+
+def risks(claim, snippets):
+    """Why a claim is high-risk: negative, scope, numbers none of its snippets contain."""
+    out = []
+    if NEGATIVE_WORK.search(claim):
+        out.append("negative")
+    if SCOPE.search(claim):
+        out.append("scope")
+    text = norm(" ".join(snippets))
+    found = {(m.group(1) or m.group(2)).lower() for m in NUMBER.finditer(claim)}
+    missing = sorted(x for x in found if not re.search(rf"(?<![\w.]){re.escape(x)}(?![\w])", text))
+    if missing:
+        out.append("numbers not in its snippets: " + ", ".join(missing))
+    return out
+
+
 def read_ledger(path):
     rows = []
     lines = [l.rstrip("\n") for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -199,6 +296,8 @@ def read_ledger(path):
         if len(parts) < len(COLUMNS):
             sys.exit(f"LEDGER_COLUMNS: line {n} has {len(parts)} columns, expected {len(COLUMNS)}")
         row = dict(zip(COLUMNS, parts))
+        for col in OPTIONAL:
+            row[col] = parts[header.index(col)].strip() if col in header and header.index(col) < len(parts) else ""
         row["line"] = n
         if row["level"] not in LEVELS:
             sys.exit(f"LEDGER_LEVEL: line {n} has level {row['level']!r}, expected one of {sorted(LEVELS)}")
@@ -222,6 +321,10 @@ def main(argv=None):
                     help="method credits the author has accepted, one per line, as "
                          "'key = the procedure it may be cited for'; a bare key accepts any use. "
                          "Read by the full scan and by the commit gate")
+    ap.add_argument("--bib", action="append", default=[], metavar="FILE",
+                    help="a bibliography whose shorttitle fields name works (checked for mentions with no \\cite)")
+    ap.add_argument("--names", action="append", default=[], metavar="FILE",
+                    help="name<TAB>key lines: works whose mentions with no \\cite are listed")
     a = ap.parse_args(argv)
     base = Path(a.base_dir).expanduser().resolve()
     ledger_paths = [Path(x).expanduser().resolve() for x in a.ledger]
@@ -243,6 +346,8 @@ def main(argv=None):
             rows.append(row)
     credits = read_credits(a.credits) if a.credits else {}
     findings, pairs = [], []
+    before = sentences_at_ref(base, a.gate_since, a.also_file) if a.gate_since else None
+    before_all = sentences_at_ref(base, a.gate_since, a.also_file, every=True) if a.gate_since else None
 
     for row in rows:
         loc = f"{row['_ledger'].name}:{row['line']}"
@@ -275,11 +380,41 @@ def main(argv=None):
             findings.append({"kind": "qualifier-dropped", "prompt": True, "location": loc, "cite_key": row["cite_key"],
                              "detail": f"the snippet hedges with {dropped}; the claim does not — read the pair before trusting it"})
         pairs.append({"cite_key": row["cite_key"], "claim": row["claim"], "snippet": row["snippet"],
-                      "source_file": row["source_file"], "level": row["level"]})
+                      "source_file": row["source_file"], "level": row["level"], "version": row["version"],
+                      "read": row["read"], "location": loc})
+
+    # Found is not read: one finding per claim, judged with every row the claim has (in every ledger).
+    groups = {}
+    for row in rows:
+        groups.setdefault(norm(row["claim"]), []).append(row)
+    for claim_n, group in groups.items():
+        why = risks(group[0]["claim"], [r["snippet"] for r in group])
+        if not why or any(reading(r) == "author" for r in group):
+            continue
+        loc = f"{group[0]['_ledger'].name}:{group[0]['line']}"
+        new = before is None or not any(claim_n in norm(s) and norm(s) not in before for _, s, _ in sentences)
+        findings.append({"kind": "unread-high-risk", "prompt": before is not None and new is False, "location": loc,
+                         "cite_key": ",".join(sorted({r["cite_key"] for r in group})),
+                         "detail": f"{'; '.join(why)} — no author has read it against its {len(group)} snippet(s); "
+                                   f"write read: author: <what they say, what the sentence adds>: {group[0]['claim'][:80]}"})
+    # A row the author read as wrong: the other sentences citing that key are read again.
+    for row in rows:
+        if re.match(r"\s*author:\s*wrong\b", row["read"], re.I):
+            others = [(f, s) for f, s, k in sentences if row["cite_key"] in k and norm(row["claim"]) not in norm(s)]
+            for f, s in others:
+                findings.append({"kind": "recheck-same-key", "prompt": True, "location": f, "cite_key": row["cite_key"],
+                                 "sentence": s, "detail": f"{row['_ledger'].name}:{row['line']} was read as wrong; "
+                                                          f"this sentence cites {row['cite_key']} too: {s[:90]}"})
 
     ledgered = {norm(r["claim"]) for r in rows if norm(r["claim"])}
     for f, s, keys in sentences:
         if any(c and c in norm(s) for c in ledgered):
+            continue
+        if NEGATIVE_WORK.search(CITE.sub(" ", s)):
+            old = before is not None and norm(s) in before
+            findings.append({"kind": "unledgered-negative-claim", "prompt": old, "location": f,
+                             "cite_key": ",".join(keys), "sentence": s,
+                             "detail": f"says a cited work lacks something, with no ledger row: {s[:90]}"})
             continue
         if credits and not uncovered(keys, s, credits):
             findings.append({"kind": "credited", "prompt": False, "location": f, "cite_key": ",".join(keys),
@@ -290,13 +425,32 @@ def main(argv=None):
                          "cite_key": ",".join(keys), "sentence": s,
                          "detail": f"{'asserts something about' if kind == 'unledgered-assertion' else 'credits'} {','.join(keys)} with no ledger row: {s[:90]}"})
 
+    # Claims with no \cite: pointing phrases, and works named without a citation.
+    names = read_names(a.names, a.bib)
+    cited_keys = {k for _, _, keys in sentences for k in keys}
+    unnamed = sorted(cited_keys - set(names.values()))
+    for path, label in manuscript_files(base, a.also_file):
+        for s, keys in split_all(path.read_text(encoding="utf-8", errors="replace")):
+            if keys:
+                continue
+            new = before_all is not None and norm(s) not in before_all
+            m = POINTING.search(s)
+            if m:
+                findings.append({"kind": "uncited-literature-claim", "prompt": not new, "location": label,
+                                 "sentence": s, "cite_key": "",
+                                 "detail": f"points at the literature (\"{m.group(1)}\") with no \\cite: {s[:90]}"})
+            named = [n for n in names if re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", s)]
+            if named:
+                findings.append({"kind": "named-work-without-cite", "prompt": not new, "location": label,
+                                 "sentence": s, "cite_key": ",".join(names[n] for n in named),
+                                 "detail": f"names {', '.join(named)} with no \\cite: {s[:90]}"})
+
     gate = None
     if a.gate_since:
         # A credit is accepted for a named procedure, not for a key outright.
         # Run against the commit that introduced them, a key-only allowlist let
         # an equivalence-testing paper through as the source of a permutation
         # test: the key was listed, and the sentence read like a credit.
-        before = sentences_at_ref(base, a.gate_since, a.also_file)
         added = [(f, s, k) for f, s, k in sentences if norm(s) not in before]
         for f, s, keys in added:
             if any(c and c in norm(s) for c in ledgered):
@@ -320,8 +474,12 @@ def main(argv=None):
     hard_kinds = {"snippet-not-in-source", "claim-not-in-manuscript", "key-not-in-claim-sentence",
                   "source-file-missing", "negative-claim-without-fulltext",
                   "new-assertion-unledgered", "new-citation-unaccounted",
-                  "credit-outside-its-procedure"}
-    hard = [f for f in findings if f["kind"] in hard_kinds]
+                  "credit-outside-its-procedure", "unread-high-risk", "unledgered-negative-claim",
+                  "uncited-literature-claim", "named-work-without-cite"}
+    hard = [f for f in findings if f["kind"] in hard_kinds and not f.get("prompt")]
+    counts = {"found": len(rows), "author": sum(1 for r in rows if reading(r) == "author"),
+              "draft": sum(1 for r in rows if reading(r) == "draft")}
+    counts["unread"] = counts["found"] - counts["author"] - counts["draft"]
     # Nothing verified is not a pass: an empty ledger over a citing manuscript
     # produces a coverage list and no verification at all.
     # In gate mode the question is what this change added, so a change that
@@ -338,6 +496,8 @@ def main(argv=None):
         "gate": gate,
         "credits_file": a.credits,
         "credited_sentences": sum(1 for f in findings if f["kind"] == "credited"),
+        "reading": counts,
+        "names": {"named_works": len(names), "cited_keys_without_name": len(unnamed)},
         "findings": findings,
         "hard_finding_count": len(hard),
         "nothing_checked": nothing,
@@ -352,25 +512,40 @@ def main(argv=None):
         unledgered = sum(1 for f in findings if f["kind"] == "unledgered-assertion")
         print(f"claim ledger: {len(rows)} row(s) against {len(sentences)} citing sentence(s) under {base}")
         print(f"coverage: {unledgered} asserting sentence(s) carry no row, and nothing here checks them")
+        print(f"rows: {counts['found']} found, {counts['author']} read by the author, {counts['draft']} read in draft, "
+              f"{counts['unread']} not read (found is not read)")
+        print(f"names: {len(names)} work(s) named; {len(unnamed)} cited key(s) have no name, so mentions of them "
+              f"with no \\cite are not checked")
         if gate:
             print(f"gate: {gate['new_citing_sentences']} citing sentence(s) new since {gate['since']}"
                   f"; {len(gate['credits'])} key(s) accepted as credits")
         for kind in ["new-assertion-unledgered", "new-citation-unaccounted", "credit-outside-its-procedure",
-                     "snippet-not-in-source", "claim-not-in-manuscript", "key-not-in-claim-sentence",
+                     "unread-high-risk", "unledgered-negative-claim", "uncited-literature-claim",
+                     "named-work-without-cite", "recheck-same-key", "snippet-not-in-source", "claim-not-in-manuscript", "key-not-in-claim-sentence",
                      "source-file-missing", "negative-claim-without-fulltext", "unledgered-assertion",
                      "qualifier-dropped", "unledgered-credit", "credited"]:
             group = [f for f in findings if f["kind"] == kind]
             if not group:
                 continue
-            print(f"\n{kind}{' (prompt, not a finding)' if group[0].get('prompt') else ''} ({len(group)})")
+            prompts = sum(1 for f in group if f.get("prompt"))
+            tag = " (prompt, not a finding)" if prompts == len(group) else (f" ({prompts} of them prompts)" if prompts else "")
+            print(f"\n{kind}{tag} ({len(group)})")
             for f in group:
                 print(f"  {f['location']}\n    {f['detail']}")
         if nothing:
             print("\nNOTHING CHECKED: no citing sentence and no ledger row. This is not a pass.")
         print(f"\nNot decided here: {payload['limits']['semantic_overreach']}")
     if a.pairs:
+        # One claim, every snippet it has, in every ledger: judge the claim against all of them.
+        grouped = {}
         for p in pairs:
-            print(f"\n[{p['cite_key']} · {p['level']}]\n  claim:   {p['claim']}\n  snippet: {p['snippet']}\n  source:  {p['source_file']}")
+            grouped.setdefault(norm(p["claim"]), []).append(p)
+        for group in grouped.values():
+            print(f"\nclaim: {group[0]['claim']}  ({len(group)} snippet{'s' * (len(group) > 1)})")
+            for p in group:
+                meta = " · ".join(x for x in [p["cite_key"], p["level"], p["version"]] if x)
+                print(f"  [{meta}] {p['location']}\n    snippet: {p['snippet']}\n    source:  {p['source_file']}"
+                      + (f"\n    read:    {p['read']}" if p["read"] else "\n    read:    (not read)"))
     return 1 if hard else (2 if nothing and not a.allow_empty else 0)
 
 
