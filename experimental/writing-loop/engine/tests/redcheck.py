@@ -16,6 +16,13 @@ ROOT = ENGINE.parent  # experimental/writing-loop: engine/ and hooks/ are copied
 
 # (step, file, old, new, test id). A bare file name is under engine/loop; a path with "/" is under ROOT.
 MUTATIONS = [
+    # 讲法页（spec 2026-09-28-story-layer S3）：每条判断拿掉，对应测试必须变红。
+    ("storypage", 'state.py', '    if sp and sp["steps"] and sp["approved"] < sp["steps"]:\n        # The author', '    if False:\n        # The author', 'test_state.StoryPageTest.test_a_step_marked_unapproved_keeps_the_paper_from_the_author'),
+    ("storypage", 'state.py', '        ok = "◌" not in text and (', '        ok = (', 'test_state.StoryPageTest.test_a_step_marked_unapproved_keeps_the_paper_from_the_author'),
+    ("storypage", 'state.py', '    page_ok = any(TG._approval_in_transcripts(cfg, u) for u in page)', '    page_ok = True', 'test_state.StoryPageTest.test_an_approval_that_is_not_on_record_approves_nothing'),
+    ("storypage", 'state.py', '        elif steps:\n            break                       # the run of steps is over', '        elif steps:\n            pass                        # the run of steps is over', 'test_state.StoryPageTest.test_every_step_under_an_approved_page_counts_and_the_paper_can_reach_the_author'),
+    ("storypage", 'state.py', '        own = FULL_UUID.findall(text)', '        own = []', 'test_state.StoryPageTest.test_a_step_approved_on_its_own_counts_without_a_page_approval'),
+    ("storypage", 'state.py', '        bits.append("意图卡里没有讲法页")', '        pass', 'test_state.StoryPageTest.test_a_card_without_a_story_page_is_said_and_blocks_nothing'),
     # 主张台账分清「找到」与「读过」（spec 2026-09-30-claim-ledger-reading）：接线拿掉，对应测试必须变红。
     ("claimledger", 'catalogue.py', '    if get(cfg, "inputs.bib"):\n        out["bib"] = get(cfg, "inputs.bib")', '    pass', 'test_catalogue.ClaimLedgerWiringTest.test_the_ledger_audit_gets_the_bibliography_and_the_names_table'),
     ("claimledger", 'catalogue.py', '    if (ctx.get("inputs") or {}).get("bib"):\n        args += ["--bib", ctx["inputs"]["bib"]]', '    pass', 'test_catalogue.ClaimLedgerWiringTest.test_the_ledger_audit_gets_the_bibliography_and_the_names_table'),

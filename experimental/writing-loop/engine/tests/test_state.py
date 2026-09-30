@@ -292,3 +292,73 @@ class StateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+PAGE_UUID = "aaaa1111-0000-4000-8000-000000000001"
+STEP_UUID = "bbbb2222-0000-4000-8000-000000000002"
+CARD = """# 意图卡
+
+## 讲法页 · Story page（作者认可：uuid {page}）
+
+1. 问题：桥的读数可能被别的东西带偏。
+2. 缺口：没人换过测量点。{step2}
+3. 结果：换测量点以后读数变了。{step3}
+
+不放进讲法页：仪器型号。
+
+以下是历史：
+1. 旧的第一步
+2. 旧的第二步
+
+## 读者
+- 记忆点 M1
+"""
+
+
+class StoryPageTest(unittest.TestCase):
+    """spec 2026-09-28-story-layer S3: the loop reads the story page's steps and their approvals; a step no author has
+    approved keeps the paper from 待作者终审 (the author's call, taken as recommended; one line to reverse)."""
+
+    def run_card(self, root, page=PAGE_UUID, step2="", step3="", on_record=(PAGE_UUID,), card=None):
+        from fixtures import make_transcripts
+        ws, cfg = setup(root, CLEAN)
+        make_transcripts(root, cfg["transcripts"]["cwd_prefix"], cfg["transcripts"]["git_branch"],
+                         [{"type": "user", "uuid": u, "timestamp": "2026-09-28T00:00:00Z",
+                           "message": {"role": "user", "content": "可以"}} for u in on_record])
+        p = Path(root) / "card.md"
+        p.write_text(card if card is not None else CARD.format(page=page, step2=step2, step3=step3), encoding="utf-8")
+        cfg["target"] = {"intent_card": str(p)}
+        return S.compute(cfg, ws)
+
+    def test_every_step_under_an_approved_page_counts_and_the_paper_can_reach_the_author(self):
+        with TempDir() as root:
+            st = self.run_card(root)
+            self.assertEqual((st["story"]["approved"], st["story"]["steps"]), (3, 3), "the history list is not the page")
+            self.assertEqual(st["verdict"], S.AUTHOR)
+            self.assertIn("讲法页 3/3 步认可", S.line(st))
+
+    def test_a_step_marked_unapproved_keeps_the_paper_from_the_author(self):
+        with TempDir() as root:
+            st = self.run_card(root, step3="◌")
+            self.assertEqual((st["story"]["approved"], st["story"]["steps"]), (2, 3))
+            self.assertEqual(st["verdict"], S.NOT_READY)
+            self.assertIn("讲法页 2/3 步认可", S.line(st))
+
+    def test_an_approval_that_is_not_on_record_approves_nothing(self):
+        with TempDir() as root:
+            st = self.run_card(root, on_record=())
+            self.assertEqual(st["story"]["approved"], 0)
+            self.assertEqual(st["verdict"], S.NOT_READY)
+
+    def test_a_step_approved_on_its_own_counts_without_a_page_approval(self):
+        with TempDir() as root:
+            st = self.run_card(root, page="cccc3333-0000-4000-8000-000000000003", step2=f"（uuid {STEP_UUID}）",
+                               on_record=(STEP_UUID,))
+            self.assertEqual(st["story"]["approved"], 1)
+
+    def test_a_card_without_a_story_page_is_said_and_blocks_nothing(self):
+        with TempDir() as root:
+            st = self.run_card(root, card="# 意图卡\n\n## 读者\n- 记忆点 M1\n")
+            self.assertEqual(st["story"]["steps"], 0)
+            self.assertEqual(st["verdict"], S.AUTHOR)
+            self.assertIn("意图卡里没有讲法页", S.line(st))

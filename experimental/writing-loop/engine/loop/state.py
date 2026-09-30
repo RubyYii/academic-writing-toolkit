@@ -6,8 +6,8 @@ coverage then reads as "nothing is wrong". This module reads the workspace's cla
 and says, every turn and ahead of coverage:
 
 - the verdict. 未就绪 while any claim is weak or unestablished, any sentence of the whole draft says a claim more
-  strongly than the ledger allows, a wording the ledger requires is absent, the ledger cannot be read, or any work
-  item is open. Otherwise 待作者终审: there is no green, because whether the paper is ready is the author's call.
+  strongly than the ledger allows, a wording the ledger requires is absent, the ledger cannot be read, any work
+  item is open, or a step of the intent card's story page has no author's approval on record. Otherwise 待作者终审: there is no green, because whether the paper is ready is the author's call.
 - the stage the ledger names, and the next open work items in the ledger's own order. A work item can be an
   analysis or a source to find, not only writing: missing evidence is not fixed by rewording.
 
@@ -406,6 +406,59 @@ def gates(cfg, st):
     return [w for w in wanted if not any(w in t for t in done)]
 
 
+# The story page (spec 2026-09-28-story-layer S3): the plain-language order of the paper, settled with the author before
+# sentence work, in the intent card's 讲法页 section. Its steps are the first run of numbered items; a later numbered
+# list (a history kept below the page) is not the page.
+STORY_HEAD = re.compile(r"^(#{2,3})\s+.*(?:讲法页|讲法顺序|[Ss]tory page)")
+STORY_STEP = re.compile(r"^\s{0,3}\d+[.、．]\s+\S")
+FULL_UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
+
+
+def story_page(cfg):
+    """{found, path, steps, approved, unapproved: [step numbers]} for the intent card's story page, or None when the
+    workspace names no readable intent card. A step is approved when an author's message it names by uuid is in this
+    workspace's transcripts, or, naming none, when the page's own approval (a uuid above the first step) is; a step
+    marked ◌ is not approved whatever the page says."""
+    card = (cfg.get("target") or {}).get("intent_card")
+    if not card:
+        return None
+    p = Path(card).expanduser()
+    try:
+        lines = p.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None   # a missing card is said by the target check
+    out = {"found": False, "path": str(p), "steps": 0, "approved": 0, "unapproved": []}
+    start = next((i for i, ln in enumerate(lines) if STORY_HEAD.match(ln)), None)
+    if start is None:
+        return out
+    out["found"] = True
+    level = len(STORY_HEAD.match(lines[start]).group(1))
+    head, steps = [lines[start]], []
+    for ln in lines[start + 1:]:
+        if re.match(r"^#{1,%d}\s" % level, ln):
+            break
+        if STORY_STEP.match(ln):
+            steps.append([ln])
+        elif steps and ln.strip() and ln[:1].isspace():
+            steps[-1].append(ln)        # a step's continuation line
+        elif steps:
+            break                       # the run of steps is over
+        else:
+            head.append(ln)
+    from . import targets as TG
+    page = [u for u in FULL_UUID.findall("\n".join(head))]
+    page_ok = any(TG._approval_in_transcripts(cfg, u) for u in page)
+    for n, step in enumerate(steps, 1):
+        text = "\n".join(step)
+        own = FULL_UUID.findall(text)
+        ok = "◌" not in text and (any(TG._approval_in_transcripts(cfg, u) for u in own) if own else page_ok)
+        out["approved"] += ok
+        if not ok:
+            out["unapproved"].append(n)
+    out["steps"] = len(steps)
+    return out
+
+
 def judge(st):
     """The verdict, what stands in its way, and the next open items. Never green: the best is 待作者终审."""
     weak = [c for c in st["claims"] if c["strength"] in WEAK or not c["strength"]]
@@ -434,6 +487,10 @@ def judge(st):
         blockers.append("全称否定没写依据 " + "、".join(st["negations"]))
     if st.get("gates_open"):
         blockers.append("门没关 " + "、".join(st["gates_open"]))
+    sp = st.get("story")
+    if sp and sp["steps"] and sp["approved"] < sp["steps"]:
+        # The author's call (spec S3), taken as recommended: an unapproved step keeps the paper from the author.
+        blockers.append(f"讲法页 {sp['approved']}/{sp['steps']} 步认可")
     if open_:
         blockers.append(f"待做开着 {len(open_)}")
     st.update(weak=[c["id"] for c in weak], open=[t["id"] for t in open_], over_labels=labels, blockers=blockers,
@@ -472,6 +529,11 @@ def compute(cfg, ws):
         st["questioned"] = True
     st["gates_open"] = gates(cfg, st)
     st["gates_wanted"] = list(((cfg.get("state") or {}).get("required_gates")) or [])
+    try:
+        st["story"] = story_page(cfg)
+    except Exception as e:  # noqa: BLE001 -- said, never taken for an approved page
+        st["story"] = None
+        st["problems"].append(f"讲法页读不出（{type(e).__name__}）")
     return judge(st)
 
 
@@ -537,6 +599,13 @@ def line(st):
         bits.append("下一步 " + "、".join(_todo_name(st, i) for i in st["next"]))
     if long_:
         bits.append(f"阶段写成了一段话（{long_} 字）：只写阶段名，过程进日志、待办进对话的清单")
+    sp = st.get("story")
+    if sp and not sp["found"]:
+        bits.append("意图卡里没有讲法页")
+    elif sp and not sp["steps"]:
+        bits.append("讲法页没列出编号的步骤")
+    elif sp and sp["approved"] == sp["steps"]:
+        bits.append(f"讲法页 {sp['steps']}/{sp['steps']} 步认可")
     if st["verdict"] == AUTHOR:
         bits.append("能不能投由作者定")
     return head + "——" + "；".join(bits)
