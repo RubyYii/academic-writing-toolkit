@@ -64,6 +64,12 @@ def _node(ctx, name):
 def _ledger_inputs(cfg):
     led = get(cfg, "overview.ledger") or {}
     out = {"ledger": led.get("path")} if led.get("path") else {}
+    # Works named in the bibliography (shorttitle) or in a names table: a mention with no \cite is listed
+    # (spec 2026-09-30-claim-ledger-reading Q2).
+    if get(cfg, "inputs.bib"):
+        out["bib"] = get(cfg, "inputs.bib")
+    if led.get("names"):
+        out["names"] = led["names"]
     # More ledgers checked with it (a supplement's own, 09-27): read together, each one's change makes it stale.
     for i, p in enumerate(led.get("also") or [], 1):
         out[f"ledger{i}"] = p
@@ -91,6 +97,10 @@ def _ledger_argv(ctx):
     credits = credits_path(ctx["cfg"])
     if credits and credits.is_file():
         args += ["--credits", str(credits)]
+    if (ctx.get("inputs") or {}).get("bib"):
+        args += ["--bib", ctx["inputs"]["bib"]]
+    if (ctx.get("inputs") or {}).get("names"):
+        args += ["--names", ctx["inputs"]["names"]]
     return args
 
 
@@ -283,9 +293,18 @@ def accepted_rewrites_path(cfg):
     return Path(cfg["repo"]) / (get(cfg, "draft.accepted_rewrites") or ACCEPTED_DEFAULT)
 
 
+def claim_ledgers(cfg):
+    """The claim ledgers, as absolute paths in the working tree: the changed-sentence check names the rows an edit
+    unbinds (spec 2026-09-30-claim-ledger-reading Q6), and it runs in a copy that holds only the draft."""
+    led = get(cfg, "overview.ledger") or {}
+    repo = Path(cfg.get("repo") or ".").expanduser()
+    return [str(repo / p) for p in [led.get("path")] + list(led.get("also") or []) if p]
+
+
 def _sentence_outside(cfg):
     # An acceptance changes what the last run means: the ledger is read in place, so editing it makes the run stale.
-    return _venue_outside(cfg) + [str(accepted_rewrites_path(cfg))]
+    # So does a claim ledger: the rows an edit unbinds come from it.
+    return _venue_outside(cfg) + [str(accepted_rewrites_path(cfg))] + claim_ledgers(cfg)
 
 
 def spelling_mode(cfg):
@@ -356,6 +375,8 @@ def _sentence_changes_argv(ctx):
     carriers = _carriers_file(ctx)
     if carriers:
         args += ["--carriers", str(carriers)]
+    for p in claim_ledgers(ctx["cfg"]):
+        args += ["--ledger", p]
     corpus = get(ctx["cfg"], "target.venue_corpus.dir")
     if corpus:
         args += ["--baseline", str(Path(corpus).expanduser())]

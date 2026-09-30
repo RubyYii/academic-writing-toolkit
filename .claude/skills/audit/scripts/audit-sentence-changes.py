@@ -691,6 +691,40 @@ def duplicated(changes, target, base):
     return in_changes, copies
 
 
+def _bound_norm(s):
+    """A sentence as the claim ledger stores it: no \\cite, no ~, lower case, spaces collapsed."""
+    s = re.sub(r"\\[a-zA-Z]*cite[a-zA-Z]*\*?(?:\[[^\]]*\])*\{[^}]*\}", " ", s).replace("~", " ")
+    return re.sub(r"\s+", " ", s).strip().lower()
+
+
+MISSING_LEDGERS = []
+
+
+def read_bound(paths):
+    """[(claim, 'ledger.tsv:line')] from claim ledgers (spec 2026-09-30-claim-ledger-reading Q6): an edit that takes a
+    bound claim out of its sentence leaves the row and the reading notes to update, and the loop said so a round late."""
+    out = []
+    for p in paths:
+        if not Path(p).expanduser().is_file():
+            MISSING_LEDGERS.append(str(p))   # said in the output, never skipped quietly
+            continue
+        lines = Path(p).expanduser().read_text(encoding="utf-8").splitlines()
+        if not lines or "claim" not in lines[0].split("\t"):
+            die(f"{p} is not a claim ledger (no 'claim' column)")
+        col = lines[0].split("\t").index("claim")
+        for n, line in enumerate(lines[1:], 2):
+            parts = line.split("\t")
+            if len(parts) > col and parts[col].strip():
+                out.append((_bound_norm(parts[col]), f"{Path(p).name}:{n}"))
+    return out
+
+
+def bound_rows(old, new, bound):
+    """The ledger rows whose claim was in the old text and is not in the new."""
+    o, n = _bound_norm(old or ""), _bound_norm(new or "")
+    return [loc for claim, loc in bound if claim and claim in o and claim not in n]
+
+
 def read_carriers(path):
     if not Path(path).is_file():
         die(f"no carriers file at {path}")
@@ -906,12 +940,15 @@ def main():
     ap.add_argument("--baseline")
     ap.add_argument("--venue-cache", help="keep the venue's measured sentences here and reuse them while unchanged")
     ap.add_argument("--carriers", help="patterns (one per line) that a removed sentence must not take with it unflagged")
+    ap.add_argument("--ledger", action="append", default=[],
+                    help="a claim ledger (TSV with a 'claim' column); an edit that takes a bound claim out is flagged")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
     global FP
     fp = FP = fingerprint()
     removed = []
     carriers = read_carriers(a.carriers) if a.carriers else []
+    bound = read_bound(a.ledger) if a.ledger else []
     verdicts = {}
     if a.pairs:
         if a.target or a.base:
@@ -953,6 +990,10 @@ def main():
         if same:
             r["flags"].append("duplicates_elsewhere")
             r["duplicates"] = same
+        hit = bound_rows(r["old"], r["new"], bound)
+        if hit:
+            r["flags"].append("bound_in_ledger")
+            r["ledger_rows"] = hit
         if where in verdicts:
             r["verdict"], r["reason"] = verdicts[where]
         results.append(r)
@@ -960,14 +1001,16 @@ def main():
     for where, old in removed:
         what = carried(old, carriers)
         took = lost.get((where, old)) or []
-        if not what and not took:
+        hit = bound_rows(old, "", bound)
+        if not what and not took and not hit:
             continue
         removed_flagged += 1
         results.append({"old": old, "new": "", "kind": "removed", "where": where, "features_old": features(old),
                         "features_new": None, "added": {}, "dense": [], "venue_percentile": {}, "carried": what,
                         "antecedent": took,
-                        "flags": (["removed_carrier"] if what else []) + (["took_antecedent"] if took else []),
-                        "pieces": 0, "olds": 1})
+                        "flags": (["removed_carrier"] if what else []) + (["took_antecedent"] if took else [])
+                                 + (["bound_in_ledger"] if hit else []),
+                        "ledger_rows": hit, "pieces": 0, "olds": 1})
         if where in verdicts:
             results[-1]["verdict"], results[-1]["reason"] = verdicts[where]
     for where, s, same in copies:
@@ -984,10 +1027,12 @@ def main():
                      "took_antecedent": sum(1 for r in results if "took_antecedent" in r["flags"]),
                      "count_elsewhere": sum(1 for r in results if "count_elsewhere" in r["flags"]),
                      "copied": kinds["copied"],
-                     "duplicates_elsewhere": sum(1 for r in results if "duplicates_elsewhere" in r["flags"])})
+                     "duplicates_elsewhere": sum(1 for r in results if "duplicates_elsewhere" in r["flags"]),
+                     "bound_in_ledger": sum(1 for r in results if "bound_in_ledger" in r["flags"])})
     unjudged = kinds["added"] if venue is None else 0   # judged against DEFAULT_CEILING, not a venue
     linked = Counter(t for r in results for t in r.get("links_added", []))
     out = {"schema_version": 2, "compared": compared, "changed": len(results) - removed_flagged, "flagged": len(flagged),
+           "ledgers_missing": MISSING_LEDGERS,
            "added_without_venue": unjudged,
            "links_added": dict(sorted(linked.items())),
            "venue": ({"documents": venue["documents"], "sentences": venue["sentences"],
@@ -1001,7 +1046,8 @@ def main():
                        **({"old": r["old"], "carried": r["carried"], "antecedent": r["antecedent"]}
                           if r["kind"] == "removed" else {}),
                        **({"shares_elsewhere": r["shares_elsewhere"]} if r.get("shares_elsewhere") else {}),
-                       **({"duplicates": r["duplicates"]} if r.get("duplicates") else {})}
+                       **({"duplicates": r["duplicates"]} if r.get("duplicates") else {}),
+                       **({"ledger_rows": r["ledger_rows"]} if r.get("ledger_rows") else {})}
                       for r in flagged]}
     if a.json:
         print(json.dumps(out, ensure_ascii=False, indent=1))
@@ -1018,8 +1064,10 @@ def main():
                   + "(" + ", ".join(f"{k} {v}" for k, v in DEFAULT_CEILING.items()) + ")")
         for r in flagged:
             if r["kind"] == "removed":
-                print(f"\n[{r['where']}] removed: {', '.join(r['carried'] + ['took an antecedent'] * bool(r['antecedent']))}")
+                print(f"\n[{r['where']}] removed: {', '.join(r['carried'] + ['took an antecedent'] * bool(r['antecedent']) + ['bound in the claim ledger'] * bool(r.get('ledger_rows')))}")
                 print(f"  was: {r['old']}")
+                if r.get("ledger_rows"):
+                    print(f"  update in this round: claim ledger {', '.join(r['ledger_rows'])} and the reading notes")
                 for h in r["antecedent"]:
                     print(f"  a later sentence still says '{h['phrase']}': {h['sentence']}")
                 continue
@@ -1030,6 +1078,8 @@ def main():
             if r["old"]:
                 print(f"  was: {r['old']}")
             print(f"  now: {r['new']}")
+            if r.get("ledger_rows"):
+                print(f"  update in this round: claim ledger {', '.join(r['ledger_rows'])} and the reading notes")
             for d in r.get("duplicates") or []:
                 print(f"  the same, letter for letter, as [{d['where']}]: {d['sentence']}")
             for x in r.get("shares_elsewhere") or []:
@@ -1047,6 +1097,8 @@ def main():
             n = sum(1 for r in results if r.get("links_added"))
             print(f"\nlinking adverbials added, not flagged: {sum(linked.values())} in {n} sentence(s) ("
                   + ", ".join(f"{k} x{v}" for k, v in sorted(linked.items())) + ")")
+        if MISSING_LEDGERS:
+            print(f"\nclaim ledger not found, so edits to bound sentences were not named: {', '.join(MISSING_LEDGERS)}")
         print(f"\n{LIMITS}")
     sys.exit(1 if flagged else 0)
 

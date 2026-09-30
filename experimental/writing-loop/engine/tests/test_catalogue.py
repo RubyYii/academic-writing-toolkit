@@ -112,3 +112,31 @@ class WiringTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClaimLedgerWiringTest(unittest.TestCase):
+    """spec 2026-09-30-claim-ledger-reading: the ledger audit reads the bibliography's names (Q2), and the
+    changed-sentence check reads the claim ledgers to name the rows an edit unbinds (Q6)."""
+
+    def cfg(self):
+        return {"repo": "/tmp/fake-repo", "_ws": "/tmp/fake-ws",
+                "inputs": {"bib": "references.bib"},
+                "overview": {"ledger": {"path": "audit/ledger.tsv", "base_dir": "sections",
+                                        "also": ["audit/ledger-supplement.tsv"], "names": "audit/names.tsv"}}}
+
+    def test_the_ledger_audit_gets_the_bibliography_and_the_names_table(self):
+        cfg = self.cfg()
+        check = K.by_id("claim-ledger")
+        inputs = check["inputs"](cfg)
+        self.assertEqual((inputs.get("bib"), inputs.get("names")), ("references.bib", "audit/names.tsv"))
+        argv = check["argv"]({"cfg": cfg, "ws": "/tmp/fake-ws", "tmp": "", "inputs": inputs, "also": []})
+        self.assertEqual(argv[argv.index("--bib") + 1], "references.bib")
+        self.assertEqual(argv[argv.index("--names") + 1], "audit/names.tsv")
+
+    def test_the_changed_sentence_check_gets_every_claim_ledger_as_an_absolute_path(self):
+        cfg = self.cfg()
+        check = K.by_id("sentence-changes")
+        argv = check["argv"]({"cfg": cfg, "ws": "", "tmp": "", "inputs": {}})
+        got = [argv[i + 1] for i, x in enumerate(argv) if x == "--ledger"]
+        self.assertEqual(got, ["/tmp/fake-repo/audit/ledger.tsv", "/tmp/fake-repo/audit/ledger-supplement.tsv"])
+        self.assertTrue(set(got) <= set(check["outside"](cfg)), "editing a ledger makes the last run stale")
