@@ -1206,7 +1206,7 @@ class LatexCoverageTest(unittest.TestCase):
     def test_the_chapter_checks_read_a_latex_draft(self):
         with TempDir() as root:
             repo, ws = setup(root)
-            for cid in ("paragraph-logic", "word-count", "british-english"):
+            for cid in ("paragraph-logic", "paragraph-openers", "word-count", "british-english"):
                 r, rec = self.run_one(ws, cid)
                 self.assertNotIn(r["status"], (V.NOT_APPLICABLE, V.FAILED), (cid, r, rec and rec.get("summary")))
                 self.assertIn(rec["verdict"], ("ok", "findings"), rec.get("summary"))
