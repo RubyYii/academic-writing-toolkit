@@ -1,6 +1,6 @@
 # Writing loop: the story before the sentences
 
-Status: draft. S1 and S2 are implemented (T268, the engine's unit tests, the red check and the full test.sh run locally; brought onto main 2026-09-30 in one commit; the author has not reviewed them). S3 and S5 are next, in that order: on the manuscript this spec comes from, the author approved a five-step story page and asked that the toolkit be designed from it. S4, S6 and S7 are proposals only.
+Status: draft. S1 and S2 are implemented (T268, the engine's unit tests, the red check and the full test.sh run locally; brought onto main 2026-09-30 in one commit; the author has not reviewed them). S3 is implemented (StoryPageTest, the red check; 2026-09-30; its one decision taken as recommended and open to reversal). S5 is next: on the manuscript this spec comes from, the author approved a five-step story page and asked that the toolkit be designed from it. S4, S6 and S7 are proposals only.
 
 ## Problem
 
@@ -60,11 +60,21 @@ first. Exit 1 with findings, 0 without, 2 when there is nothing to read; registe
 - The advantage sentence is no longer fixed as the abstract's first sentence; where it goes follows the story page.
 - Acceptance gains V4: each flagged paragraph opener is marked keep or rewrite, and the author judges.
 
-### S3 (proposed): the loop reads the story page
+### S3 (implemented 2026-09-30): the loop reads the story page
 
 Parse the story page's steps and their approval marks. The per-turn line says how many steps the author has approved.
 Whether an unapproved page should also block 待作者终审 is the author's decision, so this change reports it and does not
 change the verdict until that decision is made.
+
+As built (`loop/state.py`, `story_page`): the page is the intent card's section headed 讲法页, 讲法顺序 or Story page;
+its steps are the first run of numbered items (a numbered history kept below the page is not the page). A step is
+approved when an author's message it names by uuid is in the workspace's transcripts, or, naming none, when the page's
+own approval (a uuid above the first step) is; a step marked ◌ is not approved. The per-turn line says "讲法页 k/n 步认可";
+a card without the section is said and blocks nothing.
+
+Decision, taken as recommended on 2026-09-30 and open to reversal: a step with no approval on record is a blocker, so
+the verdict stays 未就绪 until the author approves it. Reversing it is one line in `judge`. On the manuscript this spec
+comes from, the page has five steps, all approved; its verdict did not change.
 
 ### S4 (proposed): growth between approved versions
 
