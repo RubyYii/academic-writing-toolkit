@@ -160,6 +160,37 @@ class StateTest(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertIn("主张 C1", buf.getvalue())
 
+    def test_a_stage_that_names_a_submission_says_submitted_and_stops_asking(self):
+        # 10-01: the author submitted and the ledger's stage said so, yet every turn's line still read 待作者终审 and
+        # asked whether to submit. A stage that names a submission makes the verdict 已投稿; what still stands in the
+        # way stays listed, for the revision.
+        with TempDir() as root:
+            ws, cfg = setup(root, CLEAN.replace("阶段：终检", "阶段：已投稿，冻结"))
+            st = S.compute(cfg, ws)
+            self.assertEqual(st["verdict"], S.SUBMITTED)
+            line = S.line(st)
+            self.assertTrue(line.startswith("论文状态：已投稿（阶段：已投稿，冻结）"), line)
+            self.assertNotIn("能不能投由作者定", line)
+            self.assertIn("已投出：之后的改动等审稿意见", line)
+            c = S.cell(st)
+            self.assertEqual((c["value"], c["sub"], c["tone"]), ("已投稿", "已投出，等审稿意见", "white"))
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(["state", str(ws)]), 0)
+        with TempDir() as root:
+            ws, cfg = setup(root, LEDGER.replace("阶段：分析", "阶段：submitted"))
+            st = S.compute(cfg, ws)
+            self.assertEqual(st["verdict"], S.SUBMITTED)
+            self.assertTrue(st["blockers"], "what stood in the way is still there after submission")
+            for b in st["blockers"]:
+                if not b.startswith("待做开着"):
+                    self.assertIn(b, S.line(st))
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(["state", str(ws)]), 1, "submitted with blockers is not a clean exit")
+        for stage in ("未投稿", "待投稿", "not yet submitted", "准备提交"):
+            with TempDir() as root:
+                ws, cfg = setup(root, CLEAN.replace("阶段：终检", "阶段：" + stage))
+                self.assertEqual(S.compute(cfg, ws)["verdict"], S.AUTHOR, stage)
+
     def test_the_stage_is_a_name_and_a_paragraph_there_is_cut_and_said(self):
         # 09-28: a stage line had grown into an account of the round, what was left and the conversation's list items,
         # repeated in every turn's line. The author: the stage line holds the stage's name only.

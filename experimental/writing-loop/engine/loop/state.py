@@ -7,7 +7,8 @@ and says, every turn and ahead of coverage:
 
 - the verdict. 未就绪 while any claim is weak or unestablished, any sentence of the whole draft says a claim more
   strongly than the ledger allows, a wording the ledger requires is absent, the ledger cannot be read, any work
-  item is open, or a step of the intent card's story page has no author's approval on record. Otherwise 待作者终审: there is no green, because whether the paper is ready is the author's call.
+  item is open, or a step of the intent card's story page has no author's approval on record. 已投稿 once the stage
+  names a submission, with whatever still stands in the way listed for the revision. Otherwise 待作者终审: there is no green, because whether the paper is ready is the author's call.
 - the stage the ledger names, and the next open work items in the ledger's own order. A work item can be an
   analysis or a source to find, not only writing: missing evidence is not fixed by rewording.
 
@@ -93,6 +94,10 @@ DEFAULT_SCOPE_AT = ["A"]
 
 NOT_READY = "未就绪"
 AUTHOR = "待作者终审"
+SUBMITTED = "已投稿"
+# 10-01: the author submitted and the ledger's stage said so, yet the line still read 待作者终审 and asked whether to
+# submit. A stage that names a submission makes the verdict 已投稿; what still stands in the way stays listed.
+SUBMITTED_STAGE = re.compile(r"已投稿|已提交|审稿中|(?<!not )(?<!yet )\bsubmitted\b|under review", re.I)
 NO_LEDGER = "没有主张清单"
 
 
@@ -494,7 +499,8 @@ def judge(st):
     if open_:
         blockers.append(f"待做开着 {len(open_)}")
     st.update(weak=[c["id"] for c in weak], open=[t["id"] for t in open_], over_labels=labels, blockers=blockers,
-              verdict=NOT_READY if blockers else AUTHOR, next=[t["id"] for t in open_[:3]])
+              verdict=(SUBMITTED if SUBMITTED_STAGE.search(st.get("stage") or "") else NOT_READY if blockers else AUTHOR),
+              next=[t["id"] for t in open_[:3]])
     return st
 
 
@@ -608,6 +614,8 @@ def line(st):
         bits.append(f"讲法页 {sp['steps']}/{sp['steps']} 步认可")
     if st["verdict"] == AUTHOR:
         bits.append("能不能投由作者定")
+    elif st["verdict"] == SUBMITTED:
+        bits.append("已投出：之后的改动等审稿意见")
     return head + "——" + "；".join(bits)
 
 
@@ -720,6 +728,7 @@ def cell(st):
         return {"title": "论文", "text": "没登记主张清单", "value": "没登记", "tone": "orange",
                 "sub": "所以只知道检查跑没跑，不知道主张立没立住"}
     text = "；".join(st["blockers"]) or "没有挡着的"
-    sub = ("下一步 " + "、".join(st["next"])) if st["next"] else "能不能投由作者定"
+    sub = (("下一步 " + "、".join(st["next"])) if st["next"]
+           else "已投出，等审稿意见" if st["verdict"] == SUBMITTED else "能不能投由作者定")
     return {"title": "论文", "text": text[:64], "value": st["verdict"], "sub": sub[:120],
             "tone": "orange" if st["verdict"] == NOT_READY else "white"}
