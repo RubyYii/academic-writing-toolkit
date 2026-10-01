@@ -339,6 +339,24 @@ class TriggerTest(unittest.TestCase):
             LH.handle({"hook_event_name": "Stop", "cwd": str(root)}, regs, spawn=spy)
             self.assertEqual(spy.calls, ["stop"])
 
+    def test_a_submitted_paper_does_not_rebuild_its_index_after_each_turn(self):
+        # K11 功耗（2026-10-01）：一次 update 连同顺带的检查要将近一分钟单核；稿子投出去以后，答完、写稿、git 都不再触发。
+        from loop import config as C
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            ledger = Path(root) / "claims.md"
+            ledger.write_text("阶段：已投稿，冻结\n", encoding="utf-8")
+            cfg = C.load(ws)
+            cfg["claims"] = str(ledger)
+            C.save(ws, cfg)
+            regs = [(w, C.load(w)) for w, _ in regs]
+            spy = Spy()
+            LH.handle({"hook_event_name": "Stop", "cwd": str(repo), "stop_hook_active": False, "last_assistant_message": ""}, regs, spawn=spy)
+            self.assertEqual(spy.calls, [])
+            ledger.write_text("阶段：返修\n", encoding="utf-8")
+            LH.handle({"hook_event_name": "Stop", "cwd": str(repo), "stop_hook_active": False, "last_assistant_message": ""}, regs, spawn=spy)
+            self.assertEqual(spy.calls, ["stop"])
+
     def test_an_api_error_ends_the_turn_as_unfinished(self):
         with TempDir() as root:
             repo, ws, regs = setup(root)

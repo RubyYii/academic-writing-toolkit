@@ -5,8 +5,11 @@ version (DRAFT-…-v8.md → -v9.md); the current draft at a commit is the highe
 that exists there. Sentence ids (S0001…) are inherited through alignment, never through position.
 """
 import fnmatch
+import json
+import os
 import posixpath
 import re
+from pathlib import Path
 
 from . import align as A
 from . import config as C
@@ -30,32 +33,70 @@ def _pathspecs(cfg):
     return list(g) if isinstance(g, list) else [f":(glob){g}"]
 
 
-def load_versions(cfg, until=None):
+def load_versions(cfg, until=None, cache_file=None):
     """Versions oldest first: [{"sha", "time", "subject", "body", "path", "blob", "sentences"}].
-    Commits that leave the current draft's bytes unchanged are skipped."""
+    Commits that leave the current draft's bytes unchanged are skipped.
+
+    cache_file (K11 power, 2026-10-01): what each commit gave — its draft path and blob, and its sentences when it
+    was a version — kept on disk. A commit never changes, so a later update reads only the commits it has not seen;
+    on a real manuscript re-reading them was the largest single cost of an update. The caller keys the file by the
+    engine and the draft settings, so a change to either starts a fresh one."""
     repo = cfg["repo"]
     head = until or gitio.rev_parse(repo, cfg["ref"])
     commits = gitio.log_touching(repo, head, _pathspecs(cfg))
+    seen = _read_cache(cache_file)
+    fresh = {}
     versions, last_blob = [], None
     for c in commits:
-        path = _draft_at(cfg, c["sha"])
-        if path is None:
+        e = seen.get(c["sha"])
+        if e is None:
+            path = _draft_at(cfg, c["sha"])
+            if path is None:
+                fresh[c["sha"]] = {"absent": True}
+                continue
+            paths = path if isinstance(path, list) else [path]
+            blobs = [gitio.blob_id(repo, c["sha"], p) for p in paths]
+            e = {"paths": paths, "blob": blobs[0] if len(blobs) == 1 else "+".join(blobs)}
+        elif e.get("absent"):
+            fresh[c["sha"]] = e
             continue
-        paths = path if isinstance(path, list) else [path]
-        blobs = [gitio.blob_id(repo, c["sha"], p) for p in paths]
-        blob = blobs[0] if len(blobs) == 1 else "+".join(blobs)
-        if blob == last_blob:
+        fresh[c["sha"]] = e
+        if e["blob"] == last_blob:
             continue
-        texts = [(p, gitio.show(repo, c["sha"], p)) for p in paths]
-        md = "\n\n".join(t for _, t in texts)
+        if "sentences" not in e:
+            texts = [(p, gitio.show(repo, c["sha"], p)) for p in e["paths"]]
+            md = "\n\n".join(t for _, t in texts)
+            sents = sentences_of(md, cfg["draft"]["sections"], cfg["draft"].get("format", "markdown"))
+            locate(sents, texts)
+            for s in sents:
+                s["hash"] = text_hash(s["text"])
+            e["sentences"] = sents
+        paths = e["paths"]
         path = paths[0] if len(paths) == 1 else "+".join(paths)
-        sents = sentences_of(md, cfg["draft"]["sections"], cfg["draft"].get("format", "markdown"))
-        locate(sents, texts)
-        for s in sents:
-            s["hash"] = text_hash(s["text"])
-        versions.append({**c, "path": path, "blob": blob, "sentences": sents})
-        last_blob = blob
+        # The cache is written below, before the caller touches the versions (assign_ids adds ids in place).
+        versions.append({**c, "path": path, "blob": e["blob"], "sentences": e["sentences"]})
+        last_blob = e["blob"]
+    if cache_file is not None and fresh != seen:
+        _write_cache(cache_file, fresh)
     return versions
+
+
+def _read_cache(cache_file):
+    if cache_file is None:
+        return {}
+    try:
+        data = json.loads(Path(cache_file).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_cache(cache_file, data):
+    p = Path(cache_file)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(p)
 
 
 _WORD = re.compile(r"\S+")

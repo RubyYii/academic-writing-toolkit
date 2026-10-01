@@ -594,8 +594,25 @@ def on_stop_failure(payload, regs, now, spawn):
     return None
 
 
+def _unless_submitted(spawn):
+    """K11 power (2026-10-01): an update with the checks it makes due costs most of a minute of one core, and every Stop, draft
+    write and git command asks for one. A paper whose claims-ledger stage names a submission needs none until the stage
+    changes back; `loop update` by hand still runs. A config that cannot be read starts the update as before."""
+    def run(ws, reason):
+        try:
+            from loop import config as C
+            from loop.cli import _submitted
+            if _submitted(C.load(ws)):
+                return None
+        except Exception:  # noqa: BLE001 -- the update reports its own trouble
+            pass
+        return spawn(ws, reason)
+    return run
+
+
 def handle(payload, regs, spawn=spawn_update, now=None):
     now = time.time() if now is None else now
+    spawn = _unless_submitted(spawn)
     ev = payload.get("hook_event_name")
     if ev == "UserPromptSubmit":
         return on_prompt(payload, regs, now)

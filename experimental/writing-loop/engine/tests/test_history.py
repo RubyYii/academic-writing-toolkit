@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from loop import align as A
 from loop import config as C
@@ -78,6 +79,60 @@ class StableIdTest(unittest.TestCase):
         short = norm("We call either case a structural-pillar failure.")
         long_ = norm("Its pillar is cracked when a drawing it hangs from is overruled by the county's survey.")
         self.assertEqual(A._cover(short, long_), 0.0)
+
+
+class VersionCacheTest(unittest.TestCase):
+    """K11 功耗（2026-10-01）：一次 update 里，重读稿子的全部历史是最大的一项开销（每个版本都要 git ls-tree），
+    而旧版本是不变的提交。缓存后读出来的必须和不缓存一模一样；第二次不再为旧提交调 git；新提交照常读。"""
+
+    def _repo(self, root, texts):
+        commits = [({"drafts/DRAFT-v1.md": t}, f"c{k}", 1_700_000_000 + k * 60) for k, t in enumerate(texts)]
+        repo = make_repo(root, commits)
+        return C.load(workspace(root, repo, "main"))
+
+    def test_cached_versions_equal_uncached_and_old_commits_are_not_read_again(self):
+        from loop import gitio
+        with TempDir() as root:
+            texts = [draft_md("T", "Abs one.", [P1]), draft_md("T", "Abs one.", [P1, P2]), draft_md("T", "Abs one.", [P2, P3])]
+            cfg = self._repo(root, texts)
+            cache = root / "versions.json"
+            plain = H.load_versions(cfg)
+            first = H.load_versions(cfg, cache_file=cache)
+            self.assertEqual(first, plain)
+            self.assertTrue(cache.exists())
+            calls = []
+            real = gitio.ls_tree
+            gitio.ls_tree = lambda *a, **k: calls.append(a) or real(*a, **k)
+            try:
+                second = H.load_versions(cfg, cache_file=cache)
+            finally:
+                gitio.ls_tree = real
+            self.assertEqual(second, plain)
+            self.assertEqual(calls, [], "a cached commit is not listed again")
+
+    def test_a_new_commit_after_the_cache_is_read(self):
+        from fixtures import git
+        with TempDir() as root:
+            cfg = self._repo(root, [draft_md("T", "Abs one.", [P1])])
+            cache = root / "versions.json"
+            H.load_versions(cfg, cache_file=cache)
+            repo = cfg["repo"]
+            (Path(repo) / "drafts" / "DRAFT-v1.md").write_text(draft_md("T", "Abs one.", [P1, P3]), encoding="utf-8")
+            git(repo, "add", "drafts/DRAFT-v1.md")
+            d = "@1700009000 +0000"
+            git(repo, "commit", "-q", "-m", "c9", env={"GIT_AUTHOR_DATE": d, "GIT_COMMITTER_DATE": d})
+            got = H.load_versions(cfg, cache_file=cache)
+            self.assertEqual(got, H.load_versions(cfg))
+            self.assertEqual(len(got), 2)
+
+    def test_the_cache_does_not_keep_ids_assigned_after_loading(self):
+        with TempDir() as root:
+            cfg = self._repo(root, [draft_md("T", "Abs one.", [P1]), draft_md("T", "Abs one.", [P1, P2])])
+            cache = root / "versions.json"
+            vs = H.load_versions(cfg, cache_file=cache)
+            H.assign_ids(vs)
+            again = H.load_versions(cfg, cache_file=cache)
+            self.assertEqual(again, H.load_versions(cfg), "ids assigned to the returned versions do not leak into the cache")
 
 
 if __name__ == "__main__":
