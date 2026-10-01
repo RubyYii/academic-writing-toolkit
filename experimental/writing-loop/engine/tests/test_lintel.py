@@ -1,4 +1,6 @@
 import json
+from contextlib import redirect_stdout
+import io
 import os
 import unittest
 from pathlib import Path
@@ -871,6 +873,87 @@ class ResidentTest(unittest.TestCase):
             self.assertFalse(_producer_alive(pf))
             pf.write_text("not a pid")
             self.assertFalse(_producer_alive(pf))
+
+
+class QuietTest(unittest.TestCase):
+    """K10 功耗（2026-10-01）：常驻来源进程只起不停，每 10 秒把整套状态从头算一遍。已投稿或长时间没有活动就收尾退出，
+    退出前把卡片改成不带心跳的一份（不然 lintel 会把它标成「没消息」）；输入没变就只续心跳；日志只记有变化的轮次。"""
+
+    def _ws(self, root, stage="分析"):
+        from loop import config as C
+        from test_doctor import DoctorTest
+        ws = DoctorTest.setup_ws(None, root)
+        ledger = root / "claims.md"
+        ledger.write_text(f"阶段：{stage}\n\n## 主张 C1 读数是 12\n- 证据：表 1\n- 强度：强\n- 允许的说法：读数\n",
+                          encoding="utf-8")
+        cfg = C.load(ws)
+        cfg["claims"] = str(ledger)
+        C.save(ws, cfg)
+        home = root / "lintel-home"
+        register(home)
+        return ws, home, ledger
+
+    def _card(self, home):
+        return json.loads(next((home / "producers" / L.PRODUCER / "activities").glob("loop-*.json")).read_text(encoding="utf-8"))
+
+    def test_a_submitted_paper_rests_its_card_and_the_producer_exits(self):
+        from loop.cli import main
+        with TempDir() as root:
+            ws, home, _ = self._ws(root, stage="已投稿，冻结")
+            self.assertEqual(main(["update", str(ws)]), 0)
+            self.assertEqual(main(["lintel", str(ws), "--home", str(home), "--interval", "0", "--rounds", "5"]), 0)
+            card = self._card(home)
+            self.assertNotIn("heartbeatSeconds", card, "a resting card carries no heartbeat, or lintel marks it silent")
+            self.assertFalse(card["running"])
+            self.assertFalse((ws / "cache" / "lintel.pid").exists(), "the producer takes its pidfile with it")
+
+    def test_a_workspace_with_no_activity_for_the_idle_window_rests(self):
+        from loop.cli import main
+        with TempDir() as root:
+            ws, home, ledger = self._ws(root)
+            self.assertEqual(main(["update", str(ws)]), 0)
+            old = NOW - 7200
+            for p in [ws / "health.json", ledger, *(ws / "human").glob("*"), *(ws / "cache").glob("turns.jsonl")]:
+                if p.exists():
+                    os.utime(p, (old, old))
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = main(["lintel", str(ws), "--home", str(home), "--interval", "0", "--rounds", "5",
+                           "--idle-exit", "1800", "--now", str(NOW)])
+            self.assertEqual(rc, 0)
+            self.assertNotIn("heartbeatSeconds", self._card(home))
+            self.assertIn("分钟没有活动", out.getvalue())
+
+    def test_an_active_workspace_keeps_its_heartbeat_and_logs_only_changes(self):
+        from loop.cli import main
+        with TempDir() as root:
+            ws, home, _ = self._ws(root)
+            self.assertEqual(main(["update", str(ws)]), 0)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = main(["lintel", str(ws), "--home", str(home), "--interval", "0", "--rounds", "3"])
+            self.assertEqual(rc, 0)
+            self.assertIn("heartbeatSeconds", self._card(home))
+            lines = [x for x in out.getvalue().splitlines() if x.startswith("lintel：")]
+            self.assertEqual(len(lines), 1, f"three rounds with nothing changed log one line: {lines}")
+
+    def test_the_inputs_signature_moves_with_the_inputs_and_not_with_the_producers_own_files(self):
+        from loop import config as C
+        from loop.cli import _inputs_signature
+        with TempDir() as root:
+            ws, home, ledger = self._ws(root)
+            cfg = C.load(ws)
+            a = _inputs_signature(ws, cfg, home, L.PRODUCER)
+            (ws / "cache").mkdir(exist_ok=True)
+            (ws / "cache" / "lintel.log").write_text("lintel：1 张卡\n", encoding="utf-8")
+            (ws / "cache" / "lintel.pid").write_text("1\n", encoding="utf-8")
+            self.assertEqual(_inputs_signature(ws, cfg, home, L.PRODUCER), a, "its own log and pidfile are not inputs")
+            ledger.write_text(ledger.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+            b = _inputs_signature(ws, cfg, home, L.PRODUCER)
+            self.assertNotEqual(b, a, "the claims ledger lives outside the workspace and is still an input")
+            (ws / "human").mkdir(exist_ok=True)
+            (ws / "human" / "comments.jsonl").write_text("{}\n", encoding="utf-8")
+            self.assertNotEqual(_inputs_signature(ws, cfg, home, L.PRODUCER), b)
 
 
 if __name__ == "__main__":

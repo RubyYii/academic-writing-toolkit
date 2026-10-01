@@ -160,11 +160,18 @@ def ensure_producer(ws, start=spawn_producer):
     failed to import at the top would take the human/ guard down with it and look like a hook that allowed the write.
     A failure here is recorded and the hook goes on."""
     try:
+        from loop import config as C
         from loop import lintel as LN
-        from loop.cli import _producer_alive
+        from loop.cli import _producer_alive, _submitted
     except Exception as e:  # noqa: BLE001 -- the notch is optional; the guard and the reminder are not
         HL.record_event(ws, "hook_error", f"刘海模块读不进来：{type(e).__name__}：{e}")
         return False
+    # K10 功耗：稿子投出去以后不再拉起（阶段改回别的就照常拉起）。配置读不出就照旧拉起，让来源进程自己报。
+    try:
+        if _submitted(C.load(ws)):
+            return False
+    except Exception:  # noqa: BLE001
+        pass
     if LN.registered(LN.lintel_home(), LN.PRODUCER) and not _producer_alive(ws / "cache" / "lintel.pid"):
         start(ws)
         return True
