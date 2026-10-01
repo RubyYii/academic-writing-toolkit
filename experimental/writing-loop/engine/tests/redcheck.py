@@ -725,7 +725,12 @@ MUTATIONS = [
     ("quiet", 'cli.py', '    a.pop("heartbeatSeconds", None)\n', '', 'test_lintel.QuietTest.test_a_submitted_paper_rests_its_card_and_the_producer_exits'),
     ("quiet", 'cli.py', '            said = (0, 0, len(problems))', '            said = None', 'test_lintel.QuietTest.test_an_active_workspace_keeps_its_heartbeat_and_logs_only_changes'),
     ("quiet", 'cli.py', '    for p in _outside_inputs(cfg):\n        try:', '    for p in []:\n        try:', 'test_lintel.QuietTest.test_the_inputs_signature_moves_with_the_inputs_and_not_with_the_producers_own_files'),
-    ("quiet", 'hooks/loop_hook.py', '        if _submitted(C.load(ws)):', '        if False:', 'test_hooks.ProducerTest.test_a_submitted_paper_does_not_start_the_resident_producer'),
+    ("quiet", 'hooks/loop_hook.py', '        if _submitted(C.load(ws)):\n            return False', '        if False:\n            return False', 'test_hooks.ProducerTest.test_a_submitted_paper_does_not_start_the_resident_producer'),
+    # 每轮更新省电（K11，2026-10-01）：拿掉一处，update 就会照旧重读全部旧版本、或在已投稿后照旧每轮重建。
+    ("quiet", 'history.py', '        e = seen.get(c["sha"])', '        e = None', 'test_history.VersionCacheTest.test_cached_versions_equal_uncached_and_old_commits_are_not_read_again'),
+    ("quiet", 'history.py', '    if cache_file is not None and fresh != seen:', '    if False:', 'test_index.IndexTest.test_a_rebuild_reads_old_commits_from_the_versions_cache'),
+    ("quiet", 'index.py', 'cache_file=_versions_cache(cfg))', 'cache_file=None)', 'test_index.IndexTest.test_a_rebuild_reads_old_commits_from_the_versions_cache'),
+    ("quiet", 'hooks/loop_hook.py', '            if _submitted(C.load(ws)):', '            if False:', 'test_hooks.TriggerTest.test_a_submitted_paper_does_not_rebuild_its_index_after_each_turn'),
     # 论文状态（spec 2026-09-24-paper-state）：拿掉一处判断，论文就会被说成比实际好，对应测试必须变红。
     ("state", 'state.py', '    weak = [c for c in st["claims"] if c["strength"] in WEAK or not c["strength"]]', '    weak = []',
      'test_state.StateTest.test_a_weak_claim_keeps_the_paper_not_ready_and_leads_the_line'),

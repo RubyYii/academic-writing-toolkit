@@ -53,6 +53,19 @@ class IndexTest(unittest.TestCase):
             warm, _ = X.build(cfg, cache)
             self.assertEqual(cold, warm)
 
+    def test_a_rebuild_reads_old_commits_from_the_versions_cache(self):
+        """K11 power (2026-10-01): re-reading every old version was the largest cost of an update. A second build gives the same
+        bytes and lists no commit's tree again."""
+        from unittest import mock
+        from loop import history as H
+        with TempDir() as root:
+            cfg, _ = setup(root)
+            cold, _ = X.build(cfg)
+            self.assertEqual(len(list((Path(cfg["_ws"]) / "cache" / "versions").glob("*.json"))), 1)
+            with mock.patch.object(H, "_draft_at", side_effect=AssertionError("an old commit was read again")):
+                warm, _ = X.build(cfg)
+            self.assertEqual(cold, warm)
+
     def test_tampered_index_is_named_as_tampered(self):
         with TempDir() as root:
             cfg, _ = setup(root)

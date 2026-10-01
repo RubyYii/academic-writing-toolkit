@@ -63,6 +63,13 @@ def cached_aligner(cache_dir):
     return aligner
 
 
+def _versions_cache(cfg):
+    """Where load_versions keeps what each commit gave: one file per engine and draft settings (K11 power)."""
+    key = hashlib.sha1(json.dumps({"repo": str(cfg["repo"]), "draft": cfg["draft"]}, sort_keys=True,
+                                  ensure_ascii=False, default=str).encode("utf-8")).hexdigest()[:12]
+    return Path(cfg["_ws"]) / "cache" / "versions" / f"{engine_hash()}-{key}.json"
+
+
 def build(cfg, cache=None):
     """Return {filename: bytes} for the whole index, plus a small summary dict."""
     with gitio.batch(cfg["repo"]):  # one cat-file for every blob read below (load report F3)
@@ -71,7 +78,7 @@ def build(cfg, cache=None):
 
 def _build(cfg, cache):
     head = gitio.rev_parse(cfg["repo"], cfg["ref"])
-    versions = H.load_versions(cfg, until=head)
+    versions = H.load_versions(cfg, until=head, cache_file=_versions_cache(cfg))
     transitions = H.assign_ids(versions, aligner=cached_aligner(Path(cfg["_ws"]) / "cache" / "align"))
     conv = T.read(cfg, scan_cache=Path(cfg["_ws"]) / "cache" / "transcript-scan.json")
     threads = TH.build(conv, versions)
