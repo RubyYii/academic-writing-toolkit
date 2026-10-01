@@ -925,7 +925,7 @@ MUTATIONS = [
     ("gap", 'skill:readers/scripts/tally-readers.py', '        blind = [c for c in coders if c != REVISER]', '        blind = coders', 'test_readers.ReadersTest.test_a_derived_metric_coded_only_by_the_reviser_is_not_a_count'),
     # 环上的「分析」（spec 2026-09-25 §4.5）：默认关；开了才插在设计与改稿之间，这一轮做完才算做过。
     # 第一条是写这一步时真出过的错：cli.py 没导入 catalogue，开关一开 loop lintel 就报 NameError，旧测试都没走到。
-    ("gap", 'cli.py', '        from . import catalogue as K\n        if K.get(cfg, "ring.analysis"):', '        if K.get(cfg, "ring.analysis"):', 'test_lintel.CliAnalysisStageTest.test_with_the_analysis_stage_on_the_card_carries_the_ledgers_open_analysis'),
+    ("gap", 'cli.py', '            from . import catalogue as K\n            if K.get(cfg, "ring.analysis"):', '            if K.get(cfg, "ring.analysis"):', 'test_lintel.CliAnalysisStageTest.test_with_the_analysis_stage_on_the_card_carries_the_ledgers_open_analysis'),
     ("gap", 'ring.py', '    out = STAGES[:2] + [ANALYSIS] + STAGES[2:] if analysis else list(STAGES)', '    return STAGES', 'test_ring.AnalysisStageTest.test_an_open_analysis_hangs_on_the_stage_between_design_and_rewrite'),
     ("gap", 'ring.py', '        "analysis": any(since is None or d >= str(since)[:10] for d in done_on) if analysis is not None else None,', '        "analysis": bool(done_on) if analysis is not None else None,', 'test_ring.AnalysisStageTest.test_an_analysis_closed_within_the_round_marks_the_stage_done'),
     ("gap", 'lintel.py', '            note = f"要做 {len(g[\'items\'])}"', '            pass', 'test_lintel.CliAnalysisStageTest.test_with_the_analysis_stage_on_the_card_carries_the_ledgers_open_analysis'),
