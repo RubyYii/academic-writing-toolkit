@@ -82,7 +82,10 @@ OPTIONAL = ["copies"]
 # would drown the coverage list.
 # A number written with thousands separators (4,207; LaTeX 4{,}207) is one number: read digit by digit it became
 # "207", a value the manuscript never reports.
-REPORTED = re.compile(r"(?<![\w.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+|\d{2,})(?![\w.])")
+# A number ends where neither a word character nor a "." followed by a digit
+# comes next, so the full stop after a sentence-final number does not hide it.
+END = r"(?![\w]|\.\d)"
+REPORTED = re.compile(r"(?<![\w.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+\.\d+|\d{2,})" + END)
 
 
 def clean_tex(text):
@@ -242,7 +245,7 @@ def main(argv=None):
         else:
             text = norm(artifact.read_text(encoding="utf-8", errors="replace"))
             locator = norm(row["locator"])
-            if not re.search(re.escape(locator) + (r"(?![\d.])" if locator[-1:].isdigit() else ""), text):
+            if not re.search(re.escape(locator) + (r"(?!\d|\.\d)" if locator[-1:].isdigit() else ""), text):
                 findings.append({"kind": "locator-not-in-artifact", "location": where, "number": number,
                                  "detail": f'"{row["locator"][:70]}" is not verbatim in {row["artifact"]}'})
         if in_artifact not in row["locator"]:
@@ -251,7 +254,7 @@ def main(argv=None):
 
         mine, skip = covers.get(row["_ledger"]), own_sources[row["_ledger"]]
         reporting = [(f, s) for f, s in every if (base / f).resolve() not in skip and (mine is None or governs(f, mine))
-                     and re.search(rf"(?<![\w.,]){re.escape(number)}(?![\w.])", s)]
+                     and re.search(rf"(?<![\w.,]){re.escape(number)}" + END, s)]
         if not reporting:
             findings.append({"kind": "number-not-in-manuscript", "location": where, "number": number,
                              "detail": f"{number} is no longer reported anywhere in the manuscript"})

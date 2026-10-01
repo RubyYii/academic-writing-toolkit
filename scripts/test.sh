@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test.sh — runs the regression test suite (250 automated tests, labelled T2-T268: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences + T258 the edge of the baseline + T259-T267 a found snippet is not a read one, and claims with no \cite + T268 paragraph openers) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
+# scripts/test.sh — runs the regression test suite (251 automated tests, labelled T2-T269: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences + T258 the edge of the baseline + T259-T267 a found snippet is not a read one, and claims with no \cite + T268 paragraph openers + T269 a number that ends a sentence) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
 # Self-contained; saves and restores any state it mutates.
 # Exit 0 if all tests pass, 1 if any fail. CI-suitable.
 # Note: pipefail is intentionally NOT enabled. Several tests assert that a
@@ -3749,6 +3749,52 @@ PYEOF2
     fi
     rm -rf "$tmp"
     return $rc
+}
+
+test_T269() {
+    # A number that ends a sentence is followed by the full stop. The
+    # boundary after a number used to refuse any following "." so that
+    # 0.45 would not be read inside 0.456; it also refused the full stop,
+    # and every sentence-final number went unseen: a ledgered one was
+    # reported as gone, an unledgered one was never listed. Only a "." that
+    # starts more digits continues the number.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/sections" "$tmp/results"
+    cat > "$tmp/sections/06_results.tex" <<'EOF'
+\section{Results}
+The first value is $0.123$ in the table. The second value is $0.456$.
+The sample holds 27 plates. The count rose to 41.
+A finer reading gives $0.7891$ for the third value.
+EOF
+    cat > "$tmp/results/summary.tex" <<'EOF'
+first 0.123 and second 0.456.
+third 0.789 and fourth 27.
+EOF
+    printf 'printed\tin_artifact\tscope\tartifact\tlocator\n' > "$tmp/numbers.tsv"
+    printf '0.123\t0.123\t-\tresults/summary.tex\tfirst 0.123\n' >> "$tmp/numbers.tsv"
+    printf '0.456\t0.456\t-\tresults/summary.tex\tsecond 0.456\n' >> "$tmp/numbers.tsv"
+    printf '0.789\t0.789\t-\tresults/summary.tex\tthird 0.789\n' >> "$tmp/numbers.tsv"
+    printf '27\t27\t-\tresults/summary.tex\tfourth 27\n' >> "$tmp/numbers.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" \
+          --ledger "$tmp/numbers.tsv" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+got=sorted((f['kind'],f['number']) for f in d['findings'])
+# 0.456 ends its sentence and is still reported; its locator ends a line of the artifact.
+assert ('number-not-in-manuscript','0.456') not in got, got
+assert ('locator-not-in-artifact','0.456') not in got, got
+# 41 ends its sentence and has no row: it is listed.
+assert ('unledgered-number','41') in got, got
+# 0.789 is not read inside 0.7891, nor 0.789 inside the artifact's longer numbers.
+assert ('number-not-in-manuscript','0.789') in got, got
+assert ('unledgered-number','0.7891') in got, got
+assert not [g for g in got if g[1] in ('0.123','27')], got
+" || return 1
+    [ "$status" = "1" ] || { echo "expected exit 1, got $status"; return 1; }
 }
 
 # --- T254-T255: a supplement's ledgers and files --------------------------------
@@ -7673,6 +7719,7 @@ run_test "T265 claim ledger: a row read as wrong lists the other sentences citin
 run_test "T266 changed-sentence audit: an edit that unbinds a claim-ledger row names the row" test_T266
 run_test "T267 claim ledger: a determiner, digits in a name, a sequence first and a compound -only are not high-risk" test_T267
 run_test "T268 paragraph openers: figure-first paragraphs are listed; a year, a metric name, a pointer and a model version are not" test_T268
+run_test "T269 number ledger: a number that ends a sentence is seen, and the full stop does not let a shorter number match inside a longer one" test_T269
 
 header ""
 if [[ "$RUN_RETIRED" == "1" ]]; then
