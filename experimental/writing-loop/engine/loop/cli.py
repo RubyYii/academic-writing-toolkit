@@ -226,7 +226,7 @@ def cmd_precheck(a):
 
 
 def cmd_state(a):
-    """Whether the paper's claims stand: the claims ledger against the whole draft. Exit 0 only at 待作者终审."""
+    """Whether the paper's claims stand: the claims ledger against the whole draft. Exit 0 only at 待作者终审, or at 已投稿 with nothing in the way."""
     from . import state as S
     try:
         cfg = C.load(a.workspace)
@@ -243,7 +243,7 @@ def cmd_state(a):
         print(json.dumps(out, ensure_ascii=False, indent=1))
     else:
         print(S.table(st))
-    return 0 if st.get("verdict") == S.AUTHOR else 1
+    return 0 if st.get("verdict") in (S.AUTHOR, S.SUBMITTED) and not st.get("blockers") else 1
 
 
 def cmd_health(a):

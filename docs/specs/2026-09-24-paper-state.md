@@ -38,10 +38,13 @@ rewriting.
 - Verdict 未就绪 while any claim is 弱 or 未立, any sentence of the whole draft matches a `越界` pattern, a `必须出现`
   pattern matches nothing, the ledger cannot be read, the sentence index is missing, or any 待做 item is open.
   Otherwise 待作者终审. No green state.
+- (10-01) A stage that names a submission (已投稿、已提交、审稿中、submitted、under review; not 未投稿 or "not yet
+  submitted") makes the verdict 已投稿. Whatever still stands in the way stays listed, for the revision, and the line
+  stops asking whether to submit. Found when a submitted paper's line still read 待作者终审.
 - The line leads with the paper state and is not cut; the coverage line follows. Without a ledger, the line says the
   loop does not know whether the claims stand.
 - The overview's first 待办 cell is the paper; the panel rebuilds when the ledger changes.
-- `loop state <workspace>` prints every claim, every sentence over the line, every item; exit 0 only at 待作者终审.
+- `loop state <workspace>` prints every claim, every sentence over the line, every item; exit 0 only at 待作者终审, or at 已投稿 with nothing in the way.
 
 ## Acceptance
 

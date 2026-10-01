@@ -722,8 +722,17 @@ MUTATIONS = [
     # 论文状态（spec 2026-09-24-paper-state）：拿掉一处判断，论文就会被说成比实际好，对应测试必须变红。
     ("state", 'state.py', '    weak = [c for c in st["claims"] if c["strength"] in WEAK or not c["strength"]]', '    weak = []',
      'test_state.StateTest.test_a_weak_claim_keeps_the_paper_not_ready_and_leads_the_line'),
-    ("state", 'state.py', 'verdict=NOT_READY if blockers else AUTHOR', 'verdict=AUTHOR',
+    ("state", 'state.py', 'else NOT_READY if blockers else AUTHOR', 'else AUTHOR',
      'test_state.StateTest.test_a_weak_claim_keeps_the_paper_not_ready_and_leads_the_line'),
+    # 已投稿（10-01）：阶段写了投稿，状态行就不再问投不投；挡着的照列，退出码照算。
+    ("state", 'state.py', 'verdict=(SUBMITTED if SUBMITTED_STAGE.search(st.get("stage") or "") else ', 'verdict=(',
+     'test_state.StateTest.test_a_stage_that_names_a_submission_says_submitted_and_stops_asking'),
+    ("state", 'state.py', '    elif st["verdict"] == SUBMITTED:\n        bits.append("已投出：之后的改动等审稿意见")', '',
+     'test_state.StateTest.test_a_stage_that_names_a_submission_says_submitted_and_stops_asking'),
+    ("state", 'state.py', '(?<!not )(?<!yet )\\bsubmitted', '\\bsubmitted',
+     'test_state.StateTest.test_a_stage_that_names_a_submission_says_submitted_and_stops_asking'),
+    ("state", 'cli.py', ' and not st.get("blockers") else 1', ' else 1',
+     'test_state.StateTest.test_a_stage_that_names_a_submission_says_submitted_and_stops_asking'),
     ("state", 'state.py', '        for raw, rx in c["over"]:', '        for raw, rx in []:',
      'test_state.StateTest.test_an_overclaim_anywhere_in_the_draft_is_found_though_nothing_changed'),
     ("state", 'state.py', '    if labels:\n        blockers.append', '    if False:\n        blockers.append',
