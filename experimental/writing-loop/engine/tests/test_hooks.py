@@ -356,6 +356,33 @@ class TriggerTest(unittest.TestCase):
 
 
 class ProducerTest(unittest.TestCase):
+    def test_a_submitted_paper_does_not_start_the_resident_producer(self):
+        # K10 功耗（2026-10-01）：稿子投出去以后，钩子不再把常驻来源进程拉起来；阶段改回别的就照常拉起。
+        from loop import config as C
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            ledger = Path(root) / "claims.md"
+            ledger.write_text("阶段：已投稿，冻结\n", encoding="utf-8")
+            cfg = C.load(ws)
+            cfg["claims"] = str(ledger)
+            C.save(ws, cfg)
+            started = []
+            home = Path(root) / "lintel-home"
+            home.mkdir()
+            (home / "registry.json").write_text(json.dumps({"producers": {LN.PRODUCER: {}}}), encoding="utf-8")
+            old = os.environ.get("LOOP_LINTEL_HOME")
+            os.environ["LOOP_LINTEL_HOME"] = str(home)
+            try:
+                self.assertFalse(LH.ensure_producer(ws, start=started.append))
+                ledger.write_text("阶段：返修\n", encoding="utf-8")
+                self.assertTrue(LH.ensure_producer(ws, start=started.append))
+                self.assertEqual(started, [ws])
+            finally:
+                if old is None:
+                    os.environ.pop("LOOP_LINTEL_HOME", None)
+                else:
+                    os.environ["LOOP_LINTEL_HOME"] = old
+
     def test_the_resident_producer_is_started_only_when_lintel_registered_it(self):
         with TempDir() as root:
             repo, ws, regs = setup(root)

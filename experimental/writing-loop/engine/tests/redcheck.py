@@ -719,6 +719,13 @@ MUTATIONS = [
      'test_coverage.LatexCoverageTest.test_latex_citations_are_reconciled_across_inputs'),
     ("latex", 'coverage.py', '            summary = f"{data[\'total\']} 词（{len(data[\'chapters\'])} 个文件）"', '            summary = ""',
      'test_coverage.LatexCoverageTest.test_the_chapter_checks_read_a_latex_draft'),
+    # 常驻来源进程省电（K10，2026-10-01）：拿掉一处，来源进程就会照旧只起不停、全量重算、每轮记一行。
+    ("quiet", 'cli.py', '    return stage if stage and S.SUBMITTED_STAGE.search(stage) else None', '    return None', 'test_lintel.QuietTest.test_a_submitted_paper_rests_its_card_and_the_producer_exits'),
+    ("quiet", 'cli.py', '        if last is not None and now - last > idle:', '        if False:', 'test_lintel.QuietTest.test_a_workspace_with_no_activity_for_the_idle_window_rests'),
+    ("quiet", 'cli.py', '    a.pop("heartbeatSeconds", None)\n', '', 'test_lintel.QuietTest.test_a_submitted_paper_rests_its_card_and_the_producer_exits'),
+    ("quiet", 'cli.py', '            said = (0, 0, len(problems))', '            said = None', 'test_lintel.QuietTest.test_an_active_workspace_keeps_its_heartbeat_and_logs_only_changes'),
+    ("quiet", 'cli.py', '    for p in _outside_inputs(cfg):\n        try:', '    for p in []:\n        try:', 'test_lintel.QuietTest.test_the_inputs_signature_moves_with_the_inputs_and_not_with_the_producers_own_files'),
+    ("quiet", 'hooks/loop_hook.py', '        if _submitted(C.load(ws)):', '        if False:', 'test_hooks.ProducerTest.test_a_submitted_paper_does_not_start_the_resident_producer'),
     # 论文状态（spec 2026-09-24-paper-state）：拿掉一处判断，论文就会被说成比实际好，对应测试必须变红。
     ("state", 'state.py', '    weak = [c for c in st["claims"] if c["strength"] in WEAK or not c["strength"]]', '    weak = []',
      'test_state.StateTest.test_a_weak_claim_keeps_the_paper_not_ready_and_leads_the_line'),
