@@ -394,7 +394,11 @@ class RingExportTest(unittest.TestCase):
 
     def test_no_coverage_no_ring_and_a_ring_that_cannot_be_computed_says_so(self):
         self.assertNotIn("ring", only(L.build(with_change(), now=NOW)))
-        self.assertNotIn("ring", only(L.build(with_change(), now=NOW, coverage=None)))
+        # coverage given but unreadable (None): still a manuscript, so still a ring -- lintel lists a ringless card as a
+        # conversation (2026-10-04, a manuscript vanished from 稿件)
+        unread = only(L.build(with_change(), now=NOW, coverage=None))["ring"]
+        self.assertEqual((unread["name"], unread["segments"], unread["waiting"]), ("ws", [], 0))
+        self.assertIn("覆盖摘要", unread["error"])
         bad = only(L.build(with_change(), now=NOW, coverage={"rows": 5}))["ring"]
         self.assertEqual(bad["segments"], [])
         self.assertIn("算不出", bad["error"])
