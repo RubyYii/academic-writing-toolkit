@@ -739,7 +739,11 @@ class SyncTest(unittest.TestCase):
         root = self.root
         L.sync(L.build(with_change(), now=NOW), home=root, now=NOW)
         os.utime(self.dir(root) / "loop-ws.json", (NOW, NOW))
-        again = L.build(with_change(), now=NOW + 5, coverage=None)   # 只有面板的数字条变了，事件一样
+        again = L.build(with_change(), now=NOW + 5)
+        # 只有面板的数字条变了，事件一样。面板取自读不到覆盖摘要的那一版；环不能跟着变，
+        # 否则把面板排除在比较之外也照样会写（读不到覆盖摘要时会发一个空环，见 RingExportTest.test_no_coverage_no_ring_and_a_ring_that_cannot_be_computed_says_so）。
+        again[0]["detail"] = L.build(with_change(), now=NOW + 5, coverage=None)[0]["detail"]
+        self.assertNotEqual(again[0]["detail"], L.build(with_change(), now=NOW)[0]["detail"])
         self.assertEqual([e["id"] for e in again[0]["events"]],
                          [e["id"] for e in L.build(with_change(), now=NOW)[0]["events"]])
         self.assertEqual(L.sync(again, home=root, now=NOW + 5)["written"], 1)
