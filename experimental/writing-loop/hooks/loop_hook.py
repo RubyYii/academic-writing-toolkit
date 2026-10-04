@@ -550,9 +550,12 @@ def on_post_tool(payload, regs, now, spawn):
                     (led.get("evidence_dir") and rel.startswith(led["evidence_dir"].rstrip("/") + "/")):
                 spawn(ws, f"write:{rel}")
                 refresh_note(ws, cfg, now)
+                ensure_producer(ws)
     elif tool == "Bash" and GIT_RE.search(ti.get("command") or ""):
         spawn(ws, "git")
         refresh_note(ws, cfg, now)
+        # 来源进程空闲 30 分钟会自退；一轮很长时改稿与提交都在轮内，等不到下一次提示（10-04 一张卡片落后一小时）。
+        ensure_producer(ws)
     if (cfg.get("gates") or {}).get("rewrites") and (tool in WRITE_TOOLS or tool == "Bash"):
         ctx = rewrite_context(ws, cfg, now)
         if ctx:

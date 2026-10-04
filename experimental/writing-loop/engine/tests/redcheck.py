@@ -91,6 +91,8 @@ MUTATIONS = [
      'test_hooks.PromptTest.test_a_history_source_session_sees_coverage_and_nothing_is_recorded'),
     ("cov", 'hooks/loop_hook.py', 'isinstance(s, dict) and s.get("id") == sid', 'False',
      'test_hooks.OutletTest.test_a_session_named_by_its_id_is_a_history_source_and_its_neighbours_are_not'),
+    ("cov", 'hooks/loop_hook.py', '        spawn(ws, "git")\n        refresh_note(ws, cfg, now)\n', '        spawn(ws, "git")\n        refresh_note(ws, cfg, now)\n        return None\n',
+     'test_hooks.TriggerTest.test_a_draft_write_or_git_command_in_a_long_turn_brings_the_card_producer_back'),
     ("cov", 'coverage.py', '            if not check.get("auto", True) and not (only and check["id"] in only):\n                continue', '            if False:\n                continue',
      'test_coverage.ProjectCheckTest.test_a_slow_project_check_runs_only_when_named_and_any_change_in_the_tree_makes_it_stale'),
     ("cov", 'coverage.py', '    if kind == "tree":\n        return {"tree":', '    if False:\n        return {"tree":',

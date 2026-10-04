@@ -315,6 +315,22 @@ class TriggerTest(unittest.TestCase):
                 LH.handle(tool_payload("PostToolUse", repo, tool, ti), regs, spawn=spy)
             self.assertEqual(spy.calls, ["write:drafts/DRAFT-v2.md", "write:ev/claims.json", "git"])
 
+    def test_a_draft_write_or_git_command_in_a_long_turn_brings_the_card_producer_back(self):
+        """2026-10-04: a producer exited after 30 idle minutes (as designed) while its working session was in
+        one long turn; the turn then kept editing and committing, `loop update` ran, but nothing rewrote the card until
+        the next human prompt. The same writes that ask for an update now also make sure a producer is alive."""
+        from unittest import mock
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            ensured = []
+            with mock.patch.object(LH, "ensure_producer", ensured.append):
+                for tool, ti in [("Write", {"file_path": str(repo / "drafts" / "DRAFT-v2.md")}),
+                                 ("Write", {"file_path": str(repo / "notes.md")}),
+                                 ("Bash", {"command": "git commit -qm 'v2'"}),
+                                 ("Bash", {"command": "ls -la"})]:
+                    LH.handle(tool_payload("PostToolUse", repo, tool, ti), regs, spawn=Spy())
+            self.assertEqual([Path(w).name for w in ensured], [ws.name, ws.name])
+
     def test_a_draft_made_of_several_files_is_matched_file_by_file(self):
         """draft.glob may be a list: the files that together are the draft (a LaTeX main file and its sections),
         as history.py reads it. A write to one of them asks for an update; a sibling file does not; nothing raises."""
