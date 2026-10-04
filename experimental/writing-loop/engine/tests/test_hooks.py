@@ -749,6 +749,32 @@ class OutletTest(unittest.TestCase):
                 LH.handle(prompt_payload(other, prompt_id="p2"), regs)
                 self.assertEqual(len(cards), 2, "the card is rewritten when the session is first noted, not every prompt")
 
+    def test_a_session_named_by_its_id_is_a_history_source_and_its_neighbours_are_not(self):
+        """2026-10-04: one conversation works in a checkout and on a branch that other lines share, so a
+        directory + branch rule would take those conversations in too. transcripts.history_sessions names the session
+        itself; another session in the same directory stays out."""
+        from unittest import mock
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            shared = Path(root) / "shared"
+            shared.mkdir()
+            git(shared, "init", "-q", "-b", "spike")
+            git(shared, "commit", "-q", "--allow-empty", "-m", "x")
+            cfg = C.load(ws)
+            cfg["transcripts"]["history_sessions"] = [{"id": "s1", "note": "shared-checkout conversation"}]
+            C.save(ws, cfg)
+            reg = Path(root) / "registry"
+            reg.write_text(f"{ws}\n", encoding="utf-8")
+            regs, _ = LH.registry(str(reg))
+            env, state = willow_outlet(root)
+            with mock.patch.dict(os.environ, env), mock.patch.object(LH, "spawn_card", lambda ws: None):
+                LH.handle(prompt_payload(shared, session_id="s2", prompt_id="p0"), regs)
+                self.assertEqual(notes(state), [], "a neighbour in the same checkout is not taken in")
+                said = ctx_of(LH.handle(prompt_payload(shared, prompt_id="p1"), regs))
+                self.assertEqual([n["sessions"]["s1"]["role"] for n in notes(state)], ["history"])
+                self.assertIn("「t」", said)
+            self.assertFalse((ws / "human" / "comments.jsonl").exists(), "display only: the author's words are not recorded")
+
     def test_a_note_whose_line_is_out_of_date_is_corrected_here(self):
         """The coverage line is judged current when it is read (fingerprint and HEAD). If what willow is about to
         say is not what the line reads now (the author edited outside Claude, an update is still running), the hook

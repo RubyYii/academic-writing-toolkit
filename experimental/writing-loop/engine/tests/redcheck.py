@@ -89,6 +89,8 @@ MUTATIONS = [
      'test_coverage.ProjectCheckTest.test_changing_a_project_checks_command_makes_its_old_result_stale'),
     ("cov", 'hooks/loop_hook.py', '        for hws, hcfg in history_wss(payload, regs):', '        for hws, hcfg in []:',
      'test_hooks.PromptTest.test_a_history_source_session_sees_coverage_and_nothing_is_recorded'),
+    ("cov", 'hooks/loop_hook.py', 'isinstance(s, dict) and s.get("id") == sid', 'False',
+     'test_hooks.OutletTest.test_a_session_named_by_its_id_is_a_history_source_and_its_neighbours_are_not'),
     ("cov", 'coverage.py', '            if not check.get("auto", True) and not (only and check["id"] in only):\n                continue', '            if False:\n                continue',
      'test_coverage.ProjectCheckTest.test_a_slow_project_check_runs_only_when_named_and_any_change_in_the_tree_makes_it_stale'),
     ("cov", 'coverage.py', '    if kind == "tree":\n        return {"tree":', '    if False:\n        return {"tree":',

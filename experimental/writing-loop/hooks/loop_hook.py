@@ -119,12 +119,20 @@ def session_ws(payload, regs):
 def history_wss(payload, regs):
     """Every workspace this session belongs to as a history source (transcripts.also): read-only for the hooks, which
     write nothing for it, but the author working there should still see which checks are not current. One session can
-    be history for several manuscripts (2026-10-04: one conversation works on two papers)."""
-    cwd = payload.get("cwd")
-    if not isinstance(cwd, str):
-        return []
+    be history for several manuscripts (2026-10-04: one conversation works on two papers).
+
+    A session can also be named by its id (transcripts.history_sessions, read only here): a conversation
+    shares its checkout and branch with other lines, so a directory + branch rule would take them in too. Only the
+    hook reads that key; transcript reading, targets and doctor still go by `also`, so its turns are not counted."""
+    cwd, sid = payload.get("cwd"), payload.get("session_id")
     br, out = None, []
     for ws, cfg in regs:
+        if isinstance(sid, str) and any(isinstance(s, dict) and s.get("id") == sid
+                                        for s in cfg["transcripts"].get("history_sessions") or []):
+            out.append((ws, cfg))
+            continue
+        if not isinstance(cwd, str):
+            continue
         for s in cfg["transcripts"].get("also") or []:
             if isinstance(s, dict) and s.get("cwd_prefix") and s.get("git_branch") and _under(cwd, s["cwd_prefix"]):
                 br = br or branch_of(cwd)
