@@ -518,6 +518,7 @@ def compute(cfg, ws):
         raw = p.read_text(encoding="utf-8")
     except OSError:
         st["problems"].append(f"主张清单读不到：{p}")
+        st["unread"] = True  # its to-do items are unknown, not none (outlet.py)
         return judge(st)
     d = read_ledger(raw)
     st.update(stage=d["stage"], claims=d["claims"], todo=d["todo"], problems=d["problems"], sets=d["sets"],
