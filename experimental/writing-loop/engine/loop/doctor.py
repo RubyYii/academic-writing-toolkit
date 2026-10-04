@@ -26,6 +26,14 @@ def transcript_files(cfg, cwd_prefix=None):
     return sorted(p for d in root.iterdir() if d.is_dir() and d.name.startswith(prefix) for p in d.glob("*.jsonl"))
 
 
+def _branch_exists(cwd_prefix, branch):
+    """Whether `branch` is a local branch of the repository the sessions would run in."""
+    p = C.expand(cwd_prefix)
+    if not p.is_dir() or not gitio.is_repo(p):
+        return False
+    return gitio._run(p, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode == 0
+
+
 def _on_branch(files, branch):
     needle = re.compile(rb'"gitBranch"\s*:\s*' + re.escape(json.dumps(branch).encode()))
     return [f for f in files if needle.search(f.read_bytes())]
@@ -99,6 +107,10 @@ def run(ws):
         if not hits and history:
             # 刚改绑到新仓、还没在那里开过会话：记录在历史来源里。这是「还没开始」，不是故障（F6，负担实测 2026-09-18）。
             facts.append(("transcripts", "主来源还没有会话；历史来源里有记录，等第一次在主来源开会话"))
+        elif not hits and _branch_exists(cfg["transcripts"]["cwd_prefix"], cfg["transcripts"]["git_branch"]):
+            # 新建的工作区：分支在仓里，只是还没在上面开过会话，也是「还没开始」。分支不存在的仍算故障：那和分支名写错分不开
+            # （2026-10-04：两篇稿件刚 init 完，刘海就挂红「跑挂了」）。
+            facts.append(("transcripts", "主来源分支在、还没有会话；在这个分支上开会话，或改绑到正在做这篇的会话"))
         elif not hits:
             bad("transcripts.git_branch", "没有任何会话记录在这个分支上")
     return problems, facts

@@ -62,6 +62,38 @@ def build_ws(root, report=None, issues=None):
     return C.load(ws), shas
 
 
+class AuditCacheTest(unittest.TestCase):
+    """2026-10-04：一张卡重算 138 s，93% 花在 audit_at 查缓存之前先跑的 1,390 次 git；常驻时每 10 分钟一遍。
+    提交的树不会变，问过的提交（包括「这个提交上没有正文，算不了」）再问时一次 git 也不跑。"""
+    def test_a_commit_already_audited_asks_git_nothing(self):
+        from unittest import mock
+        with TempDir() as t:
+            cfg, shas = build_ws(t)
+            led = cfg["overview"]["ledger"]
+            late = {**led, "base_dir": "audit"}   # 前三个提交上没有 audit/：算不了
+            cache = Path(t) / "audit-cache"
+            first = [O.audit_at(cfg["repo"], s, led, "", cache) for s in shas]
+            gone = [O.audit_at(cfg["repo"], s, late, "", cache) for s in shas[:3]]
+            with mock.patch.object(O, "_git", wraps=O._git) as g, \
+                    mock.patch.object(O.subprocess, "run", wraps=subprocess.run) as r:
+                again = [O.audit_at(cfg["repo"], s, led, "", cache) for s in shas]
+                gone_again = [O.audit_at(cfg["repo"], s, late, "", cache) for s in shas[:3]]
+            self.assertEqual((g.call_count, r.call_count), (0, 0))
+            self.assertEqual(again, first)
+            self.assertEqual(gone, [None] * 3)
+            self.assertEqual(gone_again, gone)
+            self.assertTrue(first[0]["_no_ledger"] and not first[-1]["_no_ledger"])
+
+    def test_a_commit_git_does_not_know_is_not_remembered_as_empty(self):
+        """git 答不上来（提交不在仓里、仓一时读不了）不等于「这个提交上没有正文」，不能记住。"""
+        with TempDir() as t:
+            cfg, _ = build_ws(t)
+            led = cfg["overview"]["ledger"]
+            cache = Path(t) / "audit-cache"
+            self.assertIsNone(O.audit_at(cfg["repo"], "0" * 40, led, "", cache))
+            self.assertEqual(list(cache.glob("*")) if cache.exists() else [], [])
+
+
 class StagesTest(unittest.TestCase):
     """分镜 ㊸ 的第一块：版本之间空 3 天以上就分段；每天改过或新加几句；长空档折成一格。"""
 

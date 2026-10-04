@@ -64,6 +64,25 @@ class DoctorTest(unittest.TestCase):
             problems, _ = doctor.run(ws)
             self.assertIn("transcripts.git_branch", [p[0] for p in problems])
 
+    def test_a_new_workspace_on_a_branch_that_exists_but_has_no_session_yet_is_not_a_fault(self):
+        """2026-10-04: two papers put into the loop with `init` (transcripts default to the repo and its ref) showed a red
+        「跑挂了」 on the notch before anyone had worked on them. A branch that exists in the repo is a fresh start; a
+        branch that does not exist stays a fault, since then it is as likely a typo."""
+        import subprocess
+        with TempDir() as root:
+            ws = self.setup_ws(root)
+            cfg = C.load(ws)
+            subprocess.run(["git", "-C", cfg["transcripts"]["cwd_prefix"], "branch", "paper-two"], check=True)
+            cfg["transcripts"]["git_branch"] = "paper-two"
+            C.save(ws, cfg)
+            problems, facts = doctor.run(ws)
+            self.assertNotIn("transcripts.git_branch", [p[0] for p in problems], problems)
+            self.assertTrue(any("还没有会话" in f[1] for f in facts), facts)
+            cfg["transcripts"]["git_branch"] = "paper-twoo"
+            C.save(ws, cfg)
+            problems, _ = doctor.run(ws)
+            self.assertIn("transcripts.git_branch", [p[0] for p in problems])
+
     def test_a_target_that_is_not_registered_is_a_fact_and_a_configured_path_that_does_not_resolve_is_a_problem(self):
         from loop import doctor
         with TempDir() as root:

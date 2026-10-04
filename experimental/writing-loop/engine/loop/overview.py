@@ -241,19 +241,29 @@ EMPTY_LEDGER = "claim\tcite_key\tsnippet\tsource_file\tlevel\n"
 
 def audit_at(repo, sha, led, credits, cache_dir):
     """The audit's JSON at one commit, cached per (commit, credits, script). A commit from before the ledger existed is
-    run against an empty ledger (`"_no_ledger": true`): nothing is bound there, and every asserting sentence is missing."""
-    has = _git(repo, "cat-file", "-e", f"{sha}:{led['path']}") is not None
-    paths = [x for x in led["archive"] if _git(repo, "cat-file", "-e", f"{sha}:{x}") is not None]
-    if led["base_dir"] not in paths:
-        return None
+    run against an empty ledger (`"_no_ledger": true`): nothing is bound there, and every asserting sentence is missing.
+
+    The cache is read before git is asked anything: a commit's tree never changes, and the overview asks again for every
+    commit every ten minutes (2026-10-04: one card, 460 commits, 1,390 git calls, 138 s). A commit without base_dir
+    is remembered too, as an empty `.none` file, but only once git has shown the commit exists."""
     script = audit_script()
     ckey = _sha(sha + _sha(credits or "") + _sha(script.read_bytes()) + json.dumps(led, sort_keys=True))[:20]
     cfile = Path(cache_dir) / f"{sha[:12]}-{ckey}.json"
+    nfile = cfile.with_suffix(".none")
+    if nfile.exists():
+        return None
     if cfile.exists():
         try:
             return json.loads(cfile.read_text(encoding="utf-8"))
         except ValueError:
             pass
+    has = _git(repo, "cat-file", "-e", f"{sha}:{led['path']}") is not None
+    paths = [x for x in led["archive"] if _git(repo, "cat-file", "-e", f"{sha}:{x}") is not None]
+    if led["base_dir"] not in paths:
+        if _git(repo, "cat-file", "-t", sha) == "commit":
+            nfile.parent.mkdir(parents=True, exist_ok=True)
+            nfile.touch()
+        return None
     tar = subprocess.run(["git", "-C", str(repo), "archive", sha, *paths], capture_output=True)
     if tar.returncode:
         return None

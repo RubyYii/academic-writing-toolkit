@@ -315,6 +315,22 @@ class TriggerTest(unittest.TestCase):
                 LH.handle(tool_payload("PostToolUse", repo, tool, ti), regs, spawn=spy)
             self.assertEqual(spy.calls, ["write:drafts/DRAFT-v2.md", "write:ev/claims.json", "git"])
 
+    def test_a_draft_write_or_git_command_in_a_long_turn_brings_the_card_producer_back(self):
+        """2026-10-04: a producer exited after 30 idle minutes (as designed) while its working session was in
+        one long turn; the turn then kept editing and committing, `loop update` ran, but nothing rewrote the card until
+        the next human prompt. The same writes that ask for an update now also make sure a producer is alive."""
+        from unittest import mock
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            ensured = []
+            with mock.patch.object(LH, "ensure_producer", ensured.append):
+                for tool, ti in [("Write", {"file_path": str(repo / "drafts" / "DRAFT-v2.md")}),
+                                 ("Write", {"file_path": str(repo / "notes.md")}),
+                                 ("Bash", {"command": "git commit -qm 'v2'"}),
+                                 ("Bash", {"command": "ls -la"})]:
+                    LH.handle(tool_payload("PostToolUse", repo, tool, ti), regs, spawn=Spy())
+            self.assertEqual([Path(w).name for w in ensured], [ws.name, ws.name])
+
     def test_a_draft_made_of_several_files_is_matched_file_by_file(self):
         """draft.glob may be a list: the files that together are the draft (a LaTeX main file and its sections),
         as history.py reads it. A write to one of them asks for an update; a sibling file does not; nothing raises."""
@@ -708,6 +724,72 @@ class OutletTest(unittest.TestCase):
                 self.assertIn("历史来源", n["history"])
                 self.assertIsNone(LH.handle(prompt_payload(other, prompt_id="p2"), regs))
             self.assertFalse((ws / "human" / "comments.jsonl").exists())
+
+    def test_a_session_that_is_history_for_two_manuscripts_is_noted_in_both_and_each_card_is_rewritten_once(self):
+        """2026-10-04: one conversation works on two papers. Each is bound to it as a history source (display only);
+        lintel nests a draft in a conversation only when the draft's card lists it (`within`, read from the note). The
+        hook stopped at the first matching workspace, so the second never listed the conversation; and a draft with no
+        primary session has no resident producer, so nothing rewrote its card after the note changed."""
+        import shutil
+        from unittest import mock
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            other = Path(root) / "other"
+            other.mkdir()
+            git(other, "init", "-q", "-b", "old-branch")
+            git(other, "commit", "-q", "--allow-empty", "-m", "x")
+            cfg = C.load(ws)
+            cfg["transcripts"]["also"] = [{"git_branch": "old-branch", "cwd_prefix": str(other)}]
+            C.save(ws, cfg)
+            ws2 = Path(root) / "ws2"
+            shutil.copytree(ws, ws2)
+            cfg2 = C.load(ws2)
+            cfg2["name"] = "t2"
+            C.save(ws2, cfg2)
+            reg = Path(root) / "registry"
+            reg.write_text(f"{ws}\n{ws2}\n", encoding="utf-8")
+            regs, _ = LH.registry(str(reg))
+            env, state = willow_outlet(root)
+            home = Path(root) / "lintel-home"
+            home.mkdir()
+            (home / "registry.json").write_text(json.dumps({"producers": {LN.PRODUCER: {}}}), encoding="utf-8")
+            cards = []
+            with mock.patch.dict(os.environ, {**env, "LOOP_LINTEL_HOME": str(home)}), \
+                    mock.patch.object(LH, "spawn_card", cards.append):
+                said = ctx_of(LH.handle(prompt_payload(other, prompt_id="p1"), regs))
+                self.assertEqual(sorted(n["workspace"] for n in notes(state)), ["t", "t2"])
+                self.assertTrue(all(n["sessions"]["s1"]["role"] == "history" for n in notes(state)))
+                self.assertIn("「t」", said)
+                self.assertIn("「t2」", said)
+                self.assertEqual(sorted(Path(c).name for c in cards), ["ws", "ws2"])
+                LH.handle(prompt_payload(other, prompt_id="p2"), regs)
+                self.assertEqual(len(cards), 2, "the card is rewritten when the session is first noted, not every prompt")
+
+    def test_a_session_named_by_its_id_is_a_history_source_and_its_neighbours_are_not(self):
+        """2026-10-04: one conversation works in a checkout and on a branch that other lines share, so a
+        directory + branch rule would take those conversations in too. transcripts.history_sessions names the session
+        itself; another session in the same directory stays out."""
+        from unittest import mock
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            shared = Path(root) / "shared"
+            shared.mkdir()
+            git(shared, "init", "-q", "-b", "spike")
+            git(shared, "commit", "-q", "--allow-empty", "-m", "x")
+            cfg = C.load(ws)
+            cfg["transcripts"]["history_sessions"] = [{"id": "s1", "note": "shared-checkout conversation"}]
+            C.save(ws, cfg)
+            reg = Path(root) / "registry"
+            reg.write_text(f"{ws}\n", encoding="utf-8")
+            regs, _ = LH.registry(str(reg))
+            env, state = willow_outlet(root)
+            with mock.patch.dict(os.environ, env), mock.patch.object(LH, "spawn_card", lambda ws: None):
+                LH.handle(prompt_payload(shared, session_id="s2", prompt_id="p0"), regs)
+                self.assertEqual(notes(state), [], "a neighbour in the same checkout is not taken in")
+                said = ctx_of(LH.handle(prompt_payload(shared, prompt_id="p1"), regs))
+                self.assertEqual([n["sessions"]["s1"]["role"] for n in notes(state)], ["history"])
+                self.assertIn("「t」", said)
+            self.assertFalse((ws / "human" / "comments.jsonl").exists(), "display only: the author's words are not recorded")
 
     def test_a_note_whose_line_is_out_of_date_is_corrected_here(self):
         """The coverage line is judged current when it is read (fingerprint and HEAD). If what willow is about to

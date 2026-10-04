@@ -489,6 +489,12 @@ RING_SIGHT = {"看得见": "seen", "推出来": "inferred", "只有提交": "com
 RING_LABELS = {"title": "这一轮", "current": "当前", "latest": "最近动静", "unhung": "没挂上环节", "closed": "已关的门", "waiting": "等你"}
 
 
+def _ring_unread(name):
+    """The ring of a manuscript whose coverage summary is missing or cannot be trusted (`coverage.load_summary` gave None)."""
+    return {"name": _clip(name, 64), "since": "", "segments": [], "unhung": [], "waiting": 0, "closed": [],
+            "labels": RING_LABELS, "error": "环算不出来：覆盖摘要没有或读不出（没算过、配置加了检查、或输入变了），跑一次 loop coverage"}
+
+
 def _ring(coverage, *, name, last_comment_at, last_change_at, analysis=None, ring_inputs=None):
     """The manuscript ring as lintel draws it (plan step 4a; `ring.ring` computes it): each stage's state, sight and
     the few words in its box. A stage an item waits on is 等你 when an item is the author's to decide, 过期 when only
@@ -704,9 +710,12 @@ def build(summary, *, now, problems=(), notices=(), overview=None, coverage=NOT_
         "events": [{"id": i, "type": ty, "at": _iso(_event_at(ty, i, when_lc, start, ended, now))} for i, ty in events],
     }
     ring = None
-    if coverage is not NOT_GIVEN and coverage is not None:
-        ring = _ring(coverage, name=ws, last_comment_at=start, last_change_at=when_lc, analysis=analysis,
-                     ring_inputs=ring_inputs)
+    if coverage is not NOT_GIVEN:
+        # lintel files a card with a ring under 稿件 and one without under 对话 (2026-10-04: one manuscript's coverage summary
+        # could not be read for a while, its card went up without a ring and the draft was listed as a conversation
+        # titled with its label). A manuscript whose coverage cannot be read still sends a ring, an empty one that says why.
+        ring = (_ring(coverage, name=ws, last_comment_at=start, last_change_at=when_lc, analysis=analysis,
+                      ring_inputs=ring_inputs) if coverage is not None else _ring_unread(ws))
         a["ring"] = ring
     if ring is not None and not ring.get("error") and not (problems or clock or flagged):
         # 胶囊写这一篇、等你几件（spec V2，第 4 步）：看过也留着——等你的事没裁完就一直在。
