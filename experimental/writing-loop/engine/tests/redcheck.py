@@ -729,6 +729,8 @@ MUTATIONS = [
     ("quiet", 'cli.py', '    return stage if stage and S.SUBMITTED_STAGE.search(stage) else None', '    return None', 'test_lintel.QuietTest.test_a_submitted_paper_rests_its_card_and_the_producer_exits'),
     ("quiet", 'cli.py', '        if last is not None and now - last > idle:', '        if False:', 'test_lintel.QuietTest.test_a_workspace_with_no_activity_for_the_idle_window_rests'),
     ("quiet", 'cli.py', '    a.pop("heartbeatSeconds", None)\n', '', 'test_lintel.QuietTest.test_a_submitted_paper_rests_its_card_and_the_producer_exits'),
+    ("quiet", 'cli.py', '        if why or (a.once and not _producer_alive(pidfile)):', '        if why:', 'test_lintel.QuietTest.test_a_one_shot_card_with_no_producer_rests'),
+    ("quiet", 'cli.py', '        if why or (a.once and not _producer_alive(pidfile)):', '        if why or a.once:', 'test_lintel.QuietTest.test_a_one_shot_card_beside_a_live_producer_keeps_its_heartbeat'),
     ("quiet", 'cli.py', '            said = (0, 0, len(problems))', '            said = None', 'test_lintel.QuietTest.test_an_active_workspace_keeps_its_heartbeat_and_logs_only_changes'),
     ("quiet", 'cli.py', '    for p in _outside_inputs(cfg):\n        try:', '    for p in []:\n        try:', 'test_lintel.QuietTest.test_the_inputs_signature_moves_with_the_inputs_and_not_with_the_producers_own_files'),
     ("quiet", 'hooks/loop_hook.py', '        if _submitted(C.load(ws)):\n            return False', '        if False:\n            return False', 'test_hooks.ProducerTest.test_a_submitted_paper_does_not_start_the_resident_producer'),

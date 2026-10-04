@@ -480,7 +480,9 @@ def cmd_lintel(a):
                             note=OUT.read(a.workspace))
             last_sig, last_acts, last_problems, last_built = sig, acts, problems, now_t
         why = None if a.once else _quiet_reason(cfg, ws, now_t, a.idle_exit)
-        if why:
+        # 一次性写卡（--once；钩子给没有常驻来源进程的稿件写的就是这种）没人续心跳、也没人收尾：同样不带心跳，
+        # 不然几分钟后 lintel 就标「没消息」（10-04 刘海上挂着「171 分钟没消息」）。旁边有常驻进程在续就照常带。
+        if why or (a.once and not _producer_alive(pidfile)):
             acts = [_resting(x) for x in acts]
         try:
             counts = LN.sync(acts, home=a.home, producer=a.producer)
