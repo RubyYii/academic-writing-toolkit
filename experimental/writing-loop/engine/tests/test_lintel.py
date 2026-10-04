@@ -932,6 +932,28 @@ class QuietTest(unittest.TestCase):
             self.assertNotIn("heartbeatSeconds", self._card(home))
             self.assertIn("分钟没有活动", out.getvalue())
 
+    def test_a_one_shot_card_with_no_producer_rests(self):
+        # 10-04：钩子给没有常驻来源进程的稿件（只作历史来源的那种）写一次卡（--once），卡上带着心跳却没人续，
+        # 三分钟后 lintel 就标「没消息」，挂了几个小时的「171 分钟没消息」。
+        from loop.cli import main
+        with TempDir() as root:
+            ws, home, _ = self._ws(root)
+            self.assertEqual(main(["update", str(ws)]), 0)
+            self.assertEqual(main(["lintel", str(ws), "--once", "--home", str(home)]), 0)
+            card = self._card(home)
+            self.assertNotIn("heartbeatSeconds", card, "no one renews a one-shot card, so it carries no heartbeat")
+            self.assertFalse(card["running"])
+
+    def test_a_one_shot_card_beside_a_live_producer_keeps_its_heartbeat(self):
+        from unittest import mock
+        from loop.cli import main
+        with TempDir() as root:
+            ws, home, _ = self._ws(root)
+            self.assertEqual(main(["update", str(ws)]), 0)
+            with mock.patch("loop.cli._producer_alive", return_value=True):
+                self.assertEqual(main(["lintel", str(ws), "--once", "--home", str(home)]), 0)
+            self.assertIn("heartbeatSeconds", self._card(home), "the resident producer renews it")
+
     def test_an_active_workspace_keeps_its_heartbeat_and_logs_only_changes(self):
         from loop.cli import main
         with TempDir() as root:
