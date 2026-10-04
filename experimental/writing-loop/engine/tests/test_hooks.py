@@ -709,6 +709,46 @@ class OutletTest(unittest.TestCase):
                 self.assertIsNone(LH.handle(prompt_payload(other, prompt_id="p2"), regs))
             self.assertFalse((ws / "human" / "comments.jsonl").exists())
 
+    def test_a_session_that_is_history_for_two_manuscripts_is_noted_in_both_and_each_card_is_rewritten_once(self):
+        """2026-10-04: one conversation works on two papers. Each is bound to it as a history source (display only);
+        lintel nests a draft in a conversation only when the draft's card lists it (`within`, read from the note). The
+        hook stopped at the first matching workspace, so the second never listed the conversation; and a draft with no
+        primary session has no resident producer, so nothing rewrote its card after the note changed."""
+        import shutil
+        from unittest import mock
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            other = Path(root) / "other"
+            other.mkdir()
+            git(other, "init", "-q", "-b", "old-branch")
+            git(other, "commit", "-q", "--allow-empty", "-m", "x")
+            cfg = C.load(ws)
+            cfg["transcripts"]["also"] = [{"git_branch": "old-branch", "cwd_prefix": str(other)}]
+            C.save(ws, cfg)
+            ws2 = Path(root) / "ws2"
+            shutil.copytree(ws, ws2)
+            cfg2 = C.load(ws2)
+            cfg2["name"] = "t2"
+            C.save(ws2, cfg2)
+            reg = Path(root) / "registry"
+            reg.write_text(f"{ws}\n{ws2}\n", encoding="utf-8")
+            regs, _ = LH.registry(str(reg))
+            env, state = willow_outlet(root)
+            home = Path(root) / "lintel-home"
+            home.mkdir()
+            (home / "registry.json").write_text(json.dumps({"producers": {LN.PRODUCER: {}}}), encoding="utf-8")
+            cards = []
+            with mock.patch.dict(os.environ, {**env, "LOOP_LINTEL_HOME": str(home)}), \
+                    mock.patch.object(LH, "spawn_card", cards.append):
+                said = ctx_of(LH.handle(prompt_payload(other, prompt_id="p1"), regs))
+                self.assertEqual(sorted(n["workspace"] for n in notes(state)), ["t", "t2"])
+                self.assertTrue(all(n["sessions"]["s1"]["role"] == "history" for n in notes(state)))
+                self.assertIn("「t」", said)
+                self.assertIn("「t2」", said)
+                self.assertEqual(sorted(Path(c).name for c in cards), ["ws", "ws2"])
+                LH.handle(prompt_payload(other, prompt_id="p2"), regs)
+                self.assertEqual(len(cards), 2, "the card is rewritten when the session is first noted, not every prompt")
+
     def test_a_note_whose_line_is_out_of_date_is_corrected_here(self):
         """The coverage line is judged current when it is read (fingerprint and HEAD). If what willow is about to
         say is not what the line reads now (the author edited outside Claude, an update is still running), the hook

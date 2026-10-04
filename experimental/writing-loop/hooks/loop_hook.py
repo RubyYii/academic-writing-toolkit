@@ -116,20 +116,22 @@ def session_ws(payload, regs):
     return None, None
 
 
-def history_ws(payload, regs):
-    """A workspace this session belongs to as a history source (transcripts.also): read-only for the hooks, which
-    write nothing for it, but the author working there should still see which checks are not current."""
+def history_wss(payload, regs):
+    """Every workspace this session belongs to as a history source (transcripts.also): read-only for the hooks, which
+    write nothing for it, but the author working there should still see which checks are not current. One session can
+    be history for several manuscripts (2026-10-04: one conversation works on two papers)."""
     cwd = payload.get("cwd")
     if not isinstance(cwd, str):
-        return None, None
-    br = None
+        return []
+    br, out = None, []
     for ws, cfg in regs:
         for s in cfg["transcripts"].get("also") or []:
             if isinstance(s, dict) and s.get("cwd_prefix") and s.get("git_branch") and _under(cwd, s["cwd_prefix"]):
                 br = br or branch_of(cwd)
                 if br == s.get("git_branch"):
-                    return ws, cfg
-    return None, None
+                    out.append((ws, cfg))
+                    break
+    return out
 
 
 def spawn_update(ws, reason):
@@ -140,6 +142,29 @@ def spawn_update(ws, reason):
                      cwd=str(ENGINE), env=dict(os.environ, PYTHONPATH=str(ENGINE)),
                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
     log.close()
+
+
+def spawn_card(ws):
+    """Write this workspace's notch card once (`loop lintel --once`), detached; its output goes to cache/lintel.log."""
+    (ws / "cache").mkdir(parents=True, exist_ok=True)
+    log = open(ws / "cache" / "lintel.log", "a")
+    subprocess.Popen([sys.executable, "-m", "loop", "lintel", str(ws), "--once"], cwd=str(ENGINE),
+                     env=dict(os.environ, PYTHONPATH=str(ENGINE)),
+                     stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+    log.close()
+
+
+def refresh_card(ws):
+    """After a session is first noted as history: the card lists its sessions (`within`) from the note, and a
+    manuscript read only as history has no resident producer to rewrite it. Registered with lintel and no producer
+    alive: write the card once. A failure is recorded; the hook goes on."""
+    try:
+        from loop import lintel as LN
+        from loop.cli import _producer_alive
+        if LN.registered(LN.lintel_home(), LN.PRODUCER) and not _producer_alive(ws / "cache" / "lintel.pid"):
+            spawn_card(ws)
+    except Exception as e:  # noqa: BLE001 -- the notch is optional
+        HL.record_event(ws, "hook_error", f"卡片没重写（{type(e).__name__}：{e}）")
 
 
 def spawn_producer(ws):
@@ -430,6 +455,8 @@ def through_willow(ws, cfg, payload, role, line, now):
         HL.record_event(ws, "hook_error", f"留言没写进许愿柳（{type(e).__name__}：{e}），写作循环这一轮自己说", now=now)
         return None
     if first:
+        if role == "history":
+            refresh_card(ws)
         return None
     want = ((head + line) if line else "") if role == "history" else (line or "")
     if (said or "") == want:
@@ -440,16 +467,15 @@ def through_willow(ws, cfg, payload, role, line, now):
 def on_prompt(payload, regs, now):
     ws, cfg = session_ws(payload, regs)
     if ws is None:
-        hws, hcfg = history_ws(payload, regs)
-        if hws is None:
-            return None
-        line = coverage_line(hws, hcfg)
-        extra = through_willow(hws, hcfg, payload, "history", line, now)
-        if extra is not None:
-            return _said(extra)
-        if not line:
-            return None
-        return _said(HISTORY_HEAD.format(name=hcfg["name"]) + line)
+        said = []
+        for hws, hcfg in history_wss(payload, regs):
+            line = coverage_line(hws, hcfg)
+            extra = through_willow(hws, hcfg, payload, "history", line, now)
+            if extra is None:
+                extra = HISTORY_HEAD.format(name=hcfg["name"]) + line if line else ""
+            if extra:
+                said.append(extra)
+        return _said("\n".join(said))
     prompt = payload.get("prompt")
     if not isinstance(prompt, str):
         HL.record_event(ws, "hook_error", "UserPromptSubmit 的载荷里没有字符串字段 prompt（运行时字段名变了？）", now=now)

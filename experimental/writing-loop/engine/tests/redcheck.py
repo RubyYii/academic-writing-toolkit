@@ -87,7 +87,7 @@ MUTATIONS = [
      'test_hooks.PromptTest.test_a_history_source_session_sees_coverage_and_nothing_is_recorded'),
     ("cov", 'coverage.py', '        h.update(json.dumps(check.get("definition"), sort_keys=True, ensure_ascii=False).encode())', '        pass',
      'test_coverage.ProjectCheckTest.test_changing_a_project_checks_command_makes_its_old_result_stale'),
-    ("cov", 'hooks/loop_hook.py', '        hws, hcfg = history_ws(payload, regs)\n        if hws is None:\n            return None', '        hws, hcfg = None, None\n        if hws is None:\n            return None',
+    ("cov", 'hooks/loop_hook.py', '        for hws, hcfg in history_wss(payload, regs):', '        for hws, hcfg in []:',
      'test_hooks.PromptTest.test_a_history_source_session_sees_coverage_and_nothing_is_recorded'),
     ("cov", 'coverage.py', '            if not check.get("auto", True) and not (only and check["id"] in only):\n                continue', '            if False:\n                continue',
      'test_coverage.ProjectCheckTest.test_a_slow_project_check_runs_only_when_named_and_any_change_in_the_tree_makes_it_stale'),
