@@ -1,6 +1,7 @@
 # Growing the probe set from defects the checks missed, one confirmed batch at a time
 
-Status: batch 1 implemented and pushed to its branch, no pull request (2026-10-05). Batch 2 implemented locally
+Status: batch 1 implemented and pushed to its branch, no pull request (2026-10-05). Batch 2 implemented and pushed
+to the same branch, no pull request (2026-10-05). The ledger cap of batch 2's held-back part implemented locally
 (2026-10-05), not pushed. The author approved the idea ("grow the red-check set by target band, with the author
 confirming each defect") and confirmed all three defects of batch 1 and all three of batch 2 (gate 1, "三条都算"
 both times). The spec itself has not been read by the author.
@@ -127,6 +128,46 @@ Three remarks:
 - The venue build on the measured draft already rewrites "X et~al.~\\cite" into a textual citation; both current
   hits were written with an ordinary space and slipped past it.
 - The two current hits sit in a manuscript the author has frozen. They are reported to the author, not changed.
+
+## Batch 2, held back: a cap on how often, and a terms table
+
+Four of the seven missed candidates needed something registered first. Gate 2 was rerun for two of them with a
+claims ledger, which the first run had left empty:
+
+- **A new term in the abstract that the body never uses, and a retired term left in a figure caption.** The ledger
+  already expresses both: `必须出现：<term> @ <places>` for the first; `越界：<old term>` for the second, which also
+  reads figure files when `inputs.also_scanned` lists them. On synthetic drafts with one claim registered, the bad
+  drafts are flagged and the twins are not. These are not defects the checks miss but terms nobody registered: no step
+  prompts registering them when the abstract is settled. **The author's call (gate 1, 2026-10-05): real defects,
+  filed as "the existing fields catch them; not registered". No probe, no new check.**
+- **One weakness restated in many sentences, each worded differently.** No field expressed "at most N". **The
+  author's call (gate 1, 2026-10-05): real, build it.**
+
+The new field, on a claim: `至多：<regex> ‖ <regex> @ N`, or `@ N A, I1` to count only in those places, together.
+It counts sentences of the sentence index that match any listed wording; a sentence matching two counts once.
+Supplement and figure sources are not counted. Over the cap, the verdict is 未就绪 with the blocker 说太多遍
+<claim>; the table shows every capped claim with its count and sentences, over the cap or not. A cap without a
+number is a ledger problem.
+
+| Defect | Rule | Bad / twin | On one real draft (read-only, every indexed version) |
+|---|---|---|---|
+| One weakness said in more sentences than the author allows | claims ledger, new field `至多` | flagged / not | Five wordings of one limitation, collected by reading the version before the fix, capped at two as the author's card asked. That version: 4 sentences counted, flagged; the source has 5, and the fifth sat under a heading the section rules no longer matched, which the scan-coverage row reported at the time. From the author's fix to the current head: 2 in the source at every version, never flagged. The note on the incident counts a sixth wording that was never found again |
+
+Three remarks:
+- Only the listed wordings are counted. The cap is worth having because counting by hand went wrong twice in the
+  incident, not because it finds a new paraphrase. A rewrite that rewords a mention drops it from the count silently.
+- The count is only as complete as the sentence index. A heading the section rules miss lowers it; the scan-coverage
+  row already says so.
+- A cap penalises saying it too often and nothing else, so deleting the one place a weakness is stated passes it.
+  The sentence gate's `removed_carrier` flag covers deleted carrying sentences, not this field.
+
+Deviation from D5: the bad draft and its twin are unit tests of the paper state (`test_state.py`), not a probe
+directory, because `test_probes.py` runs scripts and this rule needs a ledger and a sentence index. A probe's twin
+has no ledger, so the rule cannot flag it. The rule is not added to the landed-parts agreement in `parts.py`: which
+of the surplus sentences should go is the author's call, and listing all of them there would mark every part.
+
+What was run: the three new tests failed on the previous commit (on the bad draft it said 待作者终审 with no
+blocker); 8 new red-check mutants each turned their test red.
 
 ## Open for the author
 

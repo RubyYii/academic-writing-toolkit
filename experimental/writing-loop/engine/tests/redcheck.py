@@ -1157,6 +1157,22 @@ MUTATIONS = [
      'test_front_matter.CoinedNameTest.test_our_and_one_noun_says_whose_not_what'),
     ('probegrowth', 'skill:verify-refs/scripts/reconcile-cites.py', '                    if EPONYM.match(words, m.end()):\n                        continue', '                    if False:\n                        continue',
      'test_cite_names.AuthorNamedTwiceTest.test_a_name_that_names_a_method_is_not_read_as_the_authors'),
+    ('probegrowth', 'state.py', '|必须出现|至多|承载|', '|必须出现|承载|',
+     'test_state.StateTest.test_a_wording_said_more_often_than_the_ledger_allows_is_said'),
+    ('probegrowth', 'state.py', '    too_many = sorted({x["claim"] for x in st.get("at_most") or [] if len(x["labels"]) > x["limit"]})', '    too_many = []',
+     'test_state.StateTest.test_a_wording_said_more_often_than_the_ledger_allows_is_said'),
+    ('probegrowth', 'state.py', '    too_many = sorted({x["claim"] for x in st.get("at_most") or [] if len(x["labels"]) > x["limit"]})', '    too_many = sorted({x["claim"] for x in st.get("at_most") or [] if len(x["labels"]) >= x["limit"]})',
+     'test_state.StateTest.test_a_wording_said_more_often_than_the_ledger_allows_is_said'),
+    ('probegrowth', 'state.py', '        st["at_most"] = said(st["claims"], sentences)\n', '',
+     'test_state.StateTest.test_a_wording_said_more_often_than_the_ledger_allows_is_said'),
+    ('probegrowth', 'state.py', '        for x in (y for y in st.get("at_most") or [] if y["claim"] == c["id"]):', '        for x in (y for y in st.get("at_most") or [] if y["claim"] == c["id"] and len(y["labels"]) > y["limit"]):',
+     'test_state.StateTest.test_a_wording_said_more_often_than_the_ledger_allows_is_said'),
+    ('probegrowth', 'state.py', '                  if (not m["places"] or any(in_place(s.get("label"), p) for p in m["places"]))\n', '                  if True\n',
+     'test_state.StateTest.test_a_sentence_is_counted_once_and_a_cap_can_hold_in_named_places'),
+    ('probegrowth', 'state.py', '        labels = [_label(s) for s in sentences\n                  if (not m["places"] or any(in_place(s.get("label"), p) for p in m["places"]))\n                  and any(rx.search(s.get("text") or "") for _, rx in m["patterns"])]', '        labels = [_label(s) for s in sentences for _, rx in m["patterns"]\n                  if (not m["places"] or any(in_place(s.get("label"), p) for p in m["places"]))\n                  and rx.search(s.get("text") or "")]',
+     'test_state.StateTest.test_a_sentence_is_counted_once_and_a_cap_can_hold_in_named_places'),
+    ('probegrowth', 'state.py', '    if not rest or not rest[0].isdecimal():', '    if not rest:',
+     'test_state.StateTest.test_a_cap_without_a_number_is_a_ledger_problem'),
 ]
 
 
