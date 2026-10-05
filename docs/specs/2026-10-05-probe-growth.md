@@ -1,8 +1,9 @@
 # Growing the probe set from defects the checks missed, one confirmed batch at a time
 
-Status: batch 1 implemented locally (2026-10-05). The author approved the idea ("grow the red-check set by target
-band, with the author confirming each defect") and confirmed all three defects of batch 1 (gate 1, "三条都算"). The
-spec itself has not been read by the author.
+Status: batch 1 implemented and pushed to its branch, no pull request (2026-10-05). Batch 2 implemented locally
+(2026-10-05), not pushed. The author approved the idea ("grow the red-check set by target band, with the author
+confirming each defect") and confirmed all three defects of batch 1 and all three of batch 2 (gate 1, "三条都算"
+both times). The spec itself has not been read by the author.
 
 What was run for batch 1:
 - Each probe's bad draft failed on the old code; each new unit test that asserts a flag failed there too.
@@ -97,6 +98,36 @@ Three remarks:
 - The cross-reference check does not see a label placed further down the paragraph, or references made from another
   document (an `xr` prefix). Both stay with the reader.
 
+## Batch 2 (gate 2 run on the whole loop, 2026-10-05)
+
+The 16 remaining candidates the triage agent had marked "a script could catch it" were run as synthetic drafts
+through every check the loop runs, the state computation, and the claim ledger with an empty ledger. Three positive
+self-tests (a duplicate sentence, an uncited "prior work" claim, a universal negation) went red first, so a silent
+harness would have shown. Five candidates were already caught, one partly (a coined name: caught only when its
+definition is cut in the same round), seven missed. Three of the missed needed no new registration and went to the
+author, who confirmed all three (gate 1). The other four need a terms table or a ledger field and wait.
+
+| Defect | Today | Gate 2 |
+|---|---|---|
+| The abstract keeps none of the words of the title's main clause | nothing | missed |
+| In an author-year style, "Smith et al. report ... \\citep{smith}" prints the name twice | nothing | missed |
+| The abstract's first use of a name the paper coins does not say what it is (definition never in the abstract) | nothing | missed |
+
+## Batch 2 results (gate 3)
+
+| Defect | Rule | Bad / twin | On one real draft (read-only, several commits) |
+|---|---|---|---|
+| Title words lost from the abstract | new check `audit-front-matter.py` (loop id `front-matter`), LaTeX, follows `\\input`: `title-word-missing-from-abstract` for each content word of the full title that no abstract word shares (plural, or the first max(6, n-3) letters; synonyms do not count) | flagged / not | The commit before the fix lists 3 words; the author's fix lists 2 (it restored one; a later commit added the other two); the current head lists 0. A two-word term whose words both occur apart in the abstract is not seen, and the defect's own example was such a term |
+| A coined name the abstract uses before saying what it is | same check, `coined-name-undefined-in-abstract`: a name with an inner capital that the draft says we made or calls ours, whose first abstract sentence neither says we made it, nor describes it (indefinite noun phrase, or "our" with two or more words), nor opens a relative clause on it, nor follows a sentence that says we made something | flagged / not | 1 of 5 commits flagged, the bad one. The first version also flagged two later abstracts that do say what the name is ("NAME is our <adjective> <noun>", "our <noun> of <description>, NAME, whose ..."); "our" with two or more words and the relative clause were added after reading them, so this count is not out of sample |
+| An author named in the sentence and printed again by an author-year citation | `reconcile-cites.py` (loop id `cite-bib`), new kind `author-named-twice`, checked only when the style prints names: read from the class, packages and `\\setcitestyle` (last wins), else the bibliography style, or set by the workspace's `target.citation_style` (`--style`) | flagged / not | The draft's source is a numeric class; a venue build rewrites it to an author-year style, so the source alone reads as numeric and nothing is checked. With the style set: the incident's sentence is flagged at the bad commit and not at the fix; the fix left a second sentence of the same form in the same paragraph. The current head has 2 hits, and the venue's built PDF prints both names twice (read from its text), so 2 of 2 are true. The first version also flagged two tests named after their authors ("X's test" beside its source), which is the usual form; methods named by a surname were left out after reading them, not out of sample |
+
+Three remarks:
+- A build that changes the class or the bibliography style for a venue leaves the source saying one style and the
+  submission printing another. The check reads the source, so such a workspace has to name the printed style.
+- The venue build on the measured draft already rewrites "X et~al.~\\cite" into a textual citation; both current
+  hits were written with an ordinary space and slipped past it.
+- The two current hits sit in a manuscript the author has frozen. They are reported to the author, not changed.
+
 ## Open for the author
 
 - Q1 Should a covered candidate still get a probe, to pin the rule that catches it? Default: no, following
@@ -105,3 +136,7 @@ Three remarks:
 - Q3 The cross-reference check is on for every LaTeX workspace, needing no configuration. On the measured manuscript it
   would show its 7 hits in the first run after the toolkit is updated. Default: on, because all 7 are true and the
   check is cheap. Making it opt-in is one line in the catalogue. **Decided 2026-10-05 by the author: on by default.**
+- Q4 The title-and-abstract check is on for every LaTeX workspace, like the cross-reference check. On the measured
+  draft's current head it reports nothing. Default: on.
+- Q5 The measured workspace builds its submission in an author-year style, so `target.citation_style: author-year`
+  belongs in its configuration; the loop would then show the 2 hits above. Default: set it.

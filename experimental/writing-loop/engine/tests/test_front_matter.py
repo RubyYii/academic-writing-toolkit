@@ -1,0 +1,182 @@
+"""audit-front-matter.py: what the title and the abstract leave a reader to guess (spec 2026-10-05-probe-growth,
+batch 2): a title word the abstract no longer has, and a name the draft coins that the abstract uses before saying
+what it is. Synthetic LaTeX only."""
+import json
+import os
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+
+from loop import catalogue as K
+from loop import coverage as V
+
+from fixtures import TempDir
+
+# AWT_AUDIT_DIR: the mutated copy a red check is testing; otherwise the audit skill in this checkout.
+SCRIPTS = Path(os.environ.get("AWT_AUDIT_DIR") or K.ENGINE_ROOT / ".claude" / "skills" / "audit" / "scripts")
+
+TITLE = "\\title[Gauge drift]{When the gauge drifts before the flood: Sensor drift as an early warning}"
+DEFINED = ("We built GaugeBench, a record of 14 river gauges, and asked whether sensor drift gives an early warning "
+           "of floods. Drift rose before 12 of 14 floods.")
+METHOD = "\\section{Method}\nWe built GaugeBench, a record of 14 river gauges kept for ten years.\n"
+
+
+def check(root, abstract=DEFINED, title=TITLE, body=METHOD, files=None):
+    root = Path(root)
+    for name, text in (files or {}).items():
+        (root / name).write_text(text, encoding="utf-8")
+    parts = [title] if title else []
+    if abstract is not None:
+        parts.append(f"\\begin{{abstract}}\n{abstract}\n\\end{{abstract}}")
+    (root / "main.tex").write_text("\\documentclass{article}\n" + "\n".join(parts) + "\n\\begin{document}\n"
+                                   + body + "\n\\end{document}\n", encoding="utf-8")
+    r = subprocess.run([sys.executable, str(SCRIPTS / "audit-front-matter.py"), "--root", str(root), "--json",
+                        str(root / "main.tex")], capture_output=True, text=True)
+    assert r.returncode in (0, 1), r.stderr[-400:]
+    d = json.loads(r.stdout)
+    assert (r.returncode == 1) == bool(d["issues"]), (r.returncode, d["issues"])
+    return d
+
+
+def kinds(d, kind):
+    return [i.get("word") or i.get("name") for i in d["issues"] if i["kind"] == kind]
+
+
+class TitleWordsTest(unittest.TestCase):
+    def test_a_title_word_the_abstract_lost_is_reported(self):
+        with TempDir() as root:
+            d = check(root, abstract=DEFINED.replace("sensor drift gives an early warning of", "drift comes before"))
+            self.assertEqual(kinds(d, "title-word-missing-from-abstract"), ["Sensor", "early", "warning"])
+            self.assertEqual(d["title_words"], ["gauge", "drifts", "flood", "Sensor", "early", "warning"])
+
+    def test_an_abstract_with_every_title_word_has_no_issue(self):
+        with TempDir() as root:
+            self.assertEqual(check(root)["issues"], [])
+
+    def test_a_plural_or_another_form_of_the_word_counts(self):
+        with TempDir() as root:
+            title = "\\title{Retrieval of flood warnings}"
+            d = check(root, title=title, abstract="We built GaugeBench, a record that retrieved a flood warning.")
+            self.assertEqual(kinds(d, "title-word-missing-from-abstract"), [])
+
+    def test_a_word_that_only_starts_like_it_does_not(self):
+        with TempDir() as root:
+            title = "\\title{Shortcuts in flood gauges}"
+            d = check(root, title=title, abstract="We built GaugeBench, a record of short flood gauges.")
+            self.assertEqual(kinds(d, "title-word-missing-from-abstract"), ["Shortcuts"])
+
+    def test_the_short_title_is_not_read(self):
+        with TempDir() as root:
+            d = check(root, title=TITLE.replace("[Gauge drift]", "[Rainfall and gauge drift]"))
+            self.assertEqual(kinds(d, "title-word-missing-from-abstract"), [])
+
+    def test_a_title_in_an_input_file_is_found(self):
+        with TempDir() as root:
+            d = check(root, title="\\input{front}", files={"front.tex": "\\title{Tidal gauges}\n"})
+            self.assertEqual(kinds(d, "title-word-missing-from-abstract"), ["Tidal"])
+
+    def test_no_abstract_is_said_and_not_checked(self):
+        with TempDir() as root:
+            d = check(root, abstract=None)
+            self.assertEqual((d["title_found"], d["abstract_found"], d["issues"]), (True, False, []))
+
+
+ODD = ("The first run of our record, GaugeBench, read drift against chance. Drift rose before 12 of 14 floods, "
+       "a sensor drift that gives an early warning.")
+
+
+class CoinedNameTest(unittest.TestCase):
+    def test_a_coined_name_used_before_the_abstract_says_what_it_is_is_reported(self):
+        with TempDir() as root:
+            d = check(root, abstract=ODD)
+            self.assertEqual(kinds(d, "coined-name-undefined-in-abstract"), ["GaugeBench"])
+            self.assertEqual(d["coined_names"], ["GaugeBench"])
+
+    def test_the_draft_saying_we_built_it_elsewhere_makes_the_name_ours(self):
+        with TempDir() as root:
+            odd = ODD.replace("our record, GaugeBench,", "GaugeBench")
+            self.assertEqual(kinds(check(root, abstract=odd), "coined-name-undefined-in-abstract"), ["GaugeBench"])
+            self.assertEqual(kinds(check(root, abstract=odd, body="\\section{Method}\nThe gauges are old.\n"),
+                                   "coined-name-undefined-in-abstract"), [])
+
+    def test_a_name_said_to_be_ours_where_it_first_appears_is_described(self):
+        for first in ("We built GaugeBench, a record of 14 river gauges, and read drift against chance.",
+                      "GaugeBench, a record of 14 river gauges, reads drift against chance.",
+                      "A record of 14 river gauges, GaugeBench, reads drift against chance.",
+                      "GaugeBench is a record of 14 river gauges read against chance.",
+                      "We built a record of 14 river gauges. GaugeBench reads drift against chance.",
+                      "GaugeBench is our river record and reads drift against chance.",
+                      "GaugeBench, our record of 14 river gauges, reads drift against chance.",
+                      "We audit our record of river gauges, GaugeBench, against chance.",
+                      "We audit GaugeBench, whose readings span ten years, against chance."):
+            with self.subTest(first=first), TempDir() as root:
+                d = check(root, abstract=first + " Drift gives a sensor flood warning early.")
+                self.assertEqual(kinds(d, "coined-name-undefined-in-abstract"), [])
+
+    def test_an_indefinite_phrase_that_ends_on_our_noun_does_not_describe_it(self):
+        with TempDir() as root:
+            odd = "An early run of our record, GaugeBench, read sensor drift against chance before each flood warning."
+            self.assertEqual(kinds(check(root, abstract=odd), "coined-name-undefined-in-abstract"), ["GaugeBench"])
+
+    def test_our_and_one_noun_says_whose_not_what(self):
+        for odd in ("GaugeBench, our record, read sensor drift against chance before each flood warning early.",
+                    "GaugeBench is our record. It read sensor drift against chance before each flood warning early."):
+            with self.subTest(odd=odd), TempDir() as root:
+                # the abstract alone says the name is ours
+                d = check(root, abstract=odd, body="\\section{Method}\nThe gauges are old.\n")
+                self.assertEqual(kinds(d, "coined-name-undefined-in-abstract"), ["GaugeBench"])
+
+    def test_we_presenting_a_run_of_it_does_not_say_what_it_is(self):
+        with TempDir() as root:
+            odd = ("We present the first run of our record, GaugeBench, against chance. Sensor drift rose before each "
+                   "flood, an early warning.")
+            self.assertEqual(kinds(check(root, abstract=odd), "coined-name-undefined-in-abstract"), ["GaugeBench"])
+
+    def test_a_name_the_draft_does_not_coin_is_not_checked(self):
+        for body in ("\\section{Method}\nWe compare with RiverNet~\\cite{rivernet}.\n",
+                     "\\section{Method}\nWe build on RiverNet, which others released.\n",
+                     "\\section{Method}\nWe collected RiverNet scores for each gauge.\n"):
+            with self.subTest(body=body), TempDir() as root:
+                odd = "RiverNet reads sensor drift as an early warning before each flood at every gauge."
+                d = check(root, abstract=odd, body=body)
+                self.assertEqual((kinds(d, "coined-name-undefined-in-abstract"), d["coined_names"]), ([], []))
+
+    def test_an_acronym_is_not_read_as_a_coined_name(self):
+        with TempDir() as root:
+            odd = "GDB reads sensor drift as an early warning before each flood at every gauge."
+            d = check(root, abstract=odd, body="\\section{Method}\nWe built GDB from the gauges.\n")
+            self.assertEqual(d["coined_names"], [])
+
+
+class FrontMatterLoopTest(unittest.TestCase):
+    def test_the_check_is_in_the_catalogue_for_latex(self):
+        [c] = [c for c in K.CHECKS if c["id"] == "front-matter"]
+        self.assertEqual((c["formats"], c["needs"], c.get("tree")), (["latex"], [], True))
+
+    def test_the_loop_says_when_there_was_no_abstract_to_check(self):
+        with TempDir() as root:
+            check(root, abstract=None)
+            self.assertEqual(V.interpret("front-matter", 0, run_json(root), ""), ("ok", "没找到摘要，没查"))
+
+    def test_the_loop_names_both_kinds(self):
+        with TempDir() as root:
+            check(root, abstract=ODD.replace("an early warning", "a warning"))
+            self.assertEqual(V.interpret("front-matter", 1, run_json(root), ""),
+                             ("findings", "标题词摘要里没有 1（early）；自造名首现没说是什么 1（GaugeBench）"))
+
+    def test_the_loop_says_what_a_clean_abstract_was_checked_for(self):
+        with TempDir() as root:
+            check(root)
+            self.assertEqual(V.interpret("front-matter", 0, run_json(root), ""),
+                             ("ok", "标题词都在摘要里；自造名 1 个首现都说了是什么"))
+
+
+def run_json(root):
+    root = Path(root)
+    return subprocess.run([sys.executable, str(SCRIPTS / "audit-front-matter.py"), "--root", str(root), "--json",
+                           str(root / "main.tex")], capture_output=True, text=True).stdout
+
+
+if __name__ == "__main__":
+    unittest.main()

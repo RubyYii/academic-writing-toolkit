@@ -17,7 +17,10 @@ from loop import catalogue as K
 PROBES = Path(__file__).resolve().parent / "probes"
 # AWT_AUDIT_DIR: the mutated copy a red check is testing; otherwise the skill in this checkout.
 AUDIT = Path(os.environ.get("AWT_AUDIT_DIR") or K.ENGINE_ROOT / ".claude" / "skills" / "audit" / "scripts")
-CHECKS = {"sentence-changes": AUDIT / "audit-sentence-changes.py", "cross-refs": AUDIT / "audit-cross-refs.py"}
+VERIFY_REFS = Path(os.environ.get("AWT_VERIFY-REFS_DIR")
+                   or K.ENGINE_ROOT / ".claude" / "skills" / "verify-refs" / "scripts")
+CHECKS = {"sentence-changes": AUDIT / "audit-sentence-changes.py", "cross-refs": AUDIT / "audit-cross-refs.py",
+          "front-matter": AUDIT / "audit-front-matter.py", "cite-bib": VERIFY_REFS / "reconcile-cites.py"}
 
 
 def run(probe, draft):
