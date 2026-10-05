@@ -504,6 +504,13 @@ CHECKS = [
      "inputs": _bib, "outside": _no_outside,
      "argv": lambda ctx: _py(ctx, "verify-refs/reconcile-cites.py") + ["--bib", ctx["inputs"]["bib"], "--root", ".",
                                                                        "--json"] + ctx["drafts"]},
+    # A \label on a heading with no number prints the number of the section around it wherever \ref uses it
+    # (spec 2026-10-05-probe-growth, batch 1). Follows \input like cite-bib.
+    {"id": "cross-refs", "name": "交叉引用编号", "kind": "script", "scripts": ["audit/audit-cross-refs.py"],
+     "formats": ["latex"], "instead": {}, "tree": True,
+     "scope": {"kind": "all"}, "needs": [],
+     "inputs": _none, "outside": _no_outside,
+     "argv": lambda ctx: _py(ctx, "audit/audit-cross-refs.py") + ["--root", ".", "--json"] + ctx["drafts"]},
     {"id": "readers", "name": "读者组", "kind": "panel",
      "scripts": ["readers/build-reader-packet.py", "readers/check-reader-output.py", "readers/tally-readers.py"],
      "formats": ["latex", "markdown"], "instead": {},
