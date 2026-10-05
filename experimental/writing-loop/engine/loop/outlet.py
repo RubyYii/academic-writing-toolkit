@@ -7,7 +7,13 @@ its envelopes.json), the hook leaves a note in `<willow state dir>/inbox/awt-loo
   {"schema": 1, "source": "awt-loop", "label": "写作循环 · <name>", "workspace": <name>,
    "sessions": {<session id>: {"role": "primary" | "history", "since": <id of the first prompt seen>}},
    "full": <the explanation block>, "always": <the coverage line>, "history_head": ..., "history": ...,
+   "todo": [{"id", "title", "state", "closed"}] | null, "todo_why": <why null>, "hookup": true | false,
    "updatedAt": ...}
+
+`todo` and `hookup` let willow match its list against the manuscript's to-do items (spec 2026-10-04
+manuscript-todo-hookup, D1 and D4): closed items are kept, so willow can tell "closed" from "not there"; with no ledger
+or a state that could not be computed it is null with the reason, never [], which would read as "all closed". `hookup`
+is the workspace config's `hookup`, off when absent; willow matches only when it is true.
 
 Which sessions belong to the manuscript is still decided here (cwd prefix and branch); willow only matches session
 ids, so that rule is not copied. The two hooks run in parallel and a note written during a prompt is not read for
@@ -63,6 +69,20 @@ def _texts(note, line):
     return {"always": line or "", "history": (head + line) if (head and line) else ""}
 
 
+def _todo(ws):
+    """The to-do items of the state the line was just computed from (coverage.live_line), as {"todo", "todo_why"}."""
+    from . import coverage as V
+    st = V.last_state(ws)
+    if st is None:
+        return {"todo": None, "todo_why": "论文状态算不出"}
+    if not st.get("configured"):
+        return {"todo": None, "todo_why": "没登记主张清单"}
+    if st.get("unread"):
+        return {"todo": None, "todo_why": "主张清单读不到"}
+    return {"todo": [{"id": t["id"], "title": t["title"], "state": t["state"], "closed": bool(t["closed"])}
+                     for t in st.get("todo") or []]}
+
+
 def enrol(ws, cfg, session_id, role, prompt_id, *, full, line, history_head):
     """Note this session and the texts as they read now. Returns (first, said): `first` when the session was not
     noted in this role before (the caller says everything itself this prompt), and `said`, the line willow was going
@@ -80,8 +100,9 @@ def enrol(ws, cfg, session_id, role, prompt_id, *, full, line, history_head):
         sessions = dict(list(sessions.items())[-KEEP:])
     name = cfg["name"]
     note = {"schema": SCHEMA, "source": "awt-loop", "label": f"写作循环 · {name}", "workspace": name,
-            "sessions": sessions, "full": full, "history_head": history_head}
+            "sessions": sessions, "full": full, "history_head": history_head, "hookup": cfg.get("hookup") is True}
     note.update(_texts(note, line))
+    note.update(_todo(ws))
     note["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     _write(ws, note)
     return first, said
@@ -93,6 +114,8 @@ def refresh(ws, line):
     if note is None:
         return False
     note.update(_texts(note, line))
+    note.pop("todo_why", None)
+    note.update(_todo(ws))  # the switch stays as the last prompt read it from the config
     note["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     _write(ws, note)
     return True

@@ -883,6 +883,116 @@ class OutletTest(unittest.TestCase):
                 self.assertIn("还没有算过", notes(state)[0]["always"], "the note does not outlive the summary it quoted")
 
 
+HOOKUP_LEDGER = """# 主张清单
+阶段：分析
+
+## 主张 C1 合成读数是 12
+- 证据：表 1
+- 强度：强
+- 允许的说法：合成读数
+
+## 待做 N2 合成待做乙
+- 类型：分析
+- 改变：C1
+- 状态：未做
+
+## 待做 N1 合成待做甲
+- 类型：出处
+- 改变：C1
+- 状态：等作者（合成理由）
+
+## 待做 N3 合成待做丙
+- 类型：分析
+- 改变：C1
+- 状态：已做 2026-01-02 合成记录
+"""
+
+
+class OutletTodoTest(unittest.TestCase):
+    """The note carries the manuscript's to-do items and a per-workspace switch, for wishing-willow to match its list
+    against (spec 2026-10-04 manuscript-todo-hookup, D1 and D4)."""
+
+    def _ledger(self, root, ws, text=HOOKUP_LEDGER, **extra):
+        p = Path(root) / "claims.md"
+        p.write_text(text, encoding="utf-8")
+        cfg = C.load(ws)
+        cfg["claims"] = str(p)
+        cfg.update(extra)
+        C.save(ws, cfg)
+        regs, _bad = LH.registry(str(Path(root) / "registry"))  # the registry holds each workspace's config as read
+        return p, regs
+
+    def test_the_note_carries_open_and_closed_items_in_ledger_order(self):
+        from unittest import mock
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            _p, regs = self._ledger(root, ws)
+            env, state = willow_outlet(root)
+            with mock.patch.dict(os.environ, env):
+                LH.handle(prompt_payload(repo, prompt_id="p1"), regs)
+            [n] = notes(state)
+            self.assertEqual(n["todo"], [
+                {"id": "N2", "title": "合成待做乙", "state": "未做", "closed": False},
+                {"id": "N1", "title": "合成待做甲", "state": "等作者", "closed": False},
+                {"id": "N3", "title": "合成待做丙", "state": "已做", "closed": True}],
+                "closed items too: willow must tell closed from not there")
+            self.assertNotIn("todo_why", n)
+            self.assertIs(n["hookup"], False, "off unless the workspace config turns it on")
+
+    def test_without_a_ledger_todo_is_null_with_a_reason_never_an_empty_list(self):
+        from unittest import mock
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            env, state = willow_outlet(root)
+            with mock.patch.dict(os.environ, env):
+                LH.handle(prompt_payload(repo, prompt_id="p1"), regs)
+            [n] = notes(state)
+            self.assertIsNone(n["todo"], "[] would read as every item closed")
+            self.assertIn("没登记主张清单", n["todo_why"])
+
+    def test_an_unreadable_ledger_or_a_state_that_cannot_be_computed_is_null_with_a_reason(self):
+        from unittest import mock
+        from loop import state as S
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            p, regs = self._ledger(root, ws)
+            p.unlink()
+            env, state = willow_outlet(root)
+            with mock.patch.dict(os.environ, env):
+                LH.handle(prompt_payload(repo, prompt_id="p1"), regs)
+                [n] = notes(state)
+                self.assertIsNone(n["todo"])
+                self.assertIn("读不到", n["todo_why"])
+                _p, regs = self._ledger(root, ws)
+                with mock.patch.object(S, "compute", side_effect=RuntimeError("boom")):
+                    LH.handle(prompt_payload(repo, prompt_id="p2"), regs)
+                [n] = notes(state)
+                self.assertIsNone(n["todo"])
+                self.assertIn("算不出", n["todo_why"])
+
+    def test_the_switch_follows_the_config_and_a_refresh_keeps_it_but_rereads_the_items(self):
+        from unittest import mock
+        from loop import coverage as V
+        with TempDir() as root:
+            repo, ws, regs = setup(root)
+            p, regs = self._ledger(root, ws, hookup=True)
+            env, state = willow_outlet(root)
+            with mock.patch.dict(os.environ, env):
+                LH.handle(prompt_payload(repo, prompt_id="p1"), regs)
+                self.assertIs(notes(state)[0]["hookup"], True)
+                p.write_text(HOOKUP_LEDGER.replace("状态：未做", "状态：已做 2026-01-03 合成记录"), encoding="utf-8")
+                V.refresh_outlet(ws, C.load(ws))
+                [n] = notes(state)
+                self.assertIs(n["hookup"], True, "a refresh keeps the switch the last prompt read")
+                self.assertTrue(next(t for t in n["todo"] if t["id"] == "N2")["closed"], "and rereads the items")
+                cfg = C.load(ws)
+                cfg.pop("hookup")
+                C.save(ws, cfg)
+                regs, _bad = LH.registry(str(Path(root) / "registry"))
+                LH.handle(prompt_payload(repo, prompt_id="p2"), regs)
+                self.assertIs(notes(state)[0]["hookup"], False, "taking it out of the config turns it off next prompt")
+
+
 class StateChangeTest(unittest.TestCase):
     """A change in the paper's state is said once, apart from the per-turn line. The line reads the same every turn,
     so a blocker that appeared in it was repeated for a day and never read (09-28: the state had said since one
