@@ -104,4 +104,4 @@ Three remarks:
 - Q2 Batch size. Default: three, because the author's attention is the scarce part.
 - Q3 The cross-reference check is on for every LaTeX workspace, needing no configuration. On the measured manuscript it
   would show its 7 hits in the first run after the toolkit is updated. Default: on, because all 7 are true and the
-  check is cheap. Making it opt-in is one line in the catalogue.
+  check is cheap. Making it opt-in is one line in the catalogue. **Decided 2026-10-05 by the author: on by default.**
