@@ -74,8 +74,13 @@ CLEAN = """阶段：终检
 """
 
 
-def setup(root, ledger=LEDGER, main=MAIN):
-    repo = make_repo(root, [({"main.tex": main, "sections/01_intro.tex": INTRO}, "v1", 1_700_000_000)])
+def capped(text):
+    """CLEAN with a 至多 line on its claim C1."""
+    return CLEAN.replace("- 越界：three bridges", "- 越界：three bridges\n- 至多：" + text)
+
+
+def setup(root, ledger=LEDGER, main=MAIN, intro=INTRO):
+    repo = make_repo(root, [({"main.tex": main, "sections/01_intro.tex": intro}, "v1", 1_700_000_000)])
     ws = workspace(root, repo, "main", glob=["main.tex", "sections/01_intro.tex"])
     cfg = C.load(ws)
     cfg["draft"]["format"] = "latex"
@@ -281,6 +286,48 @@ class StateTest(unittest.TestCase):
             ws, cfg = setup(root, LEDGER.replace(c1, c1 + "\n- 限定词：gauges?"))
             st = S.compute(cfg, ws)
             self.assertTrue(any("写了限定词没写承载" in p for p in st["problems"]), st["problems"])
+
+    def test_a_wording_said_more_often_than_the_ledger_allows_is_said(self):
+        # probe-growth #4: one limitation restated in six sentences of the draft, each worded differently; every check
+        # passed, because a ledger could require a wording or forbid it but not cap how often it is said.
+        main = MAIN.replace("The gauges prove that every bridge is safe.", "Drivers were not asked.")
+        intro = INTRO.replace("Inspections are rare.", "Inspections are rare. No driver was surveyed. Whether drivers "
+                                                       "notice is left untested.")
+        cap = CLEAN.replace("- 越界：three bridges", "- 越界：three bridges\n- 至多：drivers? were not asked ‖ "
+                                                     "do not test whether drivers ‖ no driver was surveyed ‖ drivers notice @ 2")
+        with TempDir() as root:
+            ws, cfg = setup(root, cap, main=main, intro=intro)
+            st = S.compute(cfg, ws)
+            [r] = [x for x in st["at_most"] if len(x["labels"]) > x["limit"]]
+            self.assertEqual((r["claim"], r["limit"], [lab[0] for lab in r["labels"]]), ("C1", 2, ["A", "I", "I", "I"]))
+            self.assertEqual(st["verdict"], S.NOT_READY)
+            self.assertIn("说太多遍 C1", S.line(st))
+            self.assertIn("至多 2 句，现有 4 句", S.table(st))
+        with TempDir() as root:  # the corrected twin: said twice, once where it is first raised and once in the abstract
+            ws, cfg = setup(root, cap, main=main, intro=INTRO)
+            st = S.compute(cfg, ws)
+            self.assertEqual([len(x["labels"]) for x in st["at_most"]], [2])
+            self.assertEqual(st["verdict"], S.AUTHOR)
+            self.assertIn("至多 2 句，现有 2 句", S.table(st), "a cap that holds is said, not left silent")
+
+    def test_a_sentence_is_counted_once_and_a_cap_can_hold_in_named_places(self):
+        intro = INTRO.replace("Inspections are rare.", "No driver was surveyed, so we do not test whether drivers notice.")
+        with TempDir() as root:
+            ws, cfg = setup(root, capped("do not test whether drivers ‖ no driver was surveyed @ 1 I2"), intro=intro)
+            st = S.compute(cfg, ws)
+            self.assertEqual([x["labels"] for x in st["at_most"]], [["I2.1"]])
+            self.assertEqual(st["verdict"], S.AUTHOR, "the first paragraph's mention lies outside I2")
+        with TempDir() as root:
+            ws, cfg = setup(root, capped("do not test whether drivers ‖ no driver was surveyed @ 1 I"), intro=intro)
+            self.assertEqual(S.compute(cfg, ws)["verdict"], S.NOT_READY)
+
+    def test_a_cap_without_a_number_is_a_ledger_problem(self):
+        for cap in ("drivers? notice", "drivers? notice @ two", "drivers? notice @ I1"):
+            with self.subTest(cap=cap), TempDir() as root:
+                ws, cfg = setup(root, capped(cap))
+                st = S.compute(cfg, ws)
+                self.assertTrue(any("至多要写成" in p for p in st["problems"]), st["problems"])
+                self.assertEqual(st["verdict"], S.NOT_READY)
 
     def test_quantifiers_are_read_in_english_and_chinese(self):
         self.assertEqual(S._quantified("We read all of the five gauges."), [("all of the five gauges", "five gauges")])

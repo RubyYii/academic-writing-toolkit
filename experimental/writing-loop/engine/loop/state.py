@@ -6,7 +6,8 @@ coverage then reads as "nothing is wrong". This module reads the workspace's cla
 and says, every turn and ahead of coverage:
 
 - the verdict. 未就绪 while any claim is weak or unestablished, any sentence of the whole draft says a claim more
-  strongly than the ledger allows, a wording the ledger requires is absent, the ledger cannot be read, any work
+  strongly than the ledger allows, a wording the ledger requires is absent or said more often than it allows, the
+  ledger cannot be read, any work
   item is open, or a step of the intent card's story page has no author's approval on record. 已投稿 once the stage
   names a submission, with whatever still stands in the way listed for the revision. Otherwise 待作者终审: there is no green, because whether the paper is ready is the author's call.
 - the stage the ledger names, and the next open work items in the ledger's own order. A work item can be an
@@ -23,6 +24,8 @@ The ledger is Markdown, like the risk register:
     - 越界：<regex> ‖ <regex>        no sentence of the draft may match (case-insensitive)
     - 必须出现：<regex> ‖ <regex>    each must match at least one sentence
     - 必须出现：<regex> @ A, I1      ... in each named place (a label prefix: A the abstract, I1 its first paragraph)
+    - 至多：<regex> ‖ <regex> @ 2    at most 2 sentences of the draft may match any of them (one cap per claim)
+    - 至多：<regex> @ 1 A, I1        ... counted over the named places together
     - 承载：<regex> ‖ <regex>        the sentences that state the claim, listed for a grill whether changed or not
     - 限定词：<regex> ‖ <regex>      each must match every sentence 承载 finds: the allowed wording's qualifiers
     - 依据：<test or run>            required when the claim is a universal negation (no / none / never / 没有 ...)
@@ -53,7 +56,7 @@ import re
 from pathlib import Path
 
 HEAD = re.compile(r"^##\s+(主张|待做|集合)\s+(\S+)\s+(.+?)\s*$", re.M)
-FIELD = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?(证据|强度|允许的说法|越界|必须出现|承载|限定词|依据|缺|类型|改变|状态|名词|定义|大小|集合外|节|讲法)(?:\*\*)?\s*[:：]\s*"
+FIELD = re.compile(r"^\s*(?:[-*]\s*)?(?:\*\*)?(证据|强度|允许的说法|越界|必须出现|至多|承载|限定词|依据|缺|类型|改变|状态|名词|定义|大小|集合外|节|讲法)(?:\*\*)?\s*[:：]\s*"
                    r"(?:\*\*)?\s*(.*?)\s*$", re.M)
 STAGE = re.compile(r"^\s*(?:\*\*)?阶段(?:\*\*)?\s*[:：]\s*(.+?)\s*$", re.M)
 SCOPE_AT = re.compile(r"^\s*(?:\*\*)?全称量词查(?:\*\*)?\s*[:：]\s*(.+?)\s*$", re.M)
@@ -135,6 +138,19 @@ def _must(text, where, problems):
     return pats, ({raw: places for raw, _ in pats} if places else {})
 
 
+def _at_most(text, where, problems):
+    """A cap on how often the draft says something: {patterns, limit, places}, or None when there is none."""
+    if not text:
+        return None
+    parts = PLACE_SEP.split(text, maxsplit=1)
+    rest = _ids(parts[1]) if len(parts) > 1 else []
+    if not rest or not rest[0].isdecimal():
+        problems.append(f"{where} 的至多要写成「<说法> ‖ <说法> @ N」或「… @ N A, I1」，N 是句数：{text[:30]}")
+        return None
+    pats = _patterns(parts[0], where, problems)
+    return {"patterns": pats, "limit": int(rest[0]), "places": rest[1:]} if pats else None
+
+
 def parse(raw):
     """(stage, claims, todo, problems) from the ledger's text. Items quoted in a fenced block are examples."""
     d = read_ledger(raw)
@@ -185,7 +201,8 @@ def read_ledger(raw):
             claims.append({"id": iid, "title": title, "strength": strength if strength in STRENGTHS else "",
                            "evidence": fields.get("证据", ""), "allowed": fields.get("允许的说法", ""),
                            "over": _patterns(fields.get("越界"), where, problems),
-                           "must": must, "places": places, "carry": _patterns(fields.get("承载"), where, problems),
+                           "must": must, "places": places, "at_most": _at_most(fields.get("至多"), where, problems),
+                           "carry": _patterns(fields.get("承载"), where, problems),
                            "qualify": _patterns(fields.get("限定词"), where, problems),
                            "basis": fields.get("依据", ""), "needs": _ids(fields.get("缺"))})
             if claims[-1]["qualify"] and not fields.get("承载"):
@@ -314,6 +331,23 @@ def scan(claims, sentences, extra=()):
                 if not any(rx.search(s.get("text") or "") for s in sentences if in_place(s.get("label"), place)):
                     absent.append({"claim": c["id"], "pattern": raw, "place": place})
     return over, absent
+
+
+def said(claims, sentences):
+    """How often each capped wording is said (probe-growth #4: one limitation restated in six sentences, each worded
+    differently, and a ledger could require a wording or forbid it but not cap it). Counts sentences of the draft, not
+    matches: a sentence that says it twice counts once. Supplement and figure sources are not counted. Only the
+    wordings listed are seen; a seventh paraphrase the ledger does not name is not."""
+    out = []
+    for c in claims:
+        m = c.get("at_most")
+        if not m:
+            continue
+        labels = [_label(s) for s in sentences
+                  if (not m["places"] or any(in_place(s.get("label"), p) for p in m["places"]))
+                  and any(rx.search(s.get("text") or "") for _, rx in m["patterns"])]
+        out.append({"claim": c["id"], "limit": m["limit"], "places": m["places"], "labels": labels})
+    return out
 
 
 def question(claims, sentences, extra=()):
@@ -480,6 +514,9 @@ def judge(st):
         blockers.append(f"越界 {len(labels)} 句")
     if st["absent"]:
         blockers.append("缺该有的说法 " + "、".join(sorted({a["claim"] for a in st["absent"]})))
+    too_many = sorted({x["claim"] for x in st.get("at_most") or [] if len(x["labels"]) > x["limit"]})
+    if too_many:
+        blockers.append("说太多遍 " + "、".join(too_many))
     if st.get("unqualified"):
         blockers.append("承载句缺限定词 " + "、".join(sorted({u["claim"] for u in st["unqualified"]})))
     if st.get("unscoped"):
@@ -513,7 +550,7 @@ def compute(cfg, ws):
     st = {"configured": True, "path": str(p), "stage": "", "claims": [], "todo": [], "problems": [], "over": [],
           "absent": [], "index_head": None, "scan_problems": [], "carrying": {}, "negations": [], "warnings": [],
           "closing": [], "remaining": [], "gates_open": [], "gates_wanted": [], "questioned": False, "sets": [],
-          "scope_at": [], "unqualified": [], "unscoped": [], "early": [], "undefined": [], "outside": []}
+          "scope_at": [], "unqualified": [], "at_most": [], "unscoped": [], "early": [], "undefined": [], "outside": []}
     try:
         raw = p.read_text(encoding="utf-8")
     except OSError:
@@ -532,6 +569,7 @@ def compute(cfg, ws):
         st["over"], st["absent"] = scan(st["claims"], sentences, extra)
         st.update(question(st["claims"], sentences, extra))
         st["unqualified"] = qualify(st["claims"], sentences)
+        st["at_most"] = said(st["claims"], sentences)
         st.update(scope(d["sets"], d["scope_at"], d["scope_skip"], sentences, extra))
         st["questioned"] = True
     st["gates_open"] = gates(cfg, st)
@@ -681,6 +719,10 @@ def table(st):
         for a in (x for x in st["absent"] if x["claim"] == c["id"]):
             out.append(f"      缺「{a['pattern']}」@ {a['place']}：这一处没有" if a.get("place")
                        else f"      缺「{a['pattern']}」：整篇没有一句")
+        for x in (y for y in st.get("at_most") or [] if y["claim"] == c["id"]):
+            where = f"（{'、'.join(x['places'])}）" if x["places"] else ""
+            out.append(f"      至多 {x['limit']} 句{where}，现有 {len(x['labels'])} 句：{'、'.join(x['labels']) or '—'}"
+                       + ("——说太多遍：删到上限，或读过后改上限" if len(x["labels"]) > x["limit"] else ""))
         if c["id"] in (st.get("carrying") or {}):
             out.append(f"      承载句：{'、'.join(st['carrying'][c['id']]) or '一句也没有'}")
         for u in (x for x in st.get("unqualified") or [] if x["claim"] == c["id"]):

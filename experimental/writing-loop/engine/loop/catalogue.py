@@ -307,6 +307,15 @@ def _sentence_outside(cfg):
     return _venue_outside(cfg) + [str(accepted_rewrites_path(cfg))] + claim_ledgers(cfg)
 
 
+def _citation_style(cfg):
+    """--style for reconcile-cites when the workspace names the citation style the submitted version prints
+    (target.citation_style: author-year or numeric). A build that rewrites the class or the bibliography style for
+    the venue leaves the source saying one style and the submission printing another; without the setting the
+    script reads the style from the source."""
+    style = get(cfg, "target.citation_style")
+    return ["--style", style] if style else []
+
+
 def spelling_mode(cfg):
     """consistent (either convention, never a mixture) for a journal or a conference, british otherwise, unless the
     workspace names one in target.spelling."""
@@ -502,8 +511,24 @@ CHECKS = [
      "formats": ["latex"], "instead": {"markdown": "citation-style"}, "tree": True,
      "scope": {"kind": "cite"}, "needs": ["inputs.bib"], "also": True,
      "inputs": _bib, "outside": _no_outside,
+     "config_keys": ["target.citation_style"],
      "argv": lambda ctx: _py(ctx, "verify-refs/reconcile-cites.py") + ["--bib", ctx["inputs"]["bib"], "--root", ".",
-                                                                       "--json"] + ctx["drafts"]},
+                                                                       "--json"] + _citation_style(ctx["cfg"])
+                         + ctx["drafts"]},
+    # A \label on a heading with no number prints the number of the section around it wherever \ref uses it
+    # (spec 2026-10-05-probe-growth, batch 1). Follows \input like cite-bib.
+    {"id": "cross-refs", "name": "交叉引用编号", "kind": "script", "scripts": ["audit/audit-cross-refs.py"],
+     "formats": ["latex"], "instead": {}, "tree": True,
+     "scope": {"kind": "all"}, "needs": [],
+     "inputs": _none, "outside": _no_outside,
+     "argv": lambda ctx: _py(ctx, "audit/audit-cross-refs.py") + ["--root", ".", "--json"] + ctx["drafts"]},
+    # The title's words the abstract lost, and a name the draft coins that the abstract uses before saying what it is
+    # (spec 2026-10-05-probe-growth, batch 2). Follows \input like cross-refs.
+    {"id": "front-matter", "name": "标题与摘要", "kind": "script", "scripts": ["audit/audit-front-matter.py"],
+     "formats": ["latex"], "instead": {}, "tree": True,
+     "scope": {"kind": "all"}, "needs": [],
+     "inputs": _none, "outside": _no_outside,
+     "argv": lambda ctx: _py(ctx, "audit/audit-front-matter.py") + ["--root", ".", "--json"] + ctx["drafts"]},
     {"id": "readers", "name": "读者组", "kind": "panel",
      "scripts": ["readers/build-reader-packet.py", "readers/check-reader-output.py", "readers/tally-readers.py"],
      "formats": ["latex", "markdown"], "instead": {},

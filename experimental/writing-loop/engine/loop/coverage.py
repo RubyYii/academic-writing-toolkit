@@ -416,6 +416,10 @@ def interpret(check_id, code, stdout, stderr):
                 summary += f"；比例与别处对不上 {compared['count_elsewhere']}"
             if compared.get("duplicates_elsewhere"):
                 summary += f"；与别处一字不差 {compared['duplicates_elsewhere']}"
+            if compared.get("repeats_elsewhere"):
+                summary += f"；与别处几乎一样 {compared['repeats_elsewhere']}"
+            if compared.get("multiple_without_count"):
+                summary += f"；倍数旁没有命中数 {compared['multiple_without_count']}"
         elif "total" in data and "unit" in data and isinstance(data.get("chapters"), list):
             summary = f"{data['total']} 词（{len(data['chapters'])} 个文件）"
         elif "hard_finding_count" in data:
