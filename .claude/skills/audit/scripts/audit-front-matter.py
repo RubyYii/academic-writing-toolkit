@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What the title and the abstract leave a reader to guess.
 
-    python3 audit-front-matter.py [--root DIR] [--json] FILE...
+    python3 audit-front-matter.py [--root DIR] [--venue-corpus DIR] [--json] FILE...
 
 Reads each FILE and every file it pulls in with \\input, \\include or \\subfile (relative to --root, ".tex" added when
 missing), finds \\title (the full title, not the short form in [...]) and the abstract (\\begin{abstract} ...
@@ -23,6 +23,16 @@ missing), finds \\title (the full title, not the short form in [...]) and the ab
   abstract's first use of the benchmark's name was of that form, inside a sentence about its first evaluation, and
   the definition had been cut to fit the word limit.
 
+It also counts the abstract's words (abstract_words). With --venue-corpus, the abstracts of the venue's papers are read
+from that directory (.pdf through pdftotext, .txt and .md as they are, .tex from its abstract environment): the text
+between a line that starts with "Abstract" and the first numbered section heading ("1 Introduction", "1. INTRODUCTION",
+"I. INTRODUCTION", or a "1" on its own line before "Introduction"), cut short at a Keywords, Index Terms, CCS Concepts
+or ACM Reference Format line. A file with no such heading, no numbered section after it, or a stretch outside
+30-600 words is skipped and listed with the reason. With at least 5 abstracts read, the report gives the draft's
+percentile among them (the share of venue abstracts shorter, ties counted half), and above the 75th percentile adds:
+
+- abstract-longer-than-venue (low): a hint that the abstract is longer than most of the venue's, worth a look.
+
 A draft with no \\title or no abstract is not an issue: the report says which it did not find (abstract_found,
 title_found) and checks nothing that needs it.
 
@@ -31,6 +41,9 @@ Exit: 0 no issue; 1 at least one; 2 nothing read (no FILE could be read).
 import argparse
 import json
 import re
+import shutil
+import statistics
+import subprocess
 import sys
 import unicodedata
 from pathlib import Path
@@ -69,6 +82,82 @@ DEFINITE = {"our", "the", "its", "their", "this", "these", "those", "that", "his
 AFTER_MADE = r"(?=\s*(?:[,.;:()]|$|(?:and|or|to|which|that|for|with|in|on|as|of|from|by|at|is|was|are|were)\b))"
 ABBREV = re.compile(r"\b(e\.g|i\.e|et al|cf|vs|Fig|Figs|Eq|Eqs|Sec|Secs|No|approx|resp|ca)\.", re.I)
 SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"'`])")
+
+
+# a venue paper's abstract: from a line that starts with "Abstract" to the first numbered section heading
+ABSTRACT_HEAD = re.compile(r"(?im)^[ \t#]*abstract\b[ \t]*[.:\u2014\u2013-]?[ \t]*")
+SECTION_ONE = re.compile(r"(?m)^[ \t#]*(?:1\.?|I\.)(?:[ \t]+[A-Z][A-Za-z]|[ \t]*\n[ \t#]*(?i:introduction)\b)")
+ABSTRACT_STOP = re.compile(r"(?im)^[ \t#]*(?:keywords|key words|index terms|ccs concepts|acm reference format)\b")
+VENUE_SUFFIXES = {".pdf", ".txt", ".md", ".tex"}
+ABSTRACT_WORDS = (30, 600)  # a stretch outside this is not an abstract that was read right
+MIN_VENUE = 5  # fewer abstracts than this give no percentile
+LONG_AT = 75  # above this percentile the abstract is longer than most of the venue's
+
+
+def word_count(text):
+    """Words of plain text: whitespace-separated tokens holding a letter or a digit. The draft's abstract and the
+    venue's are counted by this one rule."""
+    return sum(1 for w in text.split() if re.search(r"[A-Za-z0-9]", w))
+
+
+def venue_abstract(path):
+    """(word count, None) for a venue paper's abstract, or (None, why it was skipped)."""
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        if not shutil.which("pdftotext"):
+            return None, "pdftotext not on PATH"
+        try:
+            text = subprocess.run(["pdftotext", "-q", str(path), "-"], capture_output=True, text=True,
+                                  timeout=120).stdout
+        except (OSError, subprocess.SubprocessError) as e:
+            return None, f"pdftotext failed: {type(e).__name__}"
+        text = re.sub(r"-\n", "", text or "")
+    else:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            return None, f"unreadable: {e.strerror or e}"
+    if suffix == ".tex":
+        m = ABSTRACT.search(COMMENT.sub("", text))
+        if not m:
+            return None, "no abstract environment"
+        body = plain(m.group(1))
+    else:
+        head = ABSTRACT_HEAD.search(text)
+        if not head:
+            return None, "no Abstract heading"
+        end = SECTION_ONE.search(text, head.end())
+        if not end:
+            return None, "no numbered section heading after Abstract"
+        stop = ABSTRACT_STOP.search(text, head.end(), end.start())
+        body = text[head.end():stop.start() if stop else end.start()]
+    n = word_count(body)
+    if not ABSTRACT_WORDS[0] <= n <= ABSTRACT_WORDS[1]:
+        return None, f"{n} words between the headings, not read as an abstract"
+    return n, None
+
+
+def venue_abstracts(corpus, draft_words):
+    """What the venue corpus says about the draft abstract's length."""
+    d = Path(corpus).expanduser()
+    files = sorted(p for p in d.rglob("*") if p.is_file() and p.suffix.lower() in VENUE_SUFFIXES) if d.is_dir() else []
+    parsed, skipped = {}, []
+    for p in files:
+        n, why = venue_abstract(p)
+        if n is None:
+            skipped.append({"file": str(p.relative_to(d)), "reason": why})
+        else:
+            parsed[str(p.relative_to(d))] = n
+    counts = sorted(parsed.values())
+    out = {"dir": str(d), "found": d.is_dir(), "files": len(files), "parsed": len(counts), "parsed_files": parsed,
+           "skipped": skipped, "median": None, "p75": None, "percentile": None}
+    if len(counts) >= MIN_VENUE:
+        below = sum(1 for c in counts if c < draft_words)
+        equal = sum(1 for c in counts if c == draft_words)
+        out["median"] = statistics.median(counts)
+        out["p75"] = statistics.quantiles(counts, n=4, method="inclusive")[2]
+        out["percentile"] = int(round(100 * (below + 0.5 * equal) / len(counts)))
+    return out
 
 
 def read_tree(files, root):
@@ -212,7 +301,27 @@ def line_of(text, pos):
     return text.count("\n", 0, pos) + 1
 
 
-def summary_zh(title_found, abstract_found, issues, coined):
+def _num(x):
+    return f"{x:g}" if isinstance(x, float) else str(x)
+
+
+def length_zh(words, venue):
+    """The abstract-length part of the loop's line."""
+    if words is None:
+        return None
+    out = f"摘要 {words} 词"
+    if venue is None:
+        return out
+    if not venue["found"]:
+        return out + f"，刊物语料目录不存在（{venue['dir']}）"
+    if venue["percentile"] is None:
+        return out + f"，刊物摘要只读出 {venue['parsed']} 篇（跳过 {len(venue['skipped'])}），不给百分位"
+    return (out + f"，在刊物 {venue['parsed']} 篇摘要里第 {venue['percentile']} 百分位（中位 {_num(venue['median'])}"
+            + (f"，跳过 {len(venue['skipped'])} 篇" if venue["skipped"] else "") + "）"
+            + ("，偏长" if venue["percentile"] > LONG_AT else ""))
+
+
+def summary_zh(title_found, abstract_found, issues, coined, length=None):
     """The loop's one line for this check."""
     if not abstract_found:
         return "没找到标题和摘要，没查" if not title_found else "没找到摘要，没查"
@@ -226,6 +335,8 @@ def summary_zh(title_found, abstract_found, issues, coined):
         parts.append(f"自造名首现没说是什么 {len(odd)}（{'、'.join(odd)}）")
     else:
         parts.append(f"自造名 {len(coined)} 个首现都说了是什么" if coined else "摘要里没有自造名")
+    if length:
+        parts.append(length)
     return "；".join(parts)
 
 
@@ -233,6 +344,8 @@ def main():
     ap = argparse.ArgumentParser(description="Title words the abstract lost; coined names it uses before saying what "
                                              "they are.")
     ap.add_argument("--root", default=".")
+    ap.add_argument("--venue-corpus", help="the venue's papers (.pdf, .txt, .md, .tex): the abstract's length is placed "
+                                           "among theirs")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("files", nargs="+")
     a = ap.parse_args()
@@ -282,8 +395,20 @@ def main():
                            "sentence": first, "location": abstract_at,
                            "message": f"The abstract first uses {name} without saying what it is or that we made "
                                       "it; a reader meets the name before its meaning."})
-    payload = {"schema_version": 1, "summary_zh": summary_zh(title is not None, abstract is not None, issues, coined),
+    n_words = word_count(plain(abstract)) if abstract is not None else None
+    venue = venue_abstracts(a.venue_corpus, n_words) if a.venue_corpus and n_words is not None else None
+    if venue and venue["percentile"] is not None and venue["percentile"] > LONG_AT:
+        issues.append({"kind": "abstract-longer-than-venue", "severity": "low", "words": n_words,
+                       "percentile": venue["percentile"], "location": abstract_at,
+                       "message": f"The abstract has {n_words} words, longer than about {venue['percentile']}% of the "
+                                  f"{venue['parsed']} venue abstracts read (median {_num(venue['median'])}, 75th "
+                                  f"percentile {_num(venue['p75'])}). Worth a look: does the reader need every "
+                                  "sentence before the introduction?"})
+    payload = {"schema_version": 1,
+               "summary_zh": summary_zh(title is not None, abstract is not None, issues, coined,
+                                        length_zh(n_words, venue)),
                "title_found": title is not None, "abstract_found": abstract is not None,
+               "abstract_words": n_words, "venue_abstracts": venue,
                "title_words": words, "coined_names": coined, "files_read": [str(p) for p, _ in files],
                "unresolved_inputs": sorted(set(unresolved)), "issues": issues, "issue_count": len(issues)}
     if a.json:
@@ -292,7 +417,10 @@ def main():
         for i in issues:
             print(f"{i['location']}: {i['kind']}: {i.get('word') or i.get('name')}")
         print(f"read {len(files)} file(s); title {'found' if title is not None else 'not found'}, abstract "
-              f"{'found' if abstract is not None else 'not found'}; {len(issues)} issue(s)")
+              f"{'found' if abstract is not None else 'not found'}"
+              + (f" ({n_words} words)" if n_words is not None else "")
+              + (f", venue percentile {venue['percentile']} of {venue['parsed']} read, {len(venue['skipped'])} skipped"
+                 if venue else "") + f"; {len(issues)} issue(s)")
     return 1 if issues else 0
 
 

@@ -1219,6 +1219,25 @@ MUTATIONS = [
      'test_cite_names.MacroDefinitionTest.test_definitions_are_skipped_and_a_real_missing_key_is_still_reported'),
     ('strategic', 'skill:verify-refs/scripts/reconcile-cites.py', 'for k in sorted(bib - set(first) - set(in_defs))]', 'for k in sorted(bib - set(first))]',
      'test_cite_names.MacroDefinitionTest.test_a_key_written_in_a_definition_counts_as_cited'),
+    # 摘要长度对照刊物：没有语料只报词数；有语料报百分位，跳过的文件列出原因，超过第 75 百分位给一条提示
+    ('strategic', 'skill:audit/scripts/audit-front-matter.py', '    if venue and venue["percentile"] is not None and venue["percentile"] > LONG_AT:', '    if False:',
+     'test_front_matter.AbstractLengthTest.test_the_percentile_among_venue_abstracts_and_what_was_skipped'),
+    ('strategic', 'skill:audit/scripts/audit-front-matter.py', 'LONG_AT = 75  #', 'LONG_AT = 40  #',
+     'test_front_matter.AbstractLengthTest.test_at_or_below_the_75th_percentile_there_is_no_finding'),
+    ('strategic', 'skill:audit/scripts/audit-front-matter.py', '    if len(counts) >= MIN_VENUE:', '    if counts:',
+     'test_front_matter.AbstractLengthTest.test_too_few_venue_abstracts_give_no_percentile'),
+    ('strategic', 'skill:audit/scripts/audit-front-matter.py', '        end = SECTION_ONE.search(text, head.end())\n', '        end = SECTION_ONE.search(text, head.end()) or re.compile(r"\\Z").search(text)\n',
+     'test_front_matter.AbstractLengthTest.test_the_percentile_among_venue_abstracts_and_what_was_skipped'),
+    ('strategic', 'skill:audit/scripts/audit-front-matter.py', '        stop = ABSTRACT_STOP.search(text, head.end(), end.start())', '        stop = None',
+     'test_front_matter.AbstractLengthTest.test_the_percentile_among_venue_abstracts_and_what_was_skipped'),
+    ('strategic', 'skill:audit/scripts/audit-front-matter.py', '(below + 0.5 * equal)', '(below + equal)',
+     'test_front_matter.AbstractLengthTest.test_at_or_below_the_75th_percentile_there_is_no_finding'),
+    ('strategic', 'skill:audit/scripts/audit-front-matter.py', '    if length:\n        parts.append(length)\n', '',
+     'test_front_matter.AbstractLengthTest.test_with_no_corpus_the_count_alone_is_reported'),
+    ('strategic', 'catalogue.py', '            + (["--venue-corpus", str(Path(corpus).expanduser())] if corpus else []) + ctx["drafts"])', '            + ctx["drafts"])',
+     'test_front_matter.AbstractLengthTest.test_the_loop_passes_the_venue_corpus_when_it_is_set'),
+    ('strategic', 'catalogue.py', '"outside": _venue_outside, "argv": _front_matter_argv}', '"outside": _no_outside, "argv": _front_matter_argv}',
+     'test_front_matter.AbstractLengthTest.test_the_loop_passes_the_venue_corpus_when_it_is_set'),
 ]
 
 
