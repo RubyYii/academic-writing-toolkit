@@ -385,6 +385,25 @@ class RingExportTest(unittest.TestCase):
         self.assertLessEqual(L.width(long["pill"]["title"]), L.RING_PILL_MAX, long["pill"])
         self.assertTrue(long["pill"]["title"].endswith("· 等你 3"), "the name is cut, the count never is")
 
+    def test_drafts_that_differ_only_at_the_end_stay_apart_on_the_pill(self):
+        # 2026-10-07: two versions of one draft both read 「draft… · 等你 3」 -- cutting the end took the only part that differed.
+        pills = [only(L.build(summary(name=n), now=NOW, coverage=RING_COV))["pill"]["title"] for n in ("draft-v8", "draft-v9")]
+        self.assertNotEqual(pills[0], pills[1], pills)
+        for p, v in zip(pills, ("v8", "v9")):
+            self.assertIn(v, p)
+            self.assertTrue(p.endswith("· 等你 3"), p)
+            self.assertLessEqual(L.width(p), L.RING_PILL_MAX, p)
+
+    def test_the_name_is_cut_in_the_middle_and_never_overflows(self):
+        self.assertEqual(L._fit_keep_end("draft-v8", 3), "dra…v8")
+        self.assertEqual(L._fit_keep_end("notes", 3), "notes")
+        for name in ("draft-v8", "chapter-three-v9", "a-rather-long-draft-name", "nodashesatallhere", "稿件第二版-终稿", "x-"):
+            for w in (1.5, 2, 2.5, 3, 4.5, 7.5):
+                got = L._fit_keep_end(name, w)
+                self.assertLessEqual(L.width(got), w, (name, w, got))
+                self.assertEqual(got == name, L.width(name) <= w, (name, w, got))
+                self.assertFalse(got.startswith("…"), ("the start of the name is kept too", name, w, got))
+
     def test_alerts_keep_their_own_pill(self):
         s = with_change(traced=False); s["latest_changeset"]["messages_in_window"] = 3
         self.assertEqual(self.build(s)["pill"]["title"], "15 △")

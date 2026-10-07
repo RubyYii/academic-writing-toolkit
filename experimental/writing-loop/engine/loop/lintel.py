@@ -137,6 +137,30 @@ def _fit(text, w):
     return out.rstrip() + "…"
 
 
+def _fit_keep_end(text, w):
+    """Cut to a display width of w CJK units in the middle, keeping the end. Draft names often differ only at the end
+    (draft-v8 / draft-v9); cutting the end made two drafts read the same on the pill (2026-10-07). The end kept is the
+    last segment after a separator when a head still fits beside it, else about half the room."""
+    text = (text or "").replace("\n", " ").strip()
+    if width(text) <= w:
+        return text
+    room = w - width("…")
+    cut = max(text.rfind(c) for c in "-_. ")
+    tail = text[cut + 1:] if cut >= 0 else ""
+    if not tail or width(tail) > room - width(text[0]):
+        tail = ""
+        for ch in reversed(text):
+            if width(ch + tail) > room / 2:
+                break
+            tail = ch + tail
+    head = ""
+    for ch in text:
+        if width(head + ch) > room - width(tail):
+            break
+        head += ch
+    return head.rstrip() + "…" + tail.lstrip()
+
+
 def _sha(text):
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
@@ -722,7 +746,7 @@ def build(summary, *, now, problems=(), notices=(), overview=None, coverage=NOT_
         # 警报（跑挂了、无出处、在跑的跑表）照旧用自己的胶囊。
         n_wait = ring["waiting"]
         tail = f" · 等你 {n_wait}" if n_wait else ""
-        pill, tone = _fit(ws, RING_PILL_MAX - width(tail)) + tail, "white"
+        pill, tone = _fit_keep_end(ws, RING_PILL_MAX - width(tail)) + tail, "white"
         a["pillUntilSeen"] = False
     within = _within(note)
     if within:
