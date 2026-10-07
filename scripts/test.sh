@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test.sh — runs the regression test suite (251 automated tests, labelled T2-T269: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences + T258 the edge of the baseline + T259-T267 a found snippet is not a read one, and claims with no \cite + T268 paragraph openers + T269 a number that ends a sentence) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
+# scripts/test.sh — runs the regression test suite (252 automated tests, labelled T2-T270: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences + T258 the edge of the baseline + T259-T267 a found snippet is not a read one, and claims with no \cite + T268 paragraph openers + T269 a number that ends a sentence + T270 speculation is a hedge) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
 # Self-contained; saves and restores any state it mutates.
 # Exit 0 if all tests pass, 1 if any fail. CI-suitable.
 # Note: pipefail is intentionally NOT enabled. Several tests assert that a
@@ -3795,6 +3795,32 @@ assert ('unledgered-number','0.7891') in got, got
 assert not [g for g in got if g[1] in ('0.123','27')], got
 " || return 1
     [ "$status" = "1" ] || { echo "expected exit 1, got $status"; return 1; }
+}
+
+test_T270() {
+    # "We speculate", "the speculation", "a speculative reading" hedge a claim as "may" does, and the hedge rate
+    # counted none of them. Every inflection counts; a word that only looks alike does not.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib
+d = pathlib.Path(sys.argv[1])
+hedged = ("We speculate that the gauge drifts. The team speculates about the bridge. They speculated twice. "
+          "Speculating helps little. The speculation rests on two readings. Speculations differ. "
+          "A speculative reading follows. It is read speculatively. ")
+plain = "The gauge reads the river level twice a day at the north bridge. A spectacular flood came in spring. "
+(d / "t.txt").write_text((hedged + plain * 4) * 5, encoding="utf-8")
+PYEOF
+    out=$(python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target "$tmp/t.txt" --json 2>/dev/null)
+    rm -rf "$tmp"
+    printf '%s' "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+words = d['target_words']
+got = d['metrics']['hedge_per_1k']['value']
+want = 1000.0 * 8 * 5 / words
+assert abs(got - want) < 1e-9, (got, want, words)
+"
 }
 
 # --- T254-T255: a supplement's ledgers and files --------------------------------
@@ -7720,6 +7746,7 @@ run_test "T266 changed-sentence audit: an edit that unbinds a claim-ledger row n
 run_test "T267 claim ledger: a determiner, digits in a name, a sequence first and a compound -only are not high-risk" test_T267
 run_test "T268 paragraph openers: figure-first paragraphs are listed; a year, a metric name, a pointer and a model version are not" test_T268
 run_test "T269 number ledger: a number that ends a sentence is seen, and the full stop does not let a shorter number match inside a longer one" test_T269
+run_test "T270 prose fingerprint: speculate, speculation and speculative in every inflection count as hedges" test_T270
 
 header ""
 if [[ "$RUN_RETIRED" == "1" ]]; then
