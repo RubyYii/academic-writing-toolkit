@@ -23,7 +23,7 @@ It is stdlib-only Python (3.9+). It never writes to the manuscript repository or
 
 ```
 bin/loop init <workspace> --repo <manuscript repo> --ref <branch> --draft-glob <glob>
-bin/loop doctor <workspace>          # every configured path resolves (not: the content is right)
+bin/loop doctor <workspace>          # every configured path resolves, and the hook registry lists the workspace (not: the content is right)
 bin/loop index <workspace>           # build index/ from git and transcripts
 bin/loop rebuild <workspace> --check # byte-for-byte comparison with a fresh rebuild
 bin/loop update <workspace>          # rebuild index/ and record the outcome in health.json (what the hooks call)
@@ -42,6 +42,8 @@ A workspace is any directory holding `config.json` plus `human/`, `model/`, `ind
 ## Hooks (Claude Code)
 
 `hooks/loop_hook.py` is one script for five events; `hooks/settings.example.json` shows how to wire it. Workspaces it should act on are listed one per line in `~/.awt/loop-workspaces` (or `$AWT_LOOP_REGISTRY`).
+
+A workspace that is not listed there gets nothing from the hooks: the author's words are not recorded, no update runs after an edit, and no session is told the paper's state. Nothing else would say so, since every configured path still resolves. So `loop doctor` fails on it and names the registry, and `loop state` and `loop coverage` say it in their first line (`hook_registry` in their JSON).
 
 - **UserPromptSubmit**: in a session on a registered manuscript (cwd under the configured prefix, on the configured branch), the prompt is appended verbatim to `human/comments.jsonl`, and Claude is asked to end manuscript replies with a short explanation block (`〔循环〕` … `〔/循环〕`: what it read the message as, which sentences it changed, on what basis). The block is parsed from the transcript into `index/explanations.json`, next to the verbatim message. It is what Claude says, not a record of what happened.
 - **PreToolUse**: a model write into any registered workspace's `human/` is refused and recorded (the author's words are written by hooks or an interface, never by the model).

@@ -43,7 +43,7 @@ sys.path.insert(0, str(ENGINE))
 from loop import config as C  # noqa: E402
 from loop import health as HL  # noqa: E402
 
-REGISTRY = "~/.awt/loop-workspaces"
+REGISTRY = C.REGISTRY  # one definition: `loop doctor` checks a workspace against the same file (config.registry_path)
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 GIT_RE = re.compile(r"\bgit\b[^\n;&|]*\b(commit|merge|rebase|cherry-pick|reset|revert|pull|am)\b")
 REMINDER = (
@@ -73,7 +73,7 @@ def _under(path, root):
 
 def registry(path=None):
     """[(workspace, cfg)] for every readable line; a line that does not load is skipped, and returned as bad."""
-    p = Path(os.path.expanduser(path or os.environ.get("AWT_LOOP_REGISTRY") or REGISTRY))
+    p = Path(os.path.expanduser(path)) if path else C.registry_path()
     good, bad = [], []
     try:
         lines = p.read_text(encoding="utf-8").splitlines()

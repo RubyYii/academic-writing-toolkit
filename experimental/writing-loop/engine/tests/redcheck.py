@@ -1173,6 +1173,17 @@ MUTATIONS = [
      'test_state.StateTest.test_a_sentence_is_counted_once_and_a_cap_can_hold_in_named_places'),
     ('probegrowth', 'state.py', '    if not rest or not rest[0].isdecimal():', '    if not rest:',
      'test_state.StateTest.test_a_cap_without_a_number_is_a_ledger_problem'),
+    # 没登记进钩子登记表的工作区：钩子从不触发，doctor 与 state/coverage 的首行要说出来
+    ('strategic', 'cli.py', '        problems = problems + [("registry", warn)]', '        pass',
+     'test_doctor.RegistryTest.test_a_workspace_the_registry_does_not_list_is_named_and_fails_doctor'),
+    ('strategic', 'config.py', '    if listed:\n        return None', '    if listed is not False:\n        return None',
+     'test_doctor.RegistryTest.test_a_registry_that_cannot_be_read_is_said_never_taken_for_listed'),
+    ('strategic', 'config.py', 'os.path.realpath(os.path.expanduser(line)) == me:', 'line == str(ws):',
+     'test_doctor.RegistryTest.test_a_listed_workspace_passes_however_the_line_spells_it'),
+    ('strategic', 'cli.py', '        if warn:\n            print("注意：" + warn)\n        print(S.table(st))', '        print(S.table(st))',
+     'test_doctor.RegistryTest.test_state_and_coverage_say_it_in_their_first_line'),
+    ('strategic', 'cli.py', '        if warn:\n            print("注意：" + warn)\n        print(V.table(s, a.workspace))', '        print(V.table(s, a.workspace))',
+     'test_doctor.RegistryTest.test_state_and_coverage_say_it_in_their_first_line'),
 ]
 
 
