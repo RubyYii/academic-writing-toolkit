@@ -22,7 +22,7 @@ DEFINED = ("We built GaugeBench, a record of 14 river gauges, and asked whether 
 METHOD = "\\section{Method}\nWe built GaugeBench, a record of 14 river gauges kept for ten years.\n"
 
 
-def check(root, abstract=DEFINED, title=TITLE, body=METHOD, files=None, corpus=None):
+def check(root, abstract=DEFINED, title=TITLE, body=METHOD, files=None, corpus=None, env=None):
     root = Path(root)
     for name, text in (files or {}).items():
         (root / name).write_text(text, encoding="utf-8")
@@ -33,7 +33,7 @@ def check(root, abstract=DEFINED, title=TITLE, body=METHOD, files=None, corpus=N
                                    + body + "\n\\end{document}\n", encoding="utf-8")
     extra = ["--venue-corpus", str(corpus)] if corpus else []
     r = subprocess.run([sys.executable, str(SCRIPTS / "audit-front-matter.py"), "--root", str(root), "--json", *extra,
-                        str(root / "main.tex")], capture_output=True, text=True)
+                        str(root / "main.tex")], capture_output=True, text=True, env=env)
     assert r.returncode in (0, 1), r.stderr[-400:]
     d = json.loads(r.stdout)
     assert (r.returncode == 1) == bool(d["issues"]), (r.returncode, d["issues"])
@@ -230,6 +230,99 @@ class AbstractLengthTest(unittest.TestCase):
         self.assertEqual(c["outside"](ctx["cfg"]), ["/synthetic/venue"])
         self.assertIn("target.venue_corpus.dir", c.get("config_keys") or [])
         self.assertNotIn("--venue-corpus", c["argv"]({"cfg": {}, "drafts": ["main.tex"], "root": K.ENGINE_ROOT}))
+
+
+PDFTOTEXT = """import json, sys
+a = sys.argv[1:]
+page = json.load(open(a[-2], encoding="utf-8"))
+w = page["size"][0]
+if "-x" in a:
+    x0, width = float(a[a.index("-x") + 1]), float(a[a.index("-W") + 1])
+    half = abs(width - w / 2) <= 1
+    sys.stdout.write(page["cols"][0] if x0 == 0 and half else page["cols"][1] if half and abs(x0 - w / 2) <= 1 else "")
+else:
+    sys.stdout.write(page["full"])
+"""
+PDFINFO = """import json, sys
+w, h = json.load(open(sys.argv[-1], encoding="utf-8"))["size"]
+print("Pages:          1")
+print("Page size:      %s x %s pts" % (w, h))
+"""
+
+
+def pdf_tools(root):
+    """An environment whose pdftotext and pdfinfo read a synthetic page: a .pdf file here is JSON with the page's
+    size, the text pdftotext gives for the whole page, and the text of each half when the page is cropped at its
+    middle (any other crop gives nothing)."""
+    bin_dir = Path(root) / "bin"
+    bin_dir.mkdir()
+    for name, body in (("pdftotext", PDFTOTEXT), ("pdfinfo", PDFINFO)):
+        (bin_dir / name).write_text(f"#!{sys.executable}\n" + body, encoding="utf-8")
+        (bin_dir / name).chmod(0o755)
+    return dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
+
+
+def page(root, name, full, cols, size=(612, 792)):
+    d = Path(root) / "venue"
+    d.mkdir(exist_ok=True)
+    (d / name).write_text(json.dumps({"size": list(size), "full": full, "cols": list(cols)}), encoding="utf-8")
+    return d
+
+
+class ColumnTest(unittest.TestCase):
+    """10-07: of the papers of a two-column venue, the abstract of almost none was read. Cropped down the middle, each column
+    reads on its own; between the "1" and the "Introduction" of the first heading the crop leaves stray glyphs."""
+
+    TITLE_LINES = "A synthetic paper on gauges\nAuthor One, Author Two\n"
+
+    def test_a_two_column_page_is_read_from_the_column_that_holds_the_abstract(self):
+        # Read whole, the right column's figure caption falls between the abstract and the first heading.
+        abstract, caption = words(120), "Figure 1: " + words(40)
+        full = self.TITLE_LINES + f"Abstract\n{abstract}\n{caption}\n1 Introduction\n{words(200)}\n"
+        left = f"A synthetic pa\nAuthor One\nAbstract\n{abstract}\n1\n\nw\n\nIntroduction\n{words(60)}\n"
+        right = f"per on gauges\n, Author Two\n{caption}\n{words(140)}\n"
+        with TempDir() as root:
+            env = pdf_tools(root)
+            venue = page(root, "two.pdf", full, (left, right))
+            d = check(root, corpus=venue, env=env)
+            self.assertEqual(d["venue_abstracts"]["parsed_files"], {"two.pdf": 120})
+
+    def test_a_caption_the_whole_page_puts_inside_the_abstract_does_not_send_it_back_to_the_whole_page(self):
+        # Read whole, the caption breaks the abstract in two; the column still holds it whole.
+        first, last, caption = words(60), words(61).split(" ", 1)[1], "Figure 1: " + words(40)
+        full = self.TITLE_LINES + f"Abstract\n{first}\n{caption}\n{last}\n1 Introduction\n{words(200)}\n"
+        left = f"A synthetic pa\nAuthor One\nAbstract\n{first}\n{last}\n1\n\nIntroduction\n{words(60)}\n"
+        with TempDir() as root:
+            env = pdf_tools(root)
+            venue = page(root, "split.pdf", full, (left, f"per on gauges\n{caption}\n"))
+            d = check(root, corpus=venue, env=env)
+            self.assertEqual(d["venue_abstracts"]["parsed_files"], {"split.pdf": 120})
+
+    def test_a_one_column_page_cut_down_the_middle_is_read_whole_instead(self):
+        # Each line of a one-column page is cut in two by the crop; its halves do not run through the page's text.
+        lines = [words(16).split()[i % 3:] + [f"w{i}"] for i in range(10)]
+        whole = "\n".join(" ".join(x) for x in lines)
+        halves = "\n".join(" ".join(x[:len(x) // 2]) for x in lines)
+        n = sum(len(x) for x in lines)
+        full = self.TITLE_LINES + f"Abstract\n{whole}\n1 Introduction\n{words(200)}\n"
+        left = f"A synthetic\nAuthor One\nAbstract\n{halves}\n1 Introd\n{words(60)}\n"
+        with TempDir() as root:
+            env = pdf_tools(root)
+            venue = page(root, "one.pdf", full, (left, ""))
+            d = check(root, corpus=venue, env=env)
+            self.assertEqual(d["venue_abstracts"]["parsed_files"], {"one.pdf": n})
+
+    def test_stray_glyphs_between_the_section_number_and_introduction_still_end_the_abstract(self):
+        with TempDir() as root:
+            d = Path(root) / "venue"
+            d.mkdir()
+            (d / "glyphs.txt").write_text(self.TITLE_LINES + f"Abstract\n{words(90)}\n1\n\nT\n\nIntroduction\n"
+                                          + words(300) + "\n", encoding="utf-8")
+            (d / "footnote.txt").write_text(self.TITLE_LINES + f"Abstract\n{words(90)}\n1\nhttps://example.org/code\n"
+                                            + words(300) + "\n", encoding="utf-8")
+            v = check(root, corpus=d)["venue_abstracts"]
+            self.assertEqual(v["parsed_files"], {"glyphs.txt": 90})
+            self.assertEqual([x["file"] for x in v["skipped"]], ["footnote.txt"])
 
 
 class FrontMatterLoopTest(unittest.TestCase):
