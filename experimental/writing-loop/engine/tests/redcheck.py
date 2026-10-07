@@ -17,12 +17,26 @@ ROOT = ENGINE.parent  # experimental/writing-loop: engine/ and hooks/ are copied
 # (step, file, old, new, test id). A bare file name is under engine/loop; a path with "/" is under ROOT.
 MUTATIONS = [
     # 讲法页（spec 2026-09-28-story-layer S3）：每条判断拿掉，对应测试必须变红。
-    ("storypage", 'state.py', '    if sp and sp["steps"] and sp["approved"] < sp["steps"]:\n        # The author', '    if False:\n        # The author', 'test_state.StoryPageTest.test_a_step_marked_unapproved_keeps_the_paper_from_the_author'),
+    ("storypage", 'state.py', '    elif sp and sp["approved"] < sp["steps"]:\n        # The author', '    elif False:\n        # The author', 'test_state.StoryPageTest.test_a_step_marked_unapproved_keeps_the_paper_from_the_author'),
     ("storypage", 'state.py', '        ok = "◌" not in text and (', '        ok = (', 'test_state.StoryPageTest.test_a_step_marked_unapproved_keeps_the_paper_from_the_author'),
     ("storypage", 'state.py', '    page_ok = any(TG._approval_in_transcripts(cfg, u) for u in page)', '    page_ok = True', 'test_state.StoryPageTest.test_an_approval_that_is_not_on_record_approves_nothing'),
     ("storypage", 'state.py', '        elif steps:\n            break                       # the run of steps is over', '        elif steps:\n            pass                        # the run of steps is over', 'test_state.StoryPageTest.test_every_step_under_an_approved_page_counts_and_the_paper_can_reach_the_author'),
     ("storypage", 'state.py', '        own = FULL_UUID.findall(text)', '        own = []', 'test_state.StoryPageTest.test_a_step_approved_on_its_own_counts_without_a_page_approval'),
-    ("storypage", 'state.py', '        bits.append("意图卡里没有讲法页")', '        pass', 'test_state.StoryPageTest.test_a_card_without_a_story_page_is_said_and_blocks_nothing'),
+    ("storypage", 'state.py', '        blockers.append("意图卡里没有讲法页")', '        pass', 'test_state.StoryPageTest.test_a_card_without_a_story_page_keeps_the_paper_from_the_author'),
+    ("storypage", 'state.py', '        blockers.append("讲法页没列出编号的步骤")', '        pass', 'test_state.StoryPageTest.test_a_card_without_a_story_page_keeps_the_paper_from_the_author'),
+    # 读者组把句间关系定位到句与句之间、说清没记进循环（10-07）：判断拿掉，对应测试必须变红。
+    ("storypage", 'skill:readers/scripts/tally-readers.py', '"most": 2 * len(rs) > len(named),', '"most": len(rs) >= SAME_PLACE,',
+     'test_readers.RelationTurnsTest.test_readers_spread_over_several_turns_are_not_called_an_order_problem'),
+    ("storypage", 'skill:readers/scripts/tally-readers.py', '        for x in (y for y in rel["turns"] if y["most"] and y["flag"]):', '        for x in ():',
+     'test_readers.RelationTurnsTest.test_most_readers_guessing_at_one_turn_is_placed_there_and_said_to_be_about_order'),
+    ("storypage", 'skill:readers/scripts/tally-readers.py', '        if NOT_END.search(text[start:m.end()]):\n            continue\n', '',
+     'test_readers.RelationTurnsTest.test_an_abbreviation_ends_no_sentence'),
+    ("storypage", 'skill:readers/scripts/tally-readers.py', '            a, b = (sorted(at[:2]) + [None])[:2]', '            a, b = (at[:1] + [None])[:2]',
+     'test_readers.RelationTurnsTest.test_most_readers_guessing_at_one_turn_is_placed_there_and_said_to_be_about_order'),
+    ("storypage", 'skill:readers/scripts/check-reader-output.py', '        if q["id"] == RELATION_ID and isinstance(a, list)', '        if False and isinstance(a, list)',
+     'test_readers.RelationTurnsTest.test_most_readers_guessing_at_one_turn_is_placed_there_and_said_to_be_about_order'),
+    ("storypage", 'skill:readers/scripts/tally-readers.py', '    if not src.get("workspace"):\n        return "packet', '    if False:\n        return "packet',
+     'test_readers.RelationTurnsTest.test_a_panel_the_loop_cannot_record_says_so'),
     # 主张台账分清「找到」与「读过」（spec 2026-09-30-claim-ledger-reading）：接线拿掉，对应测试必须变红。
     ("claimledger", 'catalogue.py', '    if get(cfg, "inputs.bib"):\n        out["bib"] = get(cfg, "inputs.bib")', '    pass', 'test_catalogue.ClaimLedgerWiringTest.test_the_ledger_audit_gets_the_bibliography_and_the_names_table'),
     ("claimledger", 'catalogue.py', '    if (ctx.get("inputs") or {}).get("bib"):\n        args += ["--bib", ctx["inputs"]["bib"]]', '    pass', 'test_catalogue.ClaimLedgerWiringTest.test_the_ledger_audit_gets_the_bibliography_and_the_names_table'),

@@ -548,7 +548,13 @@ def judge(st):
     if st.get("gates_open"):
         blockers.append("门没关 " + "、".join(st["gates_open"]))
     sp = st.get("story")
-    if sp and sp["steps"] and sp["approved"] < sp["steps"]:
+    if sp and not sp["found"]:
+        # 10-07: said and not blocking, a missing page let an abstract whose order nothing could check reach the
+        # author with every reader point carried. A missing page is at least as open as an unapproved step.
+        blockers.append("意图卡里没有讲法页")
+    elif sp and not sp["steps"]:
+        blockers.append("讲法页没列出编号的步骤")
+    elif sp and sp["approved"] < sp["steps"]:
         # The author's call (spec S3), taken as recommended: an unapproved step keeps the paper from the author.
         blockers.append(f"讲法页 {sp['approved']}/{sp['steps']} 步认可")
     if open_:
@@ -679,12 +685,8 @@ def line(st):
     if long_:
         bits.append(f"阶段写成了一段话（{long_} 字）：只写阶段名，过程进日志、待办进对话的清单")
     sp = st.get("story")
-    if sp and not sp["found"]:
-        bits.append("意图卡里没有讲法页")
-    elif sp and not sp["steps"]:
-        bits.append("讲法页没列出编号的步骤")
-    elif sp and sp["approved"] == sp["steps"]:
-        bits.append(f"讲法页 {sp['steps']}/{sp['steps']} 步认可")
+    if sp and sp["steps"] and sp["approved"] == sp["steps"]:
+        bits.append(f"讲法页 {sp['steps']}/{sp['steps']} 步认可")   # the other cases are blockers, said above
     if st["verdict"] == AUTHOR:
         bits.append("能不能投由作者定")
     elif st["verdict"] == SUBMITTED:
