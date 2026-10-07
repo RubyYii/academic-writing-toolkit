@@ -1,6 +1,6 @@
 # Writing loop: the story before the sentences
 
-Status: draft. S1 and S2 are implemented (T268, the engine's unit tests, the red check and the full test.sh run locally; brought onto main 2026-09-30 in one commit; the author has not reviewed them). S3 is implemented (StoryPageTest, the red check; 2026-09-30, extended 2026-10-07; its two decisions taken as recommended and open to reversal). S5 is next: on the manuscript this spec comes from, the author approved a five-step story page and asked that the toolkit be designed from it. S4, S6 and S7 are proposals only.
+Status: draft. S1 and S2 are implemented (T268, the engine's unit tests, the red check and the full test.sh run locally; brought onto main 2026-09-30 in one commit; the author has not reviewed them). S3 is implemented (StoryPageTest, the red check; 2026-09-30, extended 2026-10-07; its two decisions taken as recommended and open to reversal). S5 is next: on the manuscript this spec comes from, the author approved a five-step story page and asked that the toolkit be designed from it. S4, S6, S7 and S8 are proposals only.
 
 ## Problem
 
@@ -106,6 +106,28 @@ The changed-sentence check paired one sentence of the introduction, changed by a
 the abstract, and reported the two as one split sentence that had grown longer. Each sentence had been checked on its
 own. Splits and merges should be paired within one file and one section; similar sentences across files are one
 removal and one addition, each checked on its own.
+
+### S8 (proposed, 2026-10-07; Status: draft): sentence order against the story page
+
+Problem. On one private abstract, most readers guessed at the same turn between two sentences. A connector added at
+that turn did not make it followable; putting the sentences in the order of the approved story page's steps did. No
+check compares the order of a front-matter text's sentences with the order of the page's steps.
+
+Goal. For the abstract and the introduction, say where the order of sentences departs from the order of the story
+page's steps: which sentence, which step it serves, and which earlier step it comes before.
+
+Non-goals. No rewriting, no verdict, no blocker: the result is a pointer for the author, as the reader report is.
+Not for sections other than the abstract and the introduction until the two are tried.
+
+Decision still open. Which step a sentence serves needs a reading, not a keyword match: on the candidate pair below,
+the order in which each step's words first appear does not separate the two versions. The proposal is to let the
+reader panel label it: each reader writes, per sentence, the step number it serves (or none), and the tally takes
+the label most readers give. A sentence whose label readers split on is reported as unplaced, not guessed.
+
+Acceptance (to be written when the author picks it). On the candidate pair, two versions of that abstract, the one
+the author could not follow and the one they could, the check names the turn in the first and none in the second.
+One pair is a case, not a validation: the labels' agreement between readers is reported beside the result, and the
+pair stays in the private workspace, not in this repository.
 
 ### Order after the author's approval
 
