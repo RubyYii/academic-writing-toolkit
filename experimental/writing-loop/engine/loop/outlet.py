@@ -15,8 +15,8 @@ manuscript-todo-hookup, D1 and D4): closed items are kept, so willow can tell "c
 or a state that could not be computed it is null with the reason, never [], which would read as "all closed". `hookup`
 is the workspace config's `hookup`, off when absent; willow matches only when it is true.
 
-Which sessions belong to the manuscript is still decided here (cwd prefix and branch); willow only matches session
-ids, so that rule is not copied. The two hooks run in parallel and a note written during a prompt is not read for
+Which sessions belong to the manuscript is still decided here (cwd prefix and branch, or the session ids listed under
+transcripts.sessions); willow only matches the session ids written here, so that rule is not copied. The two hooks run in parallel and a note written during a prompt is not read for
 it, so the first prompt of a session is said by the hook, and `since` tells willow to skip that one.
 
 The coverage line is judged current when it is read (fingerprint and HEAD, `coverage.load_summary`), so every refresh

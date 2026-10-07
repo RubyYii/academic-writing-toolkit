@@ -455,6 +455,57 @@ class AlsoSourceTest(unittest.TestCase):
             self.assertEqual(LH.session_ws(prompt_payload(repo), regs), (None, None))
 
 
+class PrimaryByIdTest(unittest.TestCase):
+    """A session that edits the draft from another directory, by absolute path, was not a manuscript session: the hooks
+    matched only a cwd under the configured prefix on the configured branch. transcripts.sessions names it by id, and
+    it then counts as the manuscript's own session wherever it runs; a neighbour in the same directory does not."""
+
+    def setup_named(self, root):
+        repo, ws, regs = setup(root)
+        elsewhere = Path(root) / "elsewhere"
+        elsewhere.mkdir()
+        git(elsewhere, "init", "-q", "-b", "spike")
+        git(elsewhere, "commit", "-q", "--allow-empty", "-m", "x")
+        cfg = C.load(ws)
+        cfg["transcripts"]["sessions"] = [{"id": "s7", "note": "edits the draft from another checkout"}]
+        C.save(ws, cfg)
+        regs, _ = LH.registry(str(Path(root) / "registry"))
+        return repo, ws, regs, elsewhere
+
+    def test_its_prompts_are_recorded_and_it_gets_the_reminder(self):
+        with TempDir() as root:
+            repo, ws, regs, elsewhere = self.setup_named(root)
+            self.assertEqual(LH.session_ws(prompt_payload(elsewhere, session_id="s7"), regs)[0], ws.resolve())
+            self.assertEqual(LH.session_ws(prompt_payload(elsewhere, session_id="s8"), regs), (None, None),
+                             "a neighbour in the same directory is not taken in")
+            out = LH.handle(prompt_payload(elsewhere, session_id="s7", prompt="a synthetic remark"), regs)
+            self.assertIn("〔循环〕", ctx_of(out))
+            self.assertIsNone(LH.handle(prompt_payload(elsewhere, session_id="s8", prompt="not about it"), regs))
+            recs = [json.loads(x) for x in (ws / "human" / "comments.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([(r["session_id"], r["prompt"]) for r in recs], [("s7", "a synthetic remark")])
+
+    def test_its_draft_writes_by_absolute_path_and_its_stops_ask_for_an_update(self):
+        with TempDir() as root:
+            repo, ws, regs, elsewhere = self.setup_named(root)
+            (elsewhere / "drafts").mkdir()
+            spy = Spy()
+            # each write is judged on its own: the same relative path in the repository the session runs in is not the draft
+            for sid, target, calls in [("s7", repo / "drafts" / "DRAFT-v2.md", ["write:drafts/DRAFT-v2.md"]),
+                                       ("s7", elsewhere / "drafts" / "DRAFT-v3.md", []),
+                                       ("s8", repo / "drafts" / "DRAFT-v2.md", [])]:
+                with self.subTest(sid=sid, target=target.parent.parent.name):
+                    spy.calls = []
+                    payload = tool_payload("PostToolUse", elsewhere, "Write", {"file_path": str(target)})
+                    payload["session_id"] = sid
+                    LH.handle(payload, regs, spawn=spy)
+                    self.assertEqual(spy.calls, calls)
+            spy.calls = ["write:drafts/DRAFT-v2.md"]
+            for sid in ("s7", "s8"):
+                LH.handle({"hook_event_name": "Stop", "session_id": sid, "cwd": str(elsewhere),
+                           "stop_hook_active": False, "last_assistant_message": ""}, regs, spawn=spy)
+            self.assertEqual(spy.calls, ["write:drafts/DRAFT-v2.md", "stop"])
+
+
 class RegistryAndProcessTest(unittest.TestCase):
     def test_a_line_that_does_not_load_is_skipped_and_reported(self):
         with TempDir() as root:

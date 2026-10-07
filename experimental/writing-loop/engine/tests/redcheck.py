@@ -1184,6 +1184,25 @@ MUTATIONS = [
      'test_doctor.RegistryTest.test_state_and_coverage_say_it_in_their_first_line'),
     ('strategic', 'cli.py', '        if warn:\n            print("注意：" + warn)\n        print(V.table(s, a.workspace))', '        print(V.table(s, a.workspace))',
      'test_doctor.RegistryTest.test_state_and_coverage_say_it_in_their_first_line'),
+    # 按会话号指定的主会话（transcripts.sessions）：钩子、会话记录、doctor、批准与清单环都按同一张表算
+    ('strategic', 'hooks/loop_hook.py', '            if sid in C.session_ids(cfg):\n                return ws, cfg', '            if False:\n                return ws, cfg',
+     'test_hooks.PrimaryByIdTest.test_its_prompts_are_recorded_and_it_gets_the_reminder'),
+    ('strategic', 'hooks/loop_hook.py', '            top = _manuscript_top(t, cfg)', '            pass',
+     'test_hooks.PrimaryByIdTest.test_its_draft_writes_by_absolute_path_and_its_stops_ask_for_an_update'),
+    ('strategic', 'hooks/loop_hook.py', '    return top if top and any(_under(top, r) for r in roots) else None', '    return top',
+     'test_hooks.PrimaryByIdTest.test_its_draft_writes_by_absolute_path_and_its_stops_ask_for_an_update'),
+    ('strategic', 'transcripts.py', '    files.update(p for found in named_files(cfg).values() for p in found)', '    pass',
+     'test_transcripts.PrimaryByIdTest.test_a_session_named_by_its_id_is_read_wherever_it_ran'),
+    ('strategic', 'transcripts.py', 'r.get("sessionId") in ids or', 'False or',
+     'test_transcripts.PrimaryByIdTest.test_a_session_named_by_its_id_is_read_wherever_it_ran'),
+    ('strategic', 'transcripts.py', '        if not named and isinstance(known, list)', '        if isinstance(known, list)',
+     'test_transcripts.PrimaryByIdTest.test_its_file_is_read_even_when_the_scan_cache_says_it_holds_no_branch'),
+    ('strategic', 'doctor.py', '    files += [p for found in T.named_files(cfg).values() for p in found]', '    pass',
+     'test_transcripts.PrimaryByIdTest.test_an_author_message_in_it_is_on_record_for_approvals_and_the_ring'),
+    ('strategic', 'doctor.py', '            elif not named.get(sid):', '            elif False:',
+     'test_doctor.NamedSessionTest.test_a_named_session_is_found_and_one_that_is_not_is_a_problem'),
+    ('strategic', 'doctor.py', '        if not hits and any(named.values()):', '        if False:',
+     'test_doctor.NamedSessionTest.test_with_named_sessions_no_session_on_the_branch_is_not_a_fault'),
 ]
 
 

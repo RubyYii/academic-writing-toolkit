@@ -46,6 +46,20 @@ def registry_warning(ws):
             f"登记：把 {os.path.realpath(os.path.expanduser(str(ws)))} 加成登记表里的一行")
 
 
+def session_ids(cfg):
+    """Primary sessions named by id (transcripts.sessions: [{"id", "note"}]). Such a session is this manuscript's own
+    wherever it runs: one that edits the draft by absolute path from another checkout and branch matches no
+    directory + branch rule, and a rule wide enough to take it in would take its neighbours in too. The hooks
+    (hooks/loop_hook.py session_ws), transcript reading (transcripts.py), doctor, approvals and the ring all read this
+    one list, so a session the hooks treat as the manuscript's is counted as such everywhere else."""
+    out = []
+    for s in (cfg.get("transcripts") or {}).get("sessions") or []:
+        sid = s.get("id") if isinstance(s, dict) else None
+        if isinstance(sid, str) and sid and sid not in out:
+            out.append(sid)
+    return out
+
+
 def default_config(name, repo, ref, draft_glob, genre="conference"):
     return {
         "schema": SCHEMA,

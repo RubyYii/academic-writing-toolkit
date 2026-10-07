@@ -116,6 +116,43 @@ class DoctorTest(unittest.TestCase):
                 self.assertEqual(main(["doctor", str(ws)]), 1)
 
 
+class NamedSessionTest(unittest.TestCase):
+    """transcripts.sessions names primary sessions by id. Each id must resolve to a transcript file, and a manuscript
+    whose sessions are all named by id is not missing its sessions because none ran on the configured branch."""
+
+    def setup_ws(self, root):
+        ws = DoctorTest.setup_ws(self, root)
+        other = Path(root) / "elsewhere"
+        other.mkdir()
+        make_transcripts(root, other, "spike", [{"_file": "s7", "type": "user", "timestamp": "2026-01-02T00:00:00Z",
+                                                 "origin": {"kind": "human"}, "message": {"role": "user", "content": "x"}}])
+        cfg = C.load(ws)
+        cfg["transcripts"]["sessions"] = [{"id": "s7", "note": "synthetic"}]
+        C.save(ws, cfg)
+        return ws
+
+    def test_a_named_session_is_found_and_one_that_is_not_is_a_problem(self):
+        with TempDir() as root:
+            ws = self.setup_ws(root)
+            problems, facts = doctor.run(ws)
+            self.assertEqual(problems, [])
+            self.assertTrue(any(item == "transcripts.sessions" and "1/1" in msg for item, msg in facts), facts)
+            cfg = C.load(ws)
+            cfg["transcripts"]["sessions"].append({"id": "s-missing", "note": "typo"})
+            C.save(ws, cfg)
+            problems, _ = doctor.run(ws)
+            self.assertIn("transcripts.sessions[1]", [p[0] for p in problems], problems)
+
+    def test_with_named_sessions_no_session_on_the_branch_is_not_a_fault(self):
+        with TempDir() as root:
+            ws = self.setup_ws(root)
+            cfg = C.load(ws)
+            cfg["transcripts"]["git_branch"] = "no-such-branch"
+            C.save(ws, cfg)
+            problems, _ = doctor.run(ws)
+            self.assertNotIn("transcripts.git_branch", [p[0] for p in problems], problems)
+
+
 class RegistryTest(unittest.TestCase):
     """A workspace was set up and never added to the hook registry. Every configured path resolved, so doctor said
     nothing; the hooks never fired for it, the author's words were not recorded, no update ran after an edit, and no
