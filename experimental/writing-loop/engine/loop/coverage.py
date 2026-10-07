@@ -976,6 +976,7 @@ def live_line(ws, cfg):
     workspace as `/private/var/…` agree. The paper's state leads and is never cut: checks that have all looked at the
     draft say nothing about whether its claims stand, and a line of coverage alone read as "nothing is wrong"."""
     ws = Path(ws).resolve()
+    _LAST_STATE.pop(str(ws), None)  # a call that fails before the state is computed leaves none, not the last one
     cov = reminder_line(load_summary(ws, cfg), ws)
     try:
         from . import state as S

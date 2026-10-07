@@ -257,7 +257,7 @@ def cmd_state(a):
         if warn:
             print("注意：" + warn)
         print(S.table(st))
-    return 0 if st.get("verdict") in (S.AUTHOR, S.SUBMITTED) and not st.get("blockers") else 1
+    return 0 if S.ready(st) else 1
 
 
 def cmd_health(a):

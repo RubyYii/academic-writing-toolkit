@@ -624,13 +624,27 @@ def stage_name(stage):
     return cut.rstrip("，,、 （(") + "…", round(_width(stage))
 
 
+def ready(st):
+    """Whether nothing stands between the paper and the author's call: 待作者终审, or 已投稿 with nothing in the way.
+    `loop state` exits 0 on this, and willow's note carries it as verdict.ready (outlet.py); always a bool."""
+    return bool(st.get("configured")) and st.get("verdict") in (AUTHOR, SUBMITTED) and not st.get("blockers")
+
+
+def head(st):
+    """The line's first part, the verdict and the stage: what willow's note carries as verdict.text (outlet.py)."""
+    if not st.get("configured"):
+        return "论文状态：没登记主张清单"
+    shown, _long = stage_name(st.get("stage") or "")
+    return f"论文状态：{st['verdict']}" + (f"（阶段：{shown}）" if shown else "")
+
+
 def line(st):
     """The per-turn line. Said every turn, whatever the checks say."""
     if not st.get("configured"):
-        return ("论文状态：没登记主张清单（配置的 claims）——循环只知道检查跑没跑，"
+        return (head(st) + "（配置的 claims）——循环只知道检查跑没跑，"
                 "不知道主张立没立住、还缺哪个分析")
-    shown, long_ = stage_name(st.get("stage") or "")
-    head = f"论文状态：{st['verdict']}" + (f"（阶段：{shown}）" if shown else "")
+    _shown, long_ = stage_name(st.get("stage") or "")
+    head_ = head(st)
     bits = []
     if st["claims"]:
         bits.append(f"主张 {len(st['claims'])}：{_count(st)}")
@@ -655,7 +669,7 @@ def line(st):
         bits.append("能不能投由作者定")
     elif st["verdict"] == SUBMITTED:
         bits.append("已投出：之后的改动等审稿意见")
-    return head + "——" + "；".join(bits)
+    return head_ + "——" + "；".join(bits)
 
 
 # A change is said once, apart from the line (09-28: a blocker stood in the per-turn line from one commit on and was

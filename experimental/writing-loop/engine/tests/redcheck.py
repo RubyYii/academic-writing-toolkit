@@ -1241,6 +1241,22 @@ MUTATIONS = [
     # 文风检查的稿件与对照读法不同（pipeline_mismatch）：循环那一行要说出来
     ('strategic', 'coverage.py', '            if data.get("pipeline_mismatch") is True:', '            if False:',
      'test_coverage.NeverGreenTest.test_a_style_run_whose_draft_and_baseline_were_read_differently_says_so'),
+    # 许愿柳留言里的判定 verdict: {"ready": bool, "text": 一行}：形状、何时 ready、刷新时重读、算不出不当就绪
+    ('strategic', 'outlet.py', '"ready": S.ready(st) is True', '"ready": str(S.ready(st)).lower()',
+     'test_hooks.OutletVerdictTest.test_open_items_are_not_ready_and_the_text_is_the_head_of_the_line'),
+    ('strategic', 'outlet.py', '        return {"verdict": {"ready": False, "text": "论文状态：算不出"}}', '        return {}',
+     'test_hooks.OutletVerdictTest.test_no_ledger_and_a_state_that_cannot_be_computed_are_not_ready'),
+    ('strategic', 'outlet.py', 'text = " ".join(S.head(st).split())', 'text = S.line(st)',
+     'test_hooks.OutletVerdictTest.test_open_items_are_not_ready_and_the_text_is_the_head_of_the_line'),
+    ('strategic', 'outlet.py', '    note.update(_todo(ws))  # the switch stays as the last prompt read it from the config\n    note.update(_verdict(ws))',
+     '    note.update(_todo(ws))  # the switch stays as the last prompt read it from the config',
+     'test_hooks.OutletVerdictTest.test_ready_only_at_the_author_verdict_and_a_refresh_rereads_it'),
+    ('strategic', 'state.py', 'st.get("verdict") in (AUTHOR, SUBMITTED) and not st.get("blockers")', 'st.get("verdict") in (AUTHOR,) and not st.get("blockers")',
+     'test_hooks.OutletVerdictTest.test_submitted_is_ready_only_with_nothing_in_the_way'),
+    ('strategic', 'state.py', 'st.get("verdict") in (AUTHOR, SUBMITTED) and not st.get("blockers")', 'st.get("verdict") in (AUTHOR, SUBMITTED)',
+     'test_hooks.OutletVerdictTest.test_submitted_is_ready_only_with_nothing_in_the_way'),
+    ('strategic', 'coverage.py', '    _LAST_STATE.pop(str(ws), None)  # a call that fails before the state is computed leaves none, not the last one', '    pass',
+     'test_hooks.OutletVerdictTest.test_a_line_that_fails_before_the_state_does_not_leave_the_last_ready_standing'),
 ]
 
 
