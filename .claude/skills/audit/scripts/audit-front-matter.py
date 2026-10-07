@@ -26,8 +26,12 @@ missing), finds \\title (the full title, not the short form in [...]) and the ab
 It also counts the abstract's words (abstract_words). With --venue-corpus, the abstracts of the venue's papers are read
 from that directory (.pdf through pdftotext, .txt and .md as they are, .tex from its abstract environment): the text
 between a line that starts with "Abstract" and the first numbered section heading ("1 Introduction", "1. INTRODUCTION",
-"I. INTRODUCTION", or a "1" on its own line before "Introduction"), cut short at a Keywords, Index Terms, CCS Concepts
-or ACM Reference Format line. A file with no such heading, no numbered section after it, or a stretch outside
+"I. INTRODUCTION", or a "1" on its own line before "Introduction", with at most a few lines of one or two stray
+characters between them), cut short at a Keywords, Index Terms, CCS Concepts or ACM Reference Format line. A PDF whose
+first page has the Abstract heading in one half is read from that half alone (pdfinfo gives the page's width), since a
+two-column page read whole can put the other column's text inside the abstract or before the first heading. When fewer
+than 90% of that half's runs of four words are also in the whole page's text (a one-column page cut down the middle),
+the page is read whole. A file with no such heading, no numbered section after it, or a stretch outside
 30-600 words is skipped and listed with the reason. With at least 5 abstracts read, the report gives the draft's
 percentile among them (the share of venue abstracts shorter, ties counted half), and above the 75th percentile adds:
 
@@ -84,9 +88,17 @@ ABBREV = re.compile(r"\b(e\.g|i\.e|et al|cf|vs|Fig|Figs|Eq|Eqs|Sec|Secs|No|appro
 SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\"'`])")
 
 
-# a venue paper's abstract: from a line that starts with "Abstract" to the first numbered section heading
+# a venue paper's abstract: from a line that starts with "Abstract" to the first numbered section heading. Cropped out
+# of a two-column page, a "1" and its "Introduction" can have blank lines and stray glyphs of the other column between
+# them (10-07: most papers of one two-column venue); a "1" before anything else (a footnote mark) is not a heading.
 ABSTRACT_HEAD = re.compile(r"(?im)^[ \t#]*abstract\b[ \t]*[.:\u2014\u2013-]?[ \t]*")
-SECTION_ONE = re.compile(r"(?m)^[ \t#]*(?:1\.?|I\.)(?:[ \t]+[A-Z][A-Za-z]|[ \t]*\n[ \t#]*(?i:introduction)\b)")
+SECTION_ONE = re.compile(r"(?m)^[ \t#]*(?:1\.?|I\.)(?:[ \t]+[A-Z][A-Za-z]"
+                         r"|[ \t]*\n(?:[ \t]*\S{0,2}[ \t]*\n){0,6}?[ \t#]*(?i:introduction)\b)")
+PAGE_SIZE = re.compile(r"(?m)^Page size:\s*([\d.]+) x ([\d.]+)")
+PLAIN_WORD = re.compile(r"[a-z0-9]+")
+# A column's abstract is the column's when this share of its runs of four words is in the whole page's text. On two
+# corpora (10-07) two-column abstracts scored 0.98 and above, one-column pages cut down the middle 0.64 and below.
+IN_PAGE = 0.9
 ABSTRACT_STOP = re.compile(r"(?im)^[ \t#]*(?:keywords|key words|index terms|ccs concepts|acm reference format)\b")
 VENUE_SUFFIXES = {".pdf", ".txt", ".md", ".tex"}
 ABSTRACT_WORDS = (30, 600)  # a stretch outside this is not an abstract that was read right
@@ -100,6 +112,59 @@ def word_count(text):
     return sum(1 for w in text.split() if re.search(r"[A-Za-z0-9]", w))
 
 
+def _pdftotext(path, *args):
+    out = subprocess.run(["pdftotext", "-q", *args, str(path), "-"], capture_output=True, text=True, timeout=120).stdout
+    return re.sub(r"-\n", "", out or "")
+
+
+def _between_headings(text):
+    """(the text from the Abstract heading to the first numbered section heading, None), or (None, why not)."""
+    head = ABSTRACT_HEAD.search(text)
+    if not head:
+        return None, "no Abstract heading"
+    end = SECTION_ONE.search(text, head.end())
+    if not end:
+        return None, "no numbered section heading after Abstract"
+    stop = ABSTRACT_STOP.search(text, head.end(), end.start())
+    return text[head.end():stop.start() if stop else end.start()], None
+
+
+def _runs(text, k=4):
+    w = PLAIN_WORD.findall(text.lower())
+    return [tuple(w[i:i + k]) for i in range(len(w) - k + 1)]
+
+
+def in_page(column_text, whole):
+    """The share of the column text's runs of four words that the whole page's text also has."""
+    runs, page = _runs(column_text), set(_runs(whole))
+    return sum(r in page for r in runs) / len(runs) if runs else 0.0
+
+
+def column_abstract(path, whole):
+    """The abstract read from the half of the first page that holds the Abstract heading, or None to read the page
+    whole: no pdfinfo or no page size, no half with the heading, no section heading after it in that half, or a half
+    whose abstract is not, run for run, in the whole page's text (a one-column page, each line cut in two)."""
+    if not shutil.which("pdfinfo"):
+        return None
+    try:
+        info = subprocess.run(["pdfinfo", str(path)], capture_output=True, text=True, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = PAGE_SIZE.search(info or "")
+    if not m:
+        return None
+    half, height = int(float(m.group(1)) // 2), int(float(m.group(2))) + 1
+    for x0 in (0, half):
+        column = _pdftotext(path, "-f", "1", "-l", "1", "-x", str(x0), "-y", "0", "-W", str(half), "-H", str(height))
+        if not ABSTRACT_HEAD.search(column):
+            continue
+        body, _ = _between_headings(column)
+        if body is None or in_page(body, whole) < IN_PAGE:
+            return None
+        return body
+    return None
+
+
 def venue_abstract(path):
     """(word count, None) for a venue paper's abstract, or (None, why it was skipped)."""
     suffix = path.suffix.lower()
@@ -107,11 +172,10 @@ def venue_abstract(path):
         if not shutil.which("pdftotext"):
             return None, "pdftotext not on PATH"
         try:
-            text = subprocess.run(["pdftotext", "-q", str(path), "-"], capture_output=True, text=True,
-                                  timeout=120).stdout
+            text = _pdftotext(path)
+            column = column_abstract(path, text)
         except (OSError, subprocess.SubprocessError) as e:
             return None, f"pdftotext failed: {type(e).__name__}"
-        text = re.sub(r"-\n", "", text or "")
     else:
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
@@ -122,15 +186,12 @@ def venue_abstract(path):
         if not m:
             return None, "no abstract environment"
         body = plain(m.group(1))
+    elif suffix == ".pdf" and column is not None:
+        body = column
     else:
-        head = ABSTRACT_HEAD.search(text)
-        if not head:
-            return None, "no Abstract heading"
-        end = SECTION_ONE.search(text, head.end())
-        if not end:
-            return None, "no numbered section heading after Abstract"
-        stop = ABSTRACT_STOP.search(text, head.end(), end.start())
-        body = text[head.end():stop.start() if stop else end.start()]
+        body, why = _between_headings(text)
+        if body is None:
+            return None, why
     n = word_count(body)
     if not ABSTRACT_WORDS[0] <= n <= ABSTRACT_WORDS[1]:
         return None, f"{n} words between the headings, not read as an abstract"
