@@ -1,6 +1,6 @@
 # Writing loop: the story before the sentences
 
-Status: draft. S1 and S2 are implemented (T268, the engine's unit tests, the red check and the full test.sh run locally; brought onto main 2026-09-30 in one commit; the author has not reviewed them). S3 is implemented (StoryPageTest, the red check; 2026-09-30; its one decision taken as recommended and open to reversal). S5 is next: on the manuscript this spec comes from, the author approved a five-step story page and asked that the toolkit be designed from it. S4, S6 and S7 are proposals only.
+Status: draft. S1 and S2 are implemented (T268, the engine's unit tests, the red check and the full test.sh run locally; brought onto main 2026-09-30 in one commit; the author has not reviewed them). S3 is implemented (StoryPageTest, the red check; 2026-09-30, extended 2026-10-07; its two decisions taken as recommended and open to reversal). S5 is next: on the manuscript this spec comes from, the author approved a five-step story page and asked that the toolkit be designed from it. S4, S6 and S7 are proposals only.
 
 ## Problem
 
@@ -70,11 +70,18 @@ As built (`loop/state.py`, `story_page`): the page is the intent card's section 
 its steps are the first run of numbered items (a numbered history kept below the page is not the page). A step is
 approved when an author's message it names by uuid is in the workspace's transcripts, or, naming none, when the page's
 own approval (a uuid above the first step) is; a step marked ◌ is not approved. The per-turn line says "讲法页 k/n 步认可";
-a card without the section is said and blocks nothing.
+a card without the section, or a section with no numbered steps, is a blocker (second decision below).
 
 Decision, taken as recommended on 2026-09-30 and open to reversal: a step with no approval on record is a blocker, so
 the verdict stays 未就绪 until the author approves it. Reversing it is one line in `judge`. On the manuscript this spec
 comes from, the page has five steps, all approved; its verdict did not change.
+
+Second decision, taken as recommended on 2026-10-07 and open to reversal: a card without a story page, or a page
+with no numbered steps, is a blocker too ("意图卡里没有讲法页" / "讲法页没列出编号的步骤"). Said in the per-turn line
+and not blocking, the missing page was never shown, because the loop repeats only blockers and verdict changes; an
+abstract whose order no page could check reached its author with every reader point carried, and the author could not
+follow it. A missing page is at least as open as an unapproved step. Reversing it is two branches in `judge`. A
+workspace without an intent card is unaffected; one whose card has no page stays 未就绪 until a page is written.
 
 ### S4 (proposed): growth between approved versions
 

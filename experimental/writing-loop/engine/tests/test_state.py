@@ -513,9 +513,15 @@ class StoryPageTest(unittest.TestCase):
                                on_record=(STEP_UUID,))
             self.assertEqual(st["story"]["approved"], 1)
 
-    def test_a_card_without_a_story_page_is_said_and_blocks_nothing(self):
-        with TempDir() as root:
-            st = self.run_card(root, card="# 意图卡\n\n## 读者\n- 记忆点 M1\n")
-            self.assertEqual(st["story"]["steps"], 0)
-            self.assertEqual(st["verdict"], S.AUTHOR)
-            self.assertIn("意图卡里没有讲法页", S.line(st))
+    def test_a_card_without_a_story_page_keeps_the_paper_from_the_author(self):
+        # 10-07: a card without a page used to be said and block nothing, so an abstract whose order no page
+        # could check reached the author with every reader point carried, and the author could not follow it. A
+        # missing page is at least as open as an unapproved step, which already blocks (S3).
+        for card, said in (("# 意图卡\n\n## 读者\n- 记忆点 M1\n", "意图卡里没有讲法页"),
+                           ("# 意图卡\n\n## 讲法页\n\n先讲问题，再讲修法。\n", "讲法页没列出编号的步骤")):
+            with self.subTest(said=said), TempDir() as root:
+                st = self.run_card(root, card=card)
+                self.assertEqual(st["story"]["steps"], 0)
+                self.assertEqual(st["verdict"], S.NOT_READY)
+                self.assertIn(said, st["blockers"])
+                self.assertEqual(S.line(st).count(said), 1, "said once, as a blocker")
