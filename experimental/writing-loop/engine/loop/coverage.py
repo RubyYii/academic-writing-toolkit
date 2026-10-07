@@ -402,6 +402,12 @@ def interpret(check_id, code, stdout, stderr):
             # clean result: a whole-paper average in range can hide one section far outside it. Say it.
             if str(data.get("per_section_note") or "").startswith("NOT COMPUTED"):
                 summary += "；逐节没算（只有全文平均）"
+            # The draft read one way (markup stripped) and the baseline another (PDFs as printed): every percentile
+            # compares two readings of a document, not two documents. 「越界 N 项」 alone reads the same either way.
+            if data.get("pipeline_mismatch") is True:
+                mine = "、".join(str(x) for x in data.get("target_pipeline") or []) or "?"
+                theirs = "、".join(sorted(str(x) for x in data.get("baseline_pipeline_mix") or [])) or "?"
+                summary += f"；稿件与对照读法不同（稿件 {mine}，对照 {theirs}），百分位比的是两种读法"
             summary += _peaks_summary(data)
         elif "flagged" in data and "changed" in data:
             summary = f"改动 {data['changed']} 句，标出 {data['flagged']} 句"

@@ -1238,6 +1238,9 @@ MUTATIONS = [
      'test_front_matter.AbstractLengthTest.test_the_loop_passes_the_venue_corpus_when_it_is_set'),
     ('strategic', 'catalogue.py', '"outside": _venue_outside, "argv": _front_matter_argv}', '"outside": _no_outside, "argv": _front_matter_argv}',
      'test_front_matter.AbstractLengthTest.test_the_loop_passes_the_venue_corpus_when_it_is_set'),
+    # 文风检查的稿件与对照读法不同（pipeline_mismatch）：循环那一行要说出来
+    ('strategic', 'coverage.py', '            if data.get("pipeline_mismatch") is True:', '            if False:',
+     'test_coverage.NeverGreenTest.test_a_style_run_whose_draft_and_baseline_were_read_differently_says_so'),
 ]
 
 
