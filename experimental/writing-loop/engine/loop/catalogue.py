@@ -395,6 +395,12 @@ def _sentence_changes_argv(ctx):
     return args
 
 
+def _front_matter_argv(ctx):
+    corpus = get(ctx["cfg"], "target.venue_corpus.dir")
+    return (_py(ctx, "audit/audit-front-matter.py") + ["--root", ".", "--json"]
+            + (["--venue-corpus", str(Path(corpus).expanduser())] if corpus else []) + ctx["drafts"])
+
+
 def _no_outside(cfg):
     return []
 
@@ -524,11 +530,11 @@ CHECKS = [
      "argv": lambda ctx: _py(ctx, "audit/audit-cross-refs.py") + ["--root", ".", "--json"] + ctx["drafts"]},
     # The title's words the abstract lost, and a name the draft coins that the abstract uses before saying what it is
     # (spec 2026-10-05-probe-growth, batch 2). Follows \input like cross-refs.
+    # The venue corpus is optional here: without it the abstract's length is counted, with it placed among the venue's.
     {"id": "front-matter", "name": "标题与摘要", "kind": "script", "scripts": ["audit/audit-front-matter.py"],
      "formats": ["latex"], "instead": {}, "tree": True,
-     "scope": {"kind": "all"}, "needs": [],
-     "inputs": _none, "outside": _no_outside,
-     "argv": lambda ctx: _py(ctx, "audit/audit-front-matter.py") + ["--root", ".", "--json"] + ctx["drafts"]},
+     "scope": {"kind": "all"}, "needs": [], "config_keys": ["target.venue_corpus.dir"],
+     "inputs": _none, "outside": _venue_outside, "argv": _front_matter_argv},
     {"id": "readers", "name": "读者组", "kind": "panel",
      "scripts": ["readers/build-reader-packet.py", "readers/check-reader-output.py", "readers/tally-readers.py"],
      "formats": ["latex", "markdown"], "instead": {},

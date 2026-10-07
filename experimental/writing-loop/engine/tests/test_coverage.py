@@ -255,6 +255,20 @@ class NeverGreenTest(unittest.TestCase):
         done = '{"outliers": [], "per_section_cv": {"hedge_per_1k": 0.4}, "per_section_note": null}'
         self.assertNotIn("逐节没算", V.interpret("fingerprint-venue", 0, done, "")[1])
 
+    def test_a_style_run_whose_draft_and_baseline_were_read_differently_says_so(self):
+        # The fingerprint reports pipeline_mismatch when the draft is read one way (markup stripped) and the baseline
+        # another (PDFs as printed): every percentile then compares two readings, not two documents. The loop line
+        # used to show only 「越界 N 项」, which reads the same either way.
+        run = ('{"outliers": ["hedge_per_1k"], "pipeline_mismatch": true, "target_pipeline": ["markup-stripped"], '
+               '"baseline_pipeline_mix": {"pdf-as-printed": 12}, "pipeline_note": "target and baseline differ"}')
+        verdict, summary = V.interpret("fingerprint-venue", 1, run, "")
+        self.assertEqual(verdict, "findings")
+        self.assertTrue(summary.startswith("越界 1 项"), summary)
+        self.assertIn("读法不同（稿件 markup-stripped，对照 pdf-as-printed）", summary)
+        self.assertIn("百分位比的是两种读法", summary)
+        same = '{"outliers": [], "pipeline_mismatch": false, "target_pipeline": ["pdf-as-printed"]}'
+        self.assertNotIn("读法", V.interpret("fingerprint-venue", 0, same, "")[1])
+
     def test_the_densest_section_of_the_structure_run_is_named_as_description(self):
         run = ('{"outliers": ["sub_per_comma"], "per_file": {"sections/03_background.tex": {"short": false}, '
                '"sections/02_method.tex": {"short": false}, "sections/04_stub.tex": {"short": true}}, '

@@ -143,15 +143,23 @@ def waivers(ws):
         return {}
 
 
-def current_sentences(ws):
-    """The latest version's sentences from the index on disk, and the head it was built from. (None, None) if the
-    index is not there: coverage then refuses to say anything is up to date."""
+def indexed_versions(ws):
+    """Every indexed version of the draft, oldest first, and the head the index was built from. (None, None) if the
+    index is not there."""
     try:
         d = json.loads((Path(ws) / "index" / "sentences.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None, None
-    vs = d.get("versions") or []
-    return (vs[-1]["sentences"] if vs else []), d.get("head")
+    return d.get("versions") or [], d.get("head")
+
+
+def current_sentences(ws):
+    """The latest version's sentences from the index on disk, and the head it was built from. (None, None) if the
+    index is not there: coverage then refuses to say anything is up to date."""
+    vs, head = indexed_versions(ws)
+    if vs is None:
+        return None, None
+    return (vs[-1]["sentences"] if vs else []), head
 
 
 def in_sections(sec, prefixes):
@@ -402,6 +410,12 @@ def interpret(check_id, code, stdout, stderr):
             # clean result: a whole-paper average in range can hide one section far outside it. Say it.
             if str(data.get("per_section_note") or "").startswith("NOT COMPUTED"):
                 summary += "；逐节没算（只有全文平均）"
+            # The draft read one way (markup stripped) and the baseline another (PDFs as printed): every percentile
+            # compares two readings of a document, not two documents. 「越界 N 项」 alone reads the same either way.
+            if data.get("pipeline_mismatch") is True:
+                mine = "、".join(str(x) for x in data.get("target_pipeline") or []) or "?"
+                theirs = "、".join(sorted(str(x) for x in data.get("baseline_pipeline_mix") or [])) or "?"
+                summary += f"；稿件与对照读法不同（稿件 {mine}，对照 {theirs}），百分位比的是两种读法"
             summary += _peaks_summary(data)
         elif "flagged" in data and "changed" in data:
             summary = f"改动 {data['changed']} 句，标出 {data['flagged']} 句"
@@ -970,6 +984,7 @@ def live_line(ws, cfg):
     workspace as `/private/var/…` agree. The paper's state leads and is never cut: checks that have all looked at the
     draft say nothing about whether its claims stand, and a line of coverage alone read as "nothing is wrong"."""
     ws = Path(ws).resolve()
+    _LAST_STATE.pop(str(ws), None)  # a call that fails before the state is computed leaves none, not the last one
     cov = reminder_line(load_summary(ws, cfg), ws)
     try:
         from . import state as S
