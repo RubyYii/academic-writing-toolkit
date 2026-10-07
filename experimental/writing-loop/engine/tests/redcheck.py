@@ -1203,6 +1203,22 @@ MUTATIONS = [
      'test_doctor.NamedSessionTest.test_a_named_session_is_found_and_one_that_is_not_is_a_problem'),
     ('strategic', 'doctor.py', '        if not hits and any(named.values()):', '        if False:',
      'test_doctor.NamedSessionTest.test_with_named_sessions_no_session_on_the_branch_is_not_a_fault'),
+    # 宏定义里的引用不是引用：\newcommand{\mycite}[1]{\citep{#1}} 曾把「#1」报成书目里没有的键
+    ('strategic', 'skill:verify-refs/scripts/reconcile-cites.py', '            text, found = strip_definitions(COMMENT.sub("", p.read_text(encoding="utf-8", errors="replace")))',
+     '            text, found = COMMENT.sub("", p.read_text(encoding="utf-8", errors="replace")), []',
+     'test_cite_names.MacroDefinitionTest.test_definitions_are_skipped_and_a_real_missing_key_is_still_reported'),
+    ('strategic', 'skill:verify-refs/scripts/reconcile-cites.py', '                elif is_key(k):\n                    first.setdefault', '                elif k:\n                    first.setdefault',
+     'test_cite_names.MacroDefinitionTest.test_a_backslash_or_hash_token_is_never_a_key'),
+    ('strategic', 'skill:verify-refs/scripts/reconcile-cites.py', 'not token.startswith(("\\\\", "#"))', 'not token.startswith("#")',
+     'test_cite_names.MacroDefinitionTest.test_a_backslash_or_hash_token_is_never_a_key'),
+    ('strategic', 'skill:verify-refs/scripts/reconcile-cites.py', 'return text[:a] + re.sub(r"[^\\n]", " ", text[a:b]) + text[b:]', 'return text[:a] + " " * (b - a) + text[b:]',
+     'test_cite_names.MacroDefinitionTest.test_line_numbers_after_a_definition_are_unchanged'),
+    ('strategic', 'skill:verify-refs/scripts/reconcile-cites.py', '                if c == "\\\\":\n                    i += 2\n                    continue\n', '',
+     'test_cite_names.MacroDefinitionTest.test_definitions_are_skipped_and_a_real_missing_key_is_still_reported'),
+    ('strategic', 'skill:verify-refs/scripts/reconcile-cites.py', '|(?P<let>\\\\let', '|(?P<let>\\\\nolet',
+     'test_cite_names.MacroDefinitionTest.test_definitions_are_skipped_and_a_real_missing_key_is_still_reported'),
+    ('strategic', 'skill:verify-refs/scripts/reconcile-cites.py', 'for k in sorted(bib - set(first) - set(in_defs))]', 'for k in sorted(bib - set(first))]',
+     'test_cite_names.MacroDefinitionTest.test_a_key_written_in_a_definition_counts_as_cited'),
 ]
 
 

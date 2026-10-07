@@ -146,6 +146,65 @@ class AuthorNamedTwiceTest(unittest.TestCase):
             self.assertEqual(twice(check(root, body)), [])
 
 
+class MacroDefinitionTest(unittest.TestCase):
+    """A citation inside a macro definition is the macro's body, not a citation: \\newcommand{\\mycite}[1]{\\citep{#1}}
+    reported "#1" as cited and not in the bibliography. Definitions and their bodies are skipped, and a token that
+    starts with a backslash or # is never a key. A key the text really cites and the bibliography lacks is still
+    reported, also when it is cited through such a macro."""
+
+    PREAMBLE = (NATBIB +
+                "\\newcommand{\\mycite}[1]{\\citep{#1}}\n"
+                "\\renewcommand\\citeA[2][]{\\citeauthor[#1]{#2}}\n"
+                "\\providecommand*{\\pcite}{\\citet{\\thekey}}\n"
+                "\\DeclareRobustCommand{\\rcite}[1]{\\cite{#1, \\extra}}\n"
+                "\\def\\dcite#1#2{\\citep[#1]{#2}}\n"
+                "\\gdef\\gcite{\\cite{\\gkey}}\n"
+                "\\let\\oldcite\\cite\n"
+                "\\let\\olderp = \\citep\n"
+                "\\newcommand{\\wrapped}{\\}\\citep{example-key}}\n"
+                "\\newcommand{\\ours}{\\citet{long2018}}\n"
+                "\\let\\olderp\\citep\n{gauge readings}\n"
+                "{\\catcode`\\@=11 \\def\\nest{{\\cite{#9}}\n and {\\citet{#8}}}}\n")
+
+    def issues(self, d, kind):
+        return sorted(i["key"] for i in d["issues"] if i["kind"] == kind)
+
+    def test_definitions_are_skipped_and_a_real_missing_key_is_still_reported(self):
+        with TempDir() as root:
+            body = "Gauges drift~\\mycite{smith2020}. Records agree~\\citep{nosuch2022}. Tides too~\\mycite{absent2017}."
+            d = check(root, body, preamble=self.PREAMBLE)
+            self.assertEqual(self.issues(d, "cited-not-in-bib"), ["absent2017", "nosuch2022"], d["issues"])
+            self.assertEqual(self.issues(d, "bib-not-cited"), [])
+            self.assertEqual(d["definition_keys"], ["example-key", "long2018"])
+
+    def test_a_key_written_in_a_definition_counts_as_cited(self):
+        """\\newcommand{\\ours}{\\citet{long2018}} used in the text cites long2018: blanking the definition must not
+        turn it into an entry nothing reads."""
+        with TempDir() as root:
+            root = Path(root)
+            (root / "references.bib").write_text(BIB, encoding="utf-8")
+            (root / "main.tex").write_text(
+                "\\documentclass{article}\n\\newcommand{\\ours}{\\citet{long2018}}\n\\begin{document}\n"
+                "As \\ours\\ shows, drift rose~\\citep{smith2020,muller2019,agency2021}.\n\\end{document}\n", encoding="utf-8")
+            r = subprocess.run([sys.executable, str(SCRIPTS / "reconcile-cites.py"), "--bib", str(root / "references.bib"),
+                                "--json", str(root / "main.tex")], capture_output=True, text=True)
+            d = json.loads(r.stdout)
+            self.assertEqual(d["issues"], [])
+            self.assertEqual(r.returncode, 0)
+
+    def test_a_backslash_or_hash_token_is_never_a_key(self):
+        with TempDir() as root:
+            body = "Drift rose~\\citep{smith2020, \\somekey, #3}. Floods followed~\\citep{#1}."
+            d = check(root, body)
+            self.assertEqual(self.issues(d, "cited-not-in-bib"), [], d["issues"])
+
+    def test_line_numbers_after_a_definition_are_unchanged(self):
+        with TempDir() as root:
+            d = check(root, "Records agree~\\citep{nosuch2022}.", preamble=self.PREAMBLE)
+            [i] = [i for i in d["issues"] if i["kind"] == "cited-not-in-bib"]
+            want = 1 + self.PREAMBLE.count("\n") + 2  # \\documentclass, the preamble, \\begin{document}, the body
+            self.assertTrue(i["location"].endswith(f"main.tex:{want}"), (i["location"], want))
+
 
 class CitationStyleSettingTest(unittest.TestCase):
     def test_the_workspace_setting_reaches_the_script(self):
