@@ -28,6 +28,13 @@ def cmd_init(a):
 def cmd_doctor(a):
     from . import doctor
     problems, facts = doctor.run(a.workspace)
+    # Not in doctor.run: the notch producer reads its problems as "the tool is broken" and stops drawing. A workspace
+    # the hook registry does not list is a loop that never runs for it, which the person setting it up must hear here.
+    warn = C.registry_warning(a.workspace)
+    if warn:
+        problems = problems + [("registry", warn)]
+    else:
+        facts = facts + [("registry", f"钩子登记表里有它（{C.registry_path()}）")]
     for item, msg in facts:
         print(f"  · {item}: {msg}")
     for item, msg in problems:
@@ -197,9 +204,12 @@ def cmd_coverage(a):
         return 2
     only = set(a.only.split(",")) if a.only else None
     s = V.compute(cfg, a.workspace, do_run=a.run, only=only, force=a.force)
+    warn = C.registry_warning(a.workspace)
     if a.json:
-        print(json.dumps(s, ensure_ascii=False, indent=1))
+        print(json.dumps(dict(s, hook_registry=warn), ensure_ascii=False, indent=1))
     else:
+        if warn:
+            print("注意：" + warn)
         print(V.table(s, a.workspace))
         if s["ran"]:
             print("这次跑了：" + "、".join(s["ran"]))
@@ -235,16 +245,19 @@ def cmd_state(a):
         print(f"state：读不出工作区配置：{e}", file=sys.stderr)
         return 2
     st = S.compute(cfg, a.workspace)
+    warn = C.registry_warning(a.workspace)
     if a.json:
-        out = dict(st)
+        out = dict(st, hook_registry=warn)
         out["claims"] = [dict({k: v for k, v in c.items() if k not in ("over", "must", "carry")},
                               over=[r for r, _ in c["over"]], must=[r for r, _ in c["must"]],
                               carry=[r for r, _ in c.get("carry") or []])
                          for c in st.get("claims") or []]
         print(json.dumps(out, ensure_ascii=False, indent=1))
     else:
+        if warn:
+            print("注意：" + warn)
         print(S.table(st))
-    return 0 if st.get("verdict") in (S.AUTHOR, S.SUBMITTED) and not st.get("blockers") else 1
+    return 0 if S.ready(st) else 1
 
 
 def cmd_health(a):

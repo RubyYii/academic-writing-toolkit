@@ -43,7 +43,7 @@ sys.path.insert(0, str(ENGINE))
 from loop import config as C  # noqa: E402
 from loop import health as HL  # noqa: E402
 
-REGISTRY = "~/.awt/loop-workspaces"
+REGISTRY = C.REGISTRY  # one definition: `loop doctor` checks a workspace against the same file (config.registry_path)
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 GIT_RE = re.compile(r"\bgit\b[^\n;&|]*\b(commit|merge|rebase|cherry-pick|reset|revert|pull|am)\b")
 REMINDER = (
@@ -73,7 +73,7 @@ def _under(path, root):
 
 def registry(path=None):
     """[(workspace, cfg)] for every readable line; a line that does not load is skipped, and returned as bad."""
-    p = Path(os.path.expanduser(path or os.environ.get("AWT_LOOP_REGISTRY") or REGISTRY))
+    p = Path(os.path.expanduser(path)) if path else C.registry_path()
     good, bad = [], []
     try:
         lines = p.read_text(encoding="utf-8").splitlines()
@@ -102,7 +102,14 @@ def toplevel(cwd):
 
 
 def session_ws(payload, regs):
-    """The registered workspace this session works on: cwd under the configured prefix, on the configured branch."""
+    """The registered workspace this session works on: one whose transcripts.sessions names this session's id, wherever
+    it runs; otherwise cwd under the configured prefix, on the configured branch. The id list is read through
+    C.session_ids, the one rule transcript reading, doctor, approvals and the ring also go by."""
+    sid = payload.get("session_id")
+    if isinstance(sid, str) and sid:
+        for ws, cfg in regs:
+            if sid in C.session_ids(cfg):
+                return ws, cfg
     cwd = payload.get("cwd")
     if not isinstance(cwd, str):
         return None, None
@@ -123,7 +130,9 @@ def history_wss(payload, regs):
 
     A session can also be named by its id (transcripts.history_sessions, read only here): a conversation
     shares its checkout and branch with other lines, so a directory + branch rule would take them in too. Only the
-    hook reads that key; transcript reading, targets and doctor still go by `also`, so its turns are not counted."""
+    hook reads that key; transcript reading, targets and doctor still go by `also`, so its turns are not counted.
+    A session that does work on the manuscript belongs in transcripts.sessions instead (see session_ws): that key
+    makes it a primary session, and every reader counts it."""
     cwd, sid = payload.get("cwd"), payload.get("session_id")
     br, out = None, []
     for ws, cfg in regs:
@@ -527,6 +536,17 @@ def on_pre_tool(payload, regs, now):
     return None
 
 
+def _manuscript_top(t, cfg):
+    """The git top of the manuscript checkout holding path t (the configured prefix or the repository, or a worktree
+    inside either), or None when t lies in neither. t need not exist yet: the nearest existing parent is asked."""
+    d = os.path.dirname(_real(t))
+    while d and not os.path.isdir(d) and os.path.dirname(d) != d:
+        d = os.path.dirname(d)
+    top = toplevel(d) if d else None
+    roots = [r for r in (cfg["transcripts"].get("cwd_prefix"), cfg.get("repo")) if r]
+    return top if top and any(_under(top, r) for r in roots) else None
+
+
 def _is_draft(rel, glob):
     """A string is a glob naming one file per version; a list names the files that together are the draft
     (a LaTeX main file and its sections), matched file by file, as history.py reads it."""
@@ -543,6 +563,10 @@ def on_post_tool(payload, regs, now, spawn):
         return None
     if tool in WRITE_TOOLS:
         t, top = _target(tool, ti, payload.get("cwd")), toplevel(payload.get("cwd"))
+        if t and payload.get("session_id") in C.session_ids(cfg) and not _under(payload.get("cwd"), cfg["transcripts"]["cwd_prefix"]):
+            # A session named by id that runs elsewhere edits the draft by absolute path: the path counts against the
+            # manuscript's checkout that holds it, never against the other repository the session happens to run in.
+            top = _manuscript_top(t, cfg)
         if t and top and _under(t, top):
             rel = os.path.relpath(_real(t), _real(top)).replace(os.sep, "/")
             led = cfg.get("ledger") or {}

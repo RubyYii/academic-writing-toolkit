@@ -368,6 +368,85 @@ class StateTest(unittest.TestCase):
             self.assertEqual(block["cells"][0]["tone"], "orange")
 
 
+class StaleLedgerHintTest(unittest.TestCase):
+    """A required wording the whole draft no longer has, that an earlier indexed version still said: the draft may have
+    been reworded on purpose and the ledger not, so `loop state` names the last commit that said it. A wording no
+    version ever said gets no hint: then the ledger asks for something not yet written."""
+
+    REWORDED = INTRO.replace("We do not test whether drivers notice.", "Drivers were not asked.")
+
+    def setup_history(self, root, ledger, intros):
+        """One commit per intro text, oldest first; the index built over all of them. Returns ws, cfg, shas."""
+        commits = [({"main.tex": MAIN, "sections/01_intro.tex": t}, f"v{i}", 1_700_000_000 + i)
+                   for i, t in enumerate(intros, 1)]
+        repo = make_repo(root, commits)
+        ws = workspace(root, repo, "main", glob=["main.tex", "sections/01_intro.tex"])
+        cfg = C.load(ws)
+        cfg["draft"]["format"] = "latex"
+        cfg["draft"]["sections"] = RULES
+        cfg["genre"] = "note"
+        p = Path(root) / "claims.md"
+        p.write_text(ledger, encoding="utf-8")
+        cfg["claims"] = str(p)
+        C.save(ws, cfg)
+        cfg = C.load(ws)
+        vs = H.load_versions(cfg)
+        H.assign_ids(vs)
+        head = git(cfg["repo"], "rev-parse", "HEAD")
+        (Path(ws) / "index" / "sentences.json").write_text(json.dumps({"head": head, "versions": vs}), encoding="utf-8")
+        shas = git(cfg["repo"], "log", "--reverse", "--format=%H").split()
+        return ws, cfg, shas
+
+    def test_the_last_commit_that_said_it_is_named(self):
+        intros = [INTRO, INTRO.replace("Inspections are rare.", "Inspections are scarce."), self.REWORDED,
+                  self.REWORDED.replace("Inspections are rare.", "Inspections are few.")]
+        with TempDir() as root:
+            ws, cfg, shas = self.setup_history(root, LEDGER, intros)
+            st = S.compute(cfg, ws)
+            [a] = [x for x in st["absent"] if x["claim"] == "C1"]
+            self.assertEqual(a["last_seen"]["sha"], shas[1], "the last version that still said it, not the first")
+            self.assertIn(f"缺「do not test whether drivers」：整篇没有一句——可能是台账过期：该短语在 {shas[1][:7]} 之后不再出现",
+                          S.table(st))
+
+    def test_a_wording_no_version_said_gets_no_hint(self):
+        ledger = LEDGER.replace("- 必须出现：do not test whether drivers", "- 必须出现：drivers were surveyed")
+        with TempDir() as root:
+            ws, cfg, _shas = self.setup_history(root, ledger, [INTRO, self.REWORDED])
+            st = S.compute(cfg, ws)
+            [a] = [x for x in st["absent"] if x["claim"] == "C1"]
+            self.assertNotIn("last_seen", a)
+            self.assertIn("缺「drivers were surveyed」：整篇没有一句", S.table(st))
+            self.assertNotIn("台账过期", S.table(st))
+
+    def test_a_wording_required_in_one_place_is_looked_for_in_that_place(self):
+        """Moved out of the abstract into the introduction is absent where the ledger wants it; the hint names the
+        last commit that had it in the abstract, and a version that had it only elsewhere does not count."""
+        ledger = LEDGER.replace("- 必须出现：do not test whether drivers", "- 必须出现：drivers notice @ A")
+        main_said = MAIN.replace("We audit a bridge survey.", "We audit a bridge survey. Whether drivers notice is open.")
+        commits = [(main_said, INTRO), (MAIN, INTRO), (MAIN, INTRO.replace("Inspections are rare.", "Checks are rare."))]
+        with TempDir() as root:
+            repo = make_repo(root, [({"main.tex": m, "sections/01_intro.tex": t}, f"v{i}", 1_700_000_000 + i)
+                                    for i, (m, t) in enumerate(commits, 1)])
+            ws = workspace(root, repo, "main", glob=["main.tex", "sections/01_intro.tex"])
+            cfg = C.load(ws)
+            cfg["draft"].update(format="latex", sections=RULES)
+            cfg["genre"] = "note"
+            p = Path(root) / "claims.md"
+            p.write_text(ledger, encoding="utf-8")
+            cfg["claims"] = str(p)
+            C.save(ws, cfg)
+            cfg = C.load(ws)
+            vs = H.load_versions(cfg)
+            H.assign_ids(vs)
+            (Path(ws) / "index" / "sentences.json").write_text(
+                json.dumps({"head": git(cfg["repo"], "rev-parse", "HEAD"), "versions": vs}), encoding="utf-8")
+            shas = git(cfg["repo"], "log", "--reverse", "--format=%H").split()
+            st = S.compute(cfg, ws)
+            [a] = [x for x in st["absent"] if x["claim"] == "C1"]
+            self.assertEqual(a["place"], "A")
+            self.assertEqual(a["last_seen"]["sha"], shas[0], "v2 has it only in the introduction, which is not A")
+
+
 if __name__ == "__main__":
     unittest.main()
 

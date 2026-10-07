@@ -25,6 +25,13 @@ bibliography style (plainnat, apalike, apacite ... print names; plain, unsrt, ie
 it, for a build that rewrites the class or the bibliography style for a venue so that the source says one style and
 the submission prints another. A style it cannot tell is reported as unknown and author-named-twice is not checked.
 
+A macro definition is not a citation: \\newcommand, \\renewcommand, \\providecommand, \\DeclareRobustCommand, \\def (and
+\\gdef, \\edef, \\xdef) with their bodies, and \\let, are blanked before anything is read, so the "#1" of
+\\newcommand{\\mycite}[1]{\\citep{#1}} is not a key; a citation made through such a macro is still read where it is
+used. A key written out in a definition's body (\\newcommand{\\ours}{\\citet{key}}) is listed under definition_keys
+and counts as cited, since the macro may be used, but is not reported missing from the bibliography, since it may not
+be. A token that starts with a backslash or # is never taken for a key (it is counted under skipped_tokens).
+
 Duplicate keys and malformed entries are verify-refs.py's job and are not repeated here; this uses its parser.
 A \\input it cannot find is listed under unresolved_inputs, not counted as an issue (a generated file is often
 missing from a clean tree), and the report says so.
@@ -69,6 +76,50 @@ AFTER_OPENING_NAME = re.compile(r"\s*(?:et\s+al|and\b|&|\\&|'s|\u2019s|\(|,)")
 CITE = re.compile(r"\\[A-Za-z]*cite[A-Za-z]*\*?(?:\s*\[[^\]]*\]){0,2}\s*\{([^}]*)\}")
 INPUT = re.compile(r"\\(?:input|include|subfile)\s*\{([^}]+)\}")
 COMMENT = re.compile(r"(?<!\\)%.*")
+_CS = r"\\(?:[A-Za-z@]+|.)"  # a control sequence: a name, or one non-letter
+# the head of a macro definition; a body in braces follows every kind but \let
+DEFINITION = re.compile(
+    r"\\(?:(?:new|renew|provide)command|DeclareRobustCommand)\*?\s*(?:\{\s*" + _CS + r"\s*\}|" + _CS + r")"
+    r"\s*(?:\[[^\]]*\]\s*){0,2}(?=\{)"
+    r"|\\[gex]?def\s*" + _CS + r"[^{}]{0,200}?(?=\{)"
+    r"|(?P<let>\\let\s*" + _CS + r"\s*=?\s*" + _CS + r")")
+
+
+def _blank(text, a, b):
+    """text with [a, b) replaced by spaces, newlines kept, so offsets and line numbers do not move."""
+    return text[:a] + re.sub(r"[^\n]", " ", text[a:b]) + text[b:]
+
+
+def strip_definitions(text):
+    """(text with every macro definition and its body blanked, [the blanked definitions]) (see DEFINITION). A body
+    whose braces do not close is left as it is: only the head is blanked."""
+    pos, defs = 0, []
+    while True:
+        m = DEFINITION.search(text, pos)
+        if not m:
+            return text, defs
+        end = m.end()
+        if not m.group("let"):
+            depth, i = 0, end
+            while i < len(text):
+                c = text[i]
+                if c == "\\":
+                    i += 2
+                    continue
+                depth += c == "{"
+                depth -= c == "}"
+                i += 1
+                if depth == 0:
+                    end = i
+                    break
+        defs.append(text[m.start():end])
+        text = _blank(text, m.start(), end)
+        pos = end
+
+
+def is_key(token):
+    """A citation key: not empty, and not a macro (\\thekey) or a parameter (#1) left in a citation's braces."""
+    return bool(token) and not token.startswith(("\\", "#"))
 
 
 def _parser():
@@ -84,8 +135,9 @@ def _parser():
 
 
 def read_tree(files, root):
-    """[(path, text without comments)] for the files given and everything they input, each file once."""
-    out, seen, unresolved = [], set(), []
+    """([(path, text without comments or macro definitions)], [unresolved inputs], [macro definitions]) for the files
+    given and everything they input, each file once."""
+    out, seen, unresolved, defs = [], set(), [], []
     stack = [Path(f) for f in reversed(files)]
     while stack:
         p = stack.pop()
@@ -94,7 +146,8 @@ def read_tree(files, root):
             continue
         seen.add(key)
         try:
-            text = COMMENT.sub("", p.read_text(encoding="utf-8", errors="replace"))
+            text, found = strip_definitions(COMMENT.sub("", p.read_text(encoding="utf-8", errors="replace")))
+            defs += found
         except OSError:
             unresolved.append(str(p))
             continue
@@ -108,7 +161,7 @@ def read_tree(files, root):
                 stack.append(q)
             else:
                 unresolved.append(name)
-    return out, unresolved
+    return out, unresolved, defs
 
 
 def citation_style(files):
@@ -216,7 +269,7 @@ def named_twice(files, surnames):
                 if NO_NAME.match(m.group(1)):
                     continue
                 for k in (x.strip() for x in m.group(3).split(",")):
-                    if k:
+                    if is_key(k):
                         printing[k] = printing.get(k, 0) + 1
             if not printing:
                 continue
@@ -260,20 +313,25 @@ def main():
     if not defined:
         sys.stderr.write(f"reconcile-cites: {a.bib} defines no entry\n")
         return 2
-    files, unresolved = read_tree(a.files, a.root)
+    files, unresolved, defs = read_tree(a.files, a.root)
     if not files:
         sys.stderr.write("reconcile-cites: none of the files given could be read\n")
         return 2
     first = {}
     everything = False
+    skipped = 0
     for path, text in files:
         for m in CITE.finditer(text):
             line = text.count("\n", 0, m.start()) + 1
             for k in (x.strip() for x in m.group(1).split(",")):
                 if k == "*":
                     everything = True
-                elif k:
+                elif is_key(k):
                     first.setdefault(k, f"{path}:{line}")
+                elif k:
+                    skipped += 1
+    in_defs = sorted({k for d in defs for m in CITE.finditer(d) for k in (x.strip() for x in m.group(1).split(","))
+                      if is_key(k) and k != "*"})
     bib = set(defined)
     issues = [{"kind": "cited-not-in-bib", "severity": "high", "key": k, "location": loc,
                "message": "Cited in the text, not defined in the bibliography."}
@@ -281,12 +339,13 @@ def main():
     if not everything:
         issues += [{"kind": "bib-not-cited", "severity": "medium", "key": k, "location": a.bib,
                     "message": "Defined in the bibliography, cited nowhere in the files read."}
-                   for k in sorted(bib - set(first))]
+                   for k in sorted(bib - set(first) - set(in_defs))]
     style, style_from = (a.style, "--style") if a.style != "auto" else citation_style(files)
     if style == "author-year":
         surnames = {e["key"]: first_surname(e["fields"].get("author") or e["fields"].get("editor")) for e in entries}
         issues += named_twice(files, surnames)
     payload = {"schema_version": 1, "bib_entries": len(bib), "cited_keys": len(first), "nocite_all": everything,
+               "skipped_tokens": skipped, "definition_keys": in_defs,
                "citation_style": style, "citation_style_from": style_from,
                "files_read": [str(p) for p, _ in files], "unresolved_inputs": sorted(set(unresolved)),
                "issues": issues, "issue_count": len(issues)}

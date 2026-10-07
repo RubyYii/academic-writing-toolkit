@@ -22,7 +22,7 @@ DEFINED = ("We built GaugeBench, a record of 14 river gauges, and asked whether 
 METHOD = "\\section{Method}\nWe built GaugeBench, a record of 14 river gauges kept for ten years.\n"
 
 
-def check(root, abstract=DEFINED, title=TITLE, body=METHOD, files=None):
+def check(root, abstract=DEFINED, title=TITLE, body=METHOD, files=None, corpus=None):
     root = Path(root)
     for name, text in (files or {}).items():
         (root / name).write_text(text, encoding="utf-8")
@@ -31,7 +31,8 @@ def check(root, abstract=DEFINED, title=TITLE, body=METHOD, files=None):
         parts.append(f"\\begin{{abstract}}\n{abstract}\n\\end{{abstract}}")
     (root / "main.tex").write_text("\\documentclass{article}\n" + "\n".join(parts) + "\n\\begin{document}\n"
                                    + body + "\n\\end{document}\n", encoding="utf-8")
-    r = subprocess.run([sys.executable, str(SCRIPTS / "audit-front-matter.py"), "--root", str(root), "--json",
+    extra = ["--venue-corpus", str(corpus)] if corpus else []
+    r = subprocess.run([sys.executable, str(SCRIPTS / "audit-front-matter.py"), "--root", str(root), "--json", *extra,
                         str(root / "main.tex")], capture_output=True, text=True)
     assert r.returncode in (0, 1), r.stderr[-400:]
     d = json.loads(r.stdout)
@@ -149,6 +150,88 @@ class CoinedNameTest(unittest.TestCase):
             self.assertEqual(d["coined_names"], [])
 
 
+def words(n):
+    """n synthetic words of running text."""
+    vocab = "river gauges record drift before floods and the readings rise slowly over many seasons".split()
+    return " ".join(vocab[i % len(vocab)] for i in range(n))
+
+
+def paper(head, n, end, between=""):
+    """A synthetic venue paper as extracted text: a title, an abstract heading, n words, then a section heading."""
+    return f"A synthetic paper on gauges\nAuthor One, Author Two\n{head}\n{words(n)}\n{between}{end}\n{words(300)}\n"
+
+
+def corpus(root, sizes, extra=None):
+    """A venue corpus of .txt papers whose abstracts have the given lengths, written in the heading forms the
+    script must read, plus any extra files given."""
+    forms = [("Abstract", "1 Introduction", ""), ("ABSTRACT", "1. INTRODUCTION", ""),
+             ("Abstract", "I. INTRODUCTION", "Keywords: gauges, floods, drift\n"),
+             ("Abstract.", "1\nIntroduction", "CCS Concepts: none here\n"), ("# Abstract", "## 1 Introduction", "")]
+    d = Path(root) / "venue"
+    d.mkdir()
+    for i, n in enumerate(sizes):
+        head, end, between = forms[i % len(forms)]
+        (d / f"paper{i:02d}.txt").write_text(paper(head, n, end, between), encoding="utf-8")
+    for name, text in (extra or {}).items():
+        (d / name).write_text(text, encoding="utf-8")
+    return d
+
+
+class AbstractLengthTest(unittest.TestCase):
+    """The abstract's length against the venue's: the draft's count of words, and where it falls among the abstracts
+    of the venue corpus (text between an Abstract heading and the first numbered section heading). Files whose
+    abstract cannot be read are counted and skipped, never guessed at."""
+
+    SKIPPED = {"no-heading.txt": "A paper with no such heading\n" + words(200) + "\n1 Introduction\n" + words(50),
+               "no-section.txt": "Abstract\n" + words(80) + "\nIntroduction without a number\n" + words(50)}
+
+    def test_with_no_corpus_the_count_alone_is_reported(self):
+        with TempDir() as root:
+            d = check(root)
+            self.assertEqual(d["abstract_words"], 27)
+            self.assertIsNone(d["venue_abstracts"])
+            self.assertIn("摘要 27 词", d["summary_zh"])
+
+    def test_the_percentile_among_venue_abstracts_and_what_was_skipped(self):
+        with TempDir() as root:
+            venue = corpus(root, [10 * k + 30 for k in range(6)], self.SKIPPED)  # 30, 40, ... 80 words
+            d = check(root, abstract=DEFINED + " " + words(48), corpus=venue)  # 75 words
+            v = d["venue_abstracts"]
+            self.assertEqual(sorted(v["parsed_files"].values()), [30, 40, 50, 60, 70, 80])
+            self.assertEqual(v["parsed"], 6)
+            self.assertEqual(sorted(x["file"] for x in v["skipped"]), ["no-heading.txt", "no-section.txt"])
+            self.assertEqual((d["abstract_words"], v["percentile"], v["median"]), (75, 83, 55))
+            self.assertEqual(kinds(d, "abstract-longer-than-venue"), [None])
+            [i] = [i for i in d["issues"] if i["kind"] == "abstract-longer-than-venue"]
+            self.assertEqual(i["severity"], "low")
+            self.assertIn("第 83 百分位", d["summary_zh"])
+
+    def test_at_or_below_the_75th_percentile_there_is_no_finding(self):
+        with TempDir() as root:
+            venue = corpus(root, [10 * k + 30 for k in range(6)])
+            d = check(root, abstract=DEFINED + " " + words(23), corpus=venue)  # 50 words
+            self.assertEqual((d["abstract_words"], d["venue_abstracts"]["percentile"]), (50, 42))
+            self.assertEqual(d["issues"], [])
+
+    def test_too_few_venue_abstracts_give_no_percentile(self):
+        with TempDir() as root:
+            venue = corpus(root, [30, 40, 50, 60], self.SKIPPED)
+            d = check(root, abstract=DEFINED + " " + words(100), corpus=venue)
+            v = d["venue_abstracts"]
+            self.assertEqual((v["parsed"], v["percentile"]), (4, None))
+            self.assertEqual(d["issues"], [])
+            self.assertIn("不给百分位", d["summary_zh"])
+
+    def test_the_loop_passes_the_venue_corpus_when_it_is_set(self):
+        [c] = [c for c in K.CHECKS if c["id"] == "front-matter"]
+        ctx = {"cfg": {"target": {"venue_corpus": {"dir": "/synthetic/venue"}}}, "drafts": ["main.tex"]}
+        argv = c["argv"](dict(ctx, root=K.ENGINE_ROOT))
+        self.assertEqual(argv[argv.index("--venue-corpus") + 1], "/synthetic/venue")
+        self.assertEqual(c["outside"](ctx["cfg"]), ["/synthetic/venue"])
+        self.assertIn("target.venue_corpus.dir", c.get("config_keys") or [])
+        self.assertNotIn("--venue-corpus", c["argv"]({"cfg": {}, "drafts": ["main.tex"], "root": K.ENGINE_ROOT}))
+
+
 class FrontMatterLoopTest(unittest.TestCase):
     def test_the_check_is_in_the_catalogue_for_latex(self):
         [c] = [c for c in K.CHECKS if c["id"] == "front-matter"]
@@ -163,13 +246,13 @@ class FrontMatterLoopTest(unittest.TestCase):
         with TempDir() as root:
             check(root, abstract=ODD.replace("an early warning", "a warning"))
             self.assertEqual(V.interpret("front-matter", 1, run_json(root), ""),
-                             ("findings", "标题词摘要里没有 1（early）；自造名首现没说是什么 1（GaugeBench）"))
+                             ("findings", "标题词摘要里没有 1（early）；自造名首现没说是什么 1（GaugeBench）；摘要 25 词"))
 
     def test_the_loop_says_what_a_clean_abstract_was_checked_for(self):
         with TempDir() as root:
             check(root)
             self.assertEqual(V.interpret("front-matter", 0, run_json(root), ""),
-                             ("ok", "标题词都在摘要里；自造名 1 个首现都说了是什么"))
+                             ("ok", "标题词都在摘要里；自造名 1 个首现都说了是什么；摘要 27 词"))
 
 
 def run_json(root):

@@ -6,6 +6,7 @@ import re
 
 from . import config as C
 from . import gitio
+from . import transcripts as T
 from .text import sentences_of
 
 
@@ -24,6 +25,19 @@ def transcript_files(cfg, cwd_prefix=None):
     if not root.is_dir():
         return None
     return sorted(p for d in root.iterdir() if d.is_dir() and d.name.startswith(prefix) for p in d.glob("*.jsonl"))
+
+
+def all_transcript_files(cfg):
+    """Every transcript file that can hold this manuscript's sessions: under the primary prefix, under each `also`
+    prefix, and the files of the sessions named by id (transcripts.sessions). Approvals and the ring look up an author
+    message by uuid here, so a message given in a named session is on record as one given under the prefix is."""
+    t = cfg.get("transcripts") or {}
+    files = list(transcript_files(cfg) or [])
+    for s in t.get("also") or []:
+        if isinstance(s, dict) and s.get("cwd_prefix"):
+            files += list(transcript_files(cfg, s["cwd_prefix"]) or [])
+    files += [p for found in T.named_files(cfg).values() for p in found]
+    return list(dict.fromkeys(files))
 
 
 def _branch_exists(cwd_prefix, branch):
@@ -104,7 +118,20 @@ def run(ws):
             n = len(_on_branch(transcript_files(cfg, s["cwd_prefix"]) or [], s["git_branch"]))
             history += n
             facts.append((f"transcripts.also[{i}]", f"历史来源（只读）{n} 个会话记在分支 {s['git_branch']} 上"))
-        if not hits and history:
+        named, raw = T.named_files(cfg), cfg["transcripts"].get("sessions") or []
+        for i, s in enumerate(raw):
+            sid = s.get("id") if isinstance(s, dict) else None
+            if not (isinstance(sid, str) and sid):
+                bad(f"transcripts.sessions[{i}]", "缺 id：每一项写成 {\"id\": 会话号, \"note\": 为什么算这篇的}")
+            elif not named.get(sid):
+                bad(f"transcripts.sessions[{i}]", f"{cfg['transcripts']['projects_dir']} 下找不到会话 {sid} 的记录（{sid}.jsonl）")
+        if raw:
+            n_found = sum(1 for sid in named if named[sid])
+            facts.append(("transcripts.sessions", f"按会话号指定的主会话 {n_found}/{len(named)} 个找得到记录"))
+        if not hits and any(named.values()):
+            # 这篇的会话都在别处跑、按会话号指定：分支上没有会话不是故障。
+            facts.append(("transcripts", "主来源分支上没有会话；按会话号指定的主会话有记录"))
+        elif not hits and history:
             # 刚改绑到新仓、还没在那里开过会话：记录在历史来源里。这是「还没开始」，不是故障（F6，负担实测 2026-09-18）。
             facts.append(("transcripts", "主来源还没有会话；历史来源里有记录，等第一次在主来源开会话"))
         elif not hits and _branch_exists(cfg["transcripts"]["cwd_prefix"], cfg["transcripts"]["git_branch"]):

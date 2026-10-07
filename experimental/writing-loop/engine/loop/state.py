@@ -333,6 +333,24 @@ def scan(claims, sentences, extra=()):
     return over, absent
 
 
+def last_seen(claims, absent, earlier):
+    """Each required wording absent from the current draft that an earlier indexed version still said (in the place the
+    ledger names, when it names one) gets that version as a["last_seen"] = {"sha", "subject"}, the latest such version.
+    The draft may have been reworded on purpose and the ledger not; the commit tells the author where to look. A
+    wording no version said gets nothing: the ledger then asks for something not yet written."""
+    rx_of = {(c["id"], raw): rx for c in claims for raw, rx in c["must"]}
+    for a in absent:
+        rx = rx_of.get((a["claim"], a["pattern"]))
+        if rx is None:
+            continue
+        place = a.get("place")
+        for v in reversed(earlier):
+            if any(rx.search(s.get("text") or "") for s in v.get("sentences") or []
+                   if not place or in_place(s.get("label"), place)):
+                a["last_seen"] = {"sha": v.get("sha") or "", "subject": v.get("subject") or ""}
+                break
+
+
 def said(claims, sentences):
     """How often each capped wording is said (probe-growth #4: one limitation restated in six sentences, each worded
     differently, and a ledger could require a wording or forbid it but not cap it). Counts sentences of the draft, not
@@ -561,12 +579,14 @@ def compute(cfg, ws):
     st.update(stage=d["stage"], claims=d["claims"], todo=d["todo"], problems=d["problems"], sets=d["sets"],
               scope_at=d["scope_at"])
     from . import coverage as V
-    sentences, st["index_head"] = V.current_sentences(ws)
+    versions, st["index_head"] = V.indexed_versions(ws)
+    sentences = None if versions is None else (versions[-1]["sentences"] if versions else [])
     if sentences is None:
         st["problems"].append("句子索引没建（loop update），整篇的越界扫描没做")
     else:
         extra = extra_sentences(cfg, st["index_head"], st["scan_problems"], ws)
         st["over"], st["absent"] = scan(st["claims"], sentences, extra)
+        last_seen(st["claims"], st["absent"], versions[:-1])
         st.update(question(st["claims"], sentences, extra))
         st["unqualified"] = qualify(st["claims"], sentences)
         st["at_most"] = said(st["claims"], sentences)
@@ -624,13 +644,27 @@ def stage_name(stage):
     return cut.rstrip("，,、 （(") + "…", round(_width(stage))
 
 
+def ready(st):
+    """Whether nothing stands between the paper and the author's call: 待作者终审, or 已投稿 with nothing in the way.
+    `loop state` exits 0 on this, and willow's note carries it as verdict.ready (outlet.py); always a bool."""
+    return bool(st.get("configured")) and st.get("verdict") in (AUTHOR, SUBMITTED) and not st.get("blockers")
+
+
+def head(st):
+    """The line's first part, the verdict and the stage: what willow's note carries as verdict.text (outlet.py)."""
+    if not st.get("configured"):
+        return "论文状态：没登记主张清单"
+    shown, _long = stage_name(st.get("stage") or "")
+    return f"论文状态：{st['verdict']}" + (f"（阶段：{shown}）" if shown else "")
+
+
 def line(st):
     """The per-turn line. Said every turn, whatever the checks say."""
     if not st.get("configured"):
-        return ("论文状态：没登记主张清单（配置的 claims）——循环只知道检查跑没跑，"
+        return (head(st) + "（配置的 claims）——循环只知道检查跑没跑，"
                 "不知道主张立没立住、还缺哪个分析")
-    shown, long_ = stage_name(st.get("stage") or "")
-    head = f"论文状态：{st['verdict']}" + (f"（阶段：{shown}）" if shown else "")
+    _shown, long_ = stage_name(st.get("stage") or "")
+    head_ = head(st)
     bits = []
     if st["claims"]:
         bits.append(f"主张 {len(st['claims'])}：{_count(st)}")
@@ -655,7 +689,7 @@ def line(st):
         bits.append("能不能投由作者定")
     elif st["verdict"] == SUBMITTED:
         bits.append("已投出：之后的改动等审稿意见")
-    return head + "——" + "；".join(bits)
+    return head_ + "——" + "；".join(bits)
 
 
 # A change is said once, apart from the line (09-28: a blocker stood in the per-turn line from one commit on and was
@@ -717,8 +751,10 @@ def table(st):
         for o in (x for x in st["over"] if x["claim"] == c["id"]):
             out.append(f"      越界「{o['pattern']}」：{'、'.join(o['labels'])}")
         for a in (x for x in st["absent"] if x["claim"] == c["id"]):
-            out.append(f"      缺「{a['pattern']}」@ {a['place']}：这一处没有" if a.get("place")
-                       else f"      缺「{a['pattern']}」：整篇没有一句")
+            seen = a.get("last_seen")
+            out.append((f"      缺「{a['pattern']}」@ {a['place']}：这一处没有" if a.get("place")
+                        else f"      缺「{a['pattern']}」：整篇没有一句")
+                       + (f"——可能是台账过期：该短语在 {seen['sha'][:7]} 之后不再出现" if seen else ""))
         for x in (y for y in st.get("at_most") or [] if y["claim"] == c["id"]):
             where = f"（{'、'.join(x['places'])}）" if x["places"] else ""
             out.append(f"      至多 {x['limit']} 句{where}，现有 {len(x['labels'])} 句：{'、'.join(x['labels']) or '—'}"
