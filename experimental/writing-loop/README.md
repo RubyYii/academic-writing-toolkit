@@ -111,7 +111,8 @@ is wrong". So the line now starts with the paper's state, read from a claims led
 
 - **主张** items: each claim, where the evidence is, its strength (强 / 中 / 弱 / 未立 / 推论 / 范围), the strongest
   wording the evidence allows, optional regexes for wordings that go beyond it (`越界`) or must be present
-  (`必须出现`), the sentences that state it (`承载`) and qualifiers each of those sentences must keep (`限定词`),
+  (`必须出现`; when the draft no longer has one that an earlier indexed version said, `loop state` names the last
+  commit that said it, since the draft may have been reworded and the ledger not), the sentences that state it (`承载`) and qualifiers each of those sentences must keep (`限定词`),
   how many sentences at most may say something, such as a limitation restated across the paper (`至多：<regex> ‖
   <regex> @ 2`, optionally in named places; only the listed wordings are counted), and the work items it waits on
   (`缺`).

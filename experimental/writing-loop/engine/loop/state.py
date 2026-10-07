@@ -333,6 +333,24 @@ def scan(claims, sentences, extra=()):
     return over, absent
 
 
+def last_seen(claims, absent, earlier):
+    """Each required wording absent from the current draft that an earlier indexed version still said (in the place the
+    ledger names, when it names one) gets that version as a["last_seen"] = {"sha", "subject"}, the latest such version.
+    The draft may have been reworded on purpose and the ledger not; the commit tells the author where to look. A
+    wording no version said gets nothing: the ledger then asks for something not yet written."""
+    rx_of = {(c["id"], raw): rx for c in claims for raw, rx in c["must"]}
+    for a in absent:
+        rx = rx_of.get((a["claim"], a["pattern"]))
+        if rx is None:
+            continue
+        place = a.get("place")
+        for v in reversed(earlier):
+            if any(rx.search(s.get("text") or "") for s in v.get("sentences") or []
+                   if not place or in_place(s.get("label"), place)):
+                a["last_seen"] = {"sha": v.get("sha") or "", "subject": v.get("subject") or ""}
+                break
+
+
 def said(claims, sentences):
     """How often each capped wording is said (probe-growth #4: one limitation restated in six sentences, each worded
     differently, and a ledger could require a wording or forbid it but not cap it). Counts sentences of the draft, not
@@ -561,12 +579,14 @@ def compute(cfg, ws):
     st.update(stage=d["stage"], claims=d["claims"], todo=d["todo"], problems=d["problems"], sets=d["sets"],
               scope_at=d["scope_at"])
     from . import coverage as V
-    sentences, st["index_head"] = V.current_sentences(ws)
+    versions, st["index_head"] = V.indexed_versions(ws)
+    sentences = None if versions is None else (versions[-1]["sentences"] if versions else [])
     if sentences is None:
         st["problems"].append("句子索引没建（loop update），整篇的越界扫描没做")
     else:
         extra = extra_sentences(cfg, st["index_head"], st["scan_problems"], ws)
         st["over"], st["absent"] = scan(st["claims"], sentences, extra)
+        last_seen(st["claims"], st["absent"], versions[:-1])
         st.update(question(st["claims"], sentences, extra))
         st["unqualified"] = qualify(st["claims"], sentences)
         st["at_most"] = said(st["claims"], sentences)
@@ -731,8 +751,10 @@ def table(st):
         for o in (x for x in st["over"] if x["claim"] == c["id"]):
             out.append(f"      越界「{o['pattern']}」：{'、'.join(o['labels'])}")
         for a in (x for x in st["absent"] if x["claim"] == c["id"]):
-            out.append(f"      缺「{a['pattern']}」@ {a['place']}：这一处没有" if a.get("place")
-                       else f"      缺「{a['pattern']}」：整篇没有一句")
+            seen = a.get("last_seen")
+            out.append((f"      缺「{a['pattern']}」@ {a['place']}：这一处没有" if a.get("place")
+                        else f"      缺「{a['pattern']}」：整篇没有一句")
+                       + (f"——可能是台账过期：该短语在 {seen['sha'][:7]} 之后不再出现" if seen else ""))
         for x in (y for y in st.get("at_most") or [] if y["claim"] == c["id"]):
             where = f"（{'、'.join(x['places'])}）" if x["places"] else ""
             out.append(f"      至多 {x['limit']} 句{where}，现有 {len(x['labels'])} 句：{'、'.join(x['labels']) or '—'}"

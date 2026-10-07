@@ -143,15 +143,23 @@ def waivers(ws):
         return {}
 
 
-def current_sentences(ws):
-    """The latest version's sentences from the index on disk, and the head it was built from. (None, None) if the
-    index is not there: coverage then refuses to say anything is up to date."""
+def indexed_versions(ws):
+    """Every indexed version of the draft, oldest first, and the head the index was built from. (None, None) if the
+    index is not there."""
     try:
         d = json.loads((Path(ws) / "index" / "sentences.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None, None
-    vs = d.get("versions") or []
-    return (vs[-1]["sentences"] if vs else []), d.get("head")
+    return d.get("versions") or [], d.get("head")
+
+
+def current_sentences(ws):
+    """The latest version's sentences from the index on disk, and the head it was built from. (None, None) if the
+    index is not there: coverage then refuses to say anything is up to date."""
+    vs, head = indexed_versions(ws)
+    if vs is None:
+        return None, None
+    return (vs[-1]["sentences"] if vs else []), head
 
 
 def in_sections(sec, prefixes):

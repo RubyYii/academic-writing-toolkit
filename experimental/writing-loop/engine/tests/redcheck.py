@@ -1257,6 +1257,18 @@ MUTATIONS = [
      'test_hooks.OutletVerdictTest.test_submitted_is_ready_only_with_nothing_in_the_way'),
     ('strategic', 'coverage.py', '    _LAST_STATE.pop(str(ws), None)  # a call that fails before the state is computed leaves none, not the last one', '    pass',
      'test_hooks.OutletVerdictTest.test_a_line_that_fails_before_the_state_does_not_leave_the_last_ready_standing'),
+    # 必须出现的说法整篇没有、早先的版本说过：loop state 指出最后一个说过它的提交（可能是台账过期）
+    ('strategic', 'state.py', '        last_seen(st["claims"], st["absent"], versions[:-1])', '        pass',
+     'test_state.StaleLedgerHintTest.test_the_last_commit_that_said_it_is_named'),
+    ('strategic', 'state.py', '        for v in reversed(earlier):', '        for v in earlier:',
+     'test_state.StaleLedgerHintTest.test_the_last_commit_that_said_it_is_named'),
+    ('strategic', 'state.py', '                   if not place or in_place(s.get("label"), place)):', '                   if True):',
+     'test_state.StaleLedgerHintTest.test_a_wording_required_in_one_place_is_looked_for_in_that_place'),
+    ('strategic', 'state.py', '            if any(rx.search(s.get("text") or "") for s in v.get("sentences") or []',
+     '            if v.get("sentences") or any(rx.search(s.get("text") or "") for s in v.get("sentences") or []',
+     'test_state.StaleLedgerHintTest.test_a_wording_no_version_said_gets_no_hint'),
+    ('strategic', 'state.py', '+ (f"——可能是台账过期：该短语在 {seen[\'sha\'][:7]} 之后不再出现" if seen else "")', '+ ("" if seen else "")',
+     'test_state.StaleLedgerHintTest.test_the_last_commit_that_said_it_is_named'),
 ]
 
 
