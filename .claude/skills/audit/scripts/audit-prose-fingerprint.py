@@ -133,6 +133,12 @@ def strip_markup(text: str, suffix: str) -> str:
         # An environment's name is not prose: \begin{center} used to leave the word "center" behind, and a
         # colon before it ("character by character: center") was counted as an explanatory colon.
         text = re.sub(r"\\(?:begin|end)\{[^}]*\}", " ", text)
+        # A digit group set as 4{,}120 is the number 4,120 on the page, and \, \; \: \! are spaces. Stripping
+        # only the braces or the backslash left "4 , 120" (two extra words in every such sentence) or a comma,
+        # semicolon or colon the reader never sees.
+        text = re.sub(r"(?<=\d)\{,\}(?=\d)", ",", text)
+        text = re.sub(r"(?<=\d)(?<!\\)\\[,;:!](?=\d)", "", text)
+        text = re.sub(r"(?<!\\)\\[,;:!]", " ", text)
         text = re.sub(r"\\[a-zA-Z]+\*?", " ", text)
         text = re.sub(r"[{}$&~\\]", " ", text)
     elif suffix == ".md":
