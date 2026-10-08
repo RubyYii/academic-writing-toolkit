@@ -1,0 +1,132 @@
+---
+name: readers
+description: Open a reader panel. Instruction-bound amnesiac sub-agents read the abstract or introduction and report what they carried away, set against the author's intended points. Use when those sections change or the writing loop marks the panel stale.
+allowed-tools: Read, Glob, Grep, Bash, Agent
+---
+
+# /readers — Reader Panel
+
+## What it answers, and what it does not
+
+It answers **what a first-time reader believes, remembers and could reuse** after reading a part of the manuscript,
+set against the points the author wants carried (the intent card). It is how "does the contribution come across"
+becomes something counted rather than asserted.
+
+It does not answer whether the paper is good, whether a sentence changed its meaning (the author judges that), or
+which single word is hard (word-level agreement with the author was too low to use). An eight-reader panel separates
+only large differences; do not report a one-round rise or fall as a result. The script prints these limits in every
+report.
+
+## Before running
+
+1. **Intent card.** The author's statement of who the reader is and the two to four points (M1, M2, ...) the reader
+   should carry away. The writing loop names it in `target.intent_card`. If it lives outside the workspace's
+   `human/` folder it is a draft, and the report says so. Do not write it for the author; draft it only when asked,
+   and label it a draft. The template at `experimental/writing-loop/templates/intent-card.md` has further sections
+   (advantage sentence, narrative order, experiment roles, the scan and its acceptance checks); this skill reads
+   only the reader and the points.
+2. **Directed questions** (optional, recommended): one per suspected misreading or per point you need confirmed,
+   as `id<TAB>question` lines. Free-text summaries overstate misreadings; a directed question confirms one.
+   Always consider one about reuse and one about which field the work belongs to.
+   When the draft states few links between sentences, pass `--ask-relations`: it asks each reader for the two
+   sentences between which they most had to guess how one follows from the other, quoted. Readers asked only what
+   got in their way seldom name a missing link. The tally places each reader's two quotes at the turn between the
+   sentences that hold them. Where more than half of the readers who named a place, and at least three, name the same
+   turn, it says the order there may need changing: check that turn against the story page before adding a connector.
+   A connector states the relation; it does not change which step comes first (one case, so a question, not a rule).
+
+## Steps
+
+1. Build the packet. From a loop workspace (records which sentences, at which commit, the panel reads):
+
+   ```
+   python3 .claude/skills/readers/scripts/build-reader-packet.py --workspace <workspace> --out <dir> [--questions q.tsv] --aux <main.aux>
+   ```
+
+   Or from any file: `--text <file> [--bib refs.bib]`. A `.tex` file is read as LaTeX; any other file as plain text,
+   where `%` is a percent sign (`--format text|latex` overrides). Citations stay in author-year form; they are never
+   replaced by a placeholder. Give `--aux` (the compiled draft's `.aux`) so cross-references show the numbers the page
+   shows; without it they read "(number omitted)" and the prompt tells readers so. A placeholder the page does not
+   have draws readers' complaints: in one panel most of "what got in the way" was about it. Math shows its symbols;
+   a command with no symbol keeps its backslash and the build names it.
+
+   While the loop is still indexing a commit, the build refuses (exit 2): wait for `loop update` to finish. A
+   `--sections` other than the workspace's `target.readers.sections` builds a targeted comparison: the build says how
+   many of the configured sentences it reads, and the tally does not record it as the readers check's run. To change
+   what the check reads, change the workspace's configuration.
+
+2. Open the readers as sub-agents: two personas (`prompt_R1.txt`, `prompt_R2.txt`) × two models (a small and a
+   larger one) × samples per cell. Eight (two samples) is the floor and shows only large differences; use sixteen
+   (four samples) whenever the question is how many readers carried a given point, since a cell repeated on the
+   same text agrees only moderately with itself. Personas and directed questions can live in the loop workspace
+   (`target.readers.personas`, `target.readers.questions`) so every run asks the same thing. Give each sub-agent the prompt file's content verbatim and nothing else. Save
+   each reply unedited as `<dir>/outputs/<persona>_<model>_<n>.json`, e.g. `R1_haiku_1.json`. Each reply carries
+   the packet id the prompt names; a reply for another packet, or a copy of another reply, is rejected. Rebuild the
+   packet into a new directory for a new version rather than over an old one.
+
+3. Check the outputs; an incomplete output is not a reading and is named, not repaired:
+
+   ```
+   python3 .claude/skills/readers/scripts/check-reader-output.py --packet <dir>/packet.json --outputs <dir>/outputs
+   ```
+
+4. Judge the intent points. Two judges, independently: you, and a separate sub-agent given the readers' `remember`
+   and directed answers with the reader names shuffled and the version not named. Each writes
+   `reader<TAB>point<TAB>judge<TAB>✓|△|✗|≠` rows to `<dir>/judgments.tsv`. A reader carries a point only when at
+   least two judges wrote ✓; judges who disagree count as not carried, and a pair with one judge is not judged.
+   Give each judge the facts of every point (who or what did it, the number), not only its name: `≠` is a point said
+   but credited to the wrong thing, and a judge told only the point's name grades it ✓. Mix a set of answers whose
+   grade you know into the judging (one correct, one misattributed, one reversed, one bare number per point is
+   enough), write their grades to `<dir>/injected.tsv` as `reader<TAB>point<TAB>truth`, and pass `--injected`:
+   more than two misses records the panel as a failure. Give each directed question its answer's key phrases in a
+   third column of the questions file (`id<TAB>question<TAB>key ‖ key`): the build flags any question whose key the
+   first paragraph prints, since a reader answers it by copying. A count you read off the outputs yourself (a
+   misreading, a complaint) goes to `--derived` with its coder; one only you coded is reported as uncoded, because the
+   side that revised the text is not a blind coder of the revision's effect.
+   The tally cannot tell two judge names written by one hand: the second judge must be a separate sub-agent that
+   has not seen the first judge's rows.
+
+5. Tally, and record the run in the workspace:
+
+   ```
+   python3 .claude/skills/readers/scripts/tally-readers.py --packet <dir>/packet.json --outputs <dir>/outputs --judgments <dir>/judgments.tsv
+   ```
+
+   The report lists what each reader said got in the way, verbatim, with a keyword sort into kinds (density,
+   sentences, links, terms, repetition, numbers, placeholders). The sort is for reading, not a count: to compare
+   versions, have a blind coder write `writing:<kind>` rows for `--derived`. A kind, a paragraph re-read, or a
+   paragraph named by `--ask-relations` that three readers share is marked ⚑. A panel the tally does not record in
+   the loop (a packet built with `--text`, or a targeted comparison) ends with `没记进循环：` and the reason.
+
+   To compare two versions, run a full panel on each and pass `--compare-packet/--compare-outputs/--compare-judgments`;
+   the report puts a two-sided Fisher p beside each point. Run the current version's panel twice and pass the second
+   as `--repeat-outputs/--repeat-judgments`: a change no larger than the two runs' spread is reported as inside the
+   noise. Judge `blank_reader.json` (written beside the packet, reader id `BLANK`) like any reader: a point it
+   carries is scored by copying the first paragraph, and the report says so.
+   To check that a rewrite fixed a misreading, ask the same directed question in both versions (the same
+   `--questions` line in both builds) and judge it as a point: that is the only comparison of a misreading the tally
+   reports as paired. A question asked in one version only is marked not comparable and gets no p; a free-recall point
+   is compared with a note that not mentioning a misreading is not avoiding it. The report gives qualified readers
+   per model for each panel and says when the two panels differ in make-up.
+
+6. Report to the author in three lines per scale (whole text, then paragraphs): what you want the reader to carry
+   (the intent card), what the readers carried (the tally, counts with their denominators), and what the text added
+   that the author did not intend (misreadings, points the readers took that are not on the card). Mark every
+   machine-produced reading as a draft. The author decides what is a gap.
+
+   Counts in the report come from the scripts, not from your own reading of the outputs: how many readers
+   qualified is the `qualified N of M` line of `check-reader-output.py`, and a panel is a reading of this version only
+   when `tally-readers.py` says it recorded it (`已记为这一版的读者组`). A panel judged with sheets or scripts of your
+   own still ends with both; if the tally did not record it, say the panel was not run on this version. One panel
+   skipped both, reported sixteen qualified readers where there were fifteen, and the loop kept calling the last
+   recorded panel stale.
+
+## Where the output goes
+
+`report.md` beside the packet. Real runs on unpublished work stay in the private workspace; never commit reader
+outputs or packets to a public repository.
+
+## Fail closed
+
+Each script exits 2 when there is nothing to read, check or tally. A panel with fewer than eight qualified readers,
+or fewer than two personas or two models, is recorded as a failure rather than as a reading of the version.

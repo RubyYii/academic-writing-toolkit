@@ -1,0 +1,12 @@
+{
+ "failure": "A deleted sentence was the only one naming what a later 'the X' in its paragraph refers to.",
+ "check": "sentence-changes",
+ "argv": [
+  "--target",
+  "{draft}",
+  "--base",
+  "base",
+  "--json"
+ ],
+ "expect_flag": "took_antecedent"
+}

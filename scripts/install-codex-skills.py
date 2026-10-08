@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install/update the nine advisory skills from this checkout into user scope.
+"""Install/update the advisory skills from this checkout into user scope.
 
 No network is used unless --install-deps is requested (pip in a private venv).
 Node.js 22.12+ is needed for the Node helpers; nothing is built.
@@ -23,8 +23,9 @@ import uuid
 import zipfile
 
 SOURCE = Path(__file__).resolve().parents[1]
-NAMES = ("audit", "export", "integrate", "map", "note", "read", "research-plan", "review", "verify-refs")
-PRE_RESEARCH_PLAN_NAMES = ("audit", "export", "integrate", "map", "note", "read", "review", "verify-refs")
+NAMES = ("audit", "export", "integrate", "map", "note", "read", "readers", "research-plan", "review", "verify-refs")
+PRE_RESEARCH_PLAN_NAMES = ("audit", "export", "integrate", "map", "note", "read", "readers", "review", "verify-refs")
+PRE_READERS_NAMES = ("audit", "export", "integrate", "map", "note", "read", "review", "verify-refs")
 FORMAT = 1
 OWNER = "yha9806/academic-writing-toolkit"
 # Source paths, not bare names: each script now lives in the skill that calls
@@ -248,8 +249,17 @@ def prepare(source, stage, dest, python):
             filename = Path(helper).name
             target = folder / "scripts" / filename
             copy_resource(source / helper, target)
-        if name in HELPERS:
-            text = rewrite_helper_commands(text, name)
+        # Every skill, not only those with helpers to copy: a skill whose commands still name a checkout-only path
+        # cannot run from user scope, and a skill added later must not skip this check by being left out of HELPERS
+        # (the readers skill was, 2026-09-22, and installed with commands that could not run).
+        engine = source / "experimental/writing-loop/engine"
+        if name == "readers" and engine.is_dir():
+            # The panel reads a manuscript through the writing loop's index; an installed copy has no engine beside
+            # it, so record where the checkout's is (a local path in the user's own install, never in the repo).
+            write_text(folder / "references/loop-engine.txt", str(engine.resolve()) + "\n")
+        rewritten = rewrite_helper_commands(text, name)
+        if name in HELPERS or rewritten != text:
+            text = rewritten
             index = text.index("\n## ")
             text = text[:index] + (
                 "\n## Installed helper paths\n\n"
@@ -324,10 +334,11 @@ def read_receipt(state):
     plain_path(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     files = data.get("files")
-    # Accept only the current catalogue or the exact predecessor. An earlier
+    # Accept only the current catalogue or the exact earlier catalogues. An earlier
     # receipt owns only the entries it names; it cannot authorise replacement
     # of a pre-existing skill with the newly introduced name.
-    known_catalogue = isinstance(files, dict) and set(files) in (set(NAMES), set(PRE_RESEARCH_PLAN_NAMES))
+    known_catalogue = isinstance(files, dict) and set(files) in (
+        set(NAMES), set(PRE_RESEARCH_PLAN_NAMES), set(PRE_READERS_NAMES))
     if data.get("schemaVersion") != FORMAT or data.get("owner") != OWNER or not known_catalogue:
         raise InstallError("Unrecognised installation receipt: {}".format(path))
     return data
@@ -375,7 +386,7 @@ def promote(stage, dest, transaction, before, after, receipt, current):
             installed.append(name)
             if manifest(target) != after[name]:
                 raise InstallError("Installed hash mismatch: " + name)
-        # Publish the new receipt only after all nine folders are present.
+        # Publish the new receipt only after all catalogue folders are present.
         temporary = transaction / "current.next.json"
         write_json(temporary, receipt)
         os.replace(temporary, current)

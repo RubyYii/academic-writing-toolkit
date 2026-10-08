@@ -54,10 +54,38 @@ CHECKS = {
     "audit/audit-number-ledger.py":
         lambda s, empty: ["python3", str(s), "--base-dir", str(empty),
                           "--ledger", str(empty / "numbers.tsv")],
+    "audit/audit-method-ledger.py":
+        lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--ledger", "method-ledger.tsv"],
+    "audit/audit-generated-copies.py":
+        lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--manifest", "generated.json"],
+    "audit/audit-float-reviews.py":
+        lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--main", "main.tex", "--reviews", "reviews.tsv"],
     "audit/audit-claim-positioning.py":
         lambda s, empty: ["python3", str(s), "--base-dir", str(empty)],
+    "audit/audit-prose-structure.py":
+        lambda s, empty: ["python3", str(s), "--target", str(empty), "--baseline", str(empty)],
+    # A manuscript that is not there: nothing read (exit 2).
+    "audit/audit-cross-refs.py":
+        lambda s, empty: ["python3", str(s), "--root", str(empty), str(empty / "main.tex")],
+    # A manuscript that is not there: nothing read (exit 2).
+    "audit/audit-front-matter.py":
+        lambda s, empty: ["python3", str(s), "--root", str(empty), str(empty / "main.tex")],
     "audit/audit-prose-fingerprint.py":
         lambda s, empty: ["python3", str(s), "--target", str(empty)],
+    # The prose view feeds the chapter checks; a file it cannot read, or that holds no prose, stops the run (exit 2)
+    # rather than handing them an empty chapters/ directory.
+    "audit/prose-view.py":
+        lambda s, empty: ["python3", str(s), "--out", str(empty / "view"), str(empty / "none.tex")],
+    # Nothing to compare: no prose in the draft, and no version before it.
+    "audit/audit-sentence-changes.py":
+        lambda s, empty: ["python3", str(s), "--target", str(empty), "--base", str(empty)],
+    # A reader panel's three steps: nothing to read, nothing to check, nothing to tally (exit 2 each).
+    "readers/build-reader-packet.py":
+        lambda s, empty: ["python3", str(s), "--text", str(empty / "empty.bib"), "--out", str(empty / "packet")],
+    "readers/check-reader-output.py":
+        lambda s, empty: ["python3", str(s), "--packet", str(empty / "packet.json"), "--outputs", str(empty)],
+    "readers/tally-readers.py":
+        lambda s, empty: ["python3", str(s), "--packet", str(empty / "packet.json"), "--outputs", str(empty)],
     "review/audit-review-findings.py":
         lambda s, empty: ["python3", str(s), "--base-dir", str(empty),
                           "--findings", str(empty / "findings.tsv")],
@@ -65,6 +93,9 @@ CHECKS = {
         lambda s, empty: ["node", str(s), "--base-dir", str(empty)],
     "verify-refs/verify-refs.py":
         lambda s, empty: ["python3", str(s), "--bib", str(empty / "empty.bib")],
+    # No bibliography and no manuscript: nothing reconciled is not a pass (exit 2).
+    "verify-refs/reconcile-cites.py":
+        lambda s, empty: ["python3", str(s), "--bib", str(empty / "empty.bib"), str(empty / "main.tex")],
     # No file to lint: nothing linted is not a pass (exit 2).
     "note/notes-lint.mjs":
         lambda s, empty: ["node", str(s)],
@@ -74,8 +105,13 @@ CHECKS = {
         lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--json"],
     "scripts/audit-logic.py":
         lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--json"],
+    "scripts/audit-openers.py":
+        lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--json"],
     "scripts/audit-public-content.py":
         lambda s, empty: ["python3", str(s), "--base-dir", str(empty), "--json"],
+    # A fixture validator for the writing-control bench; an empty bench is not a valid one (exit 1).
+    "scripts/check_lost_in_conversation_bench.py":
+        lambda s, empty: ["python3", str(s), str(empty)],
 }
 
 NOT_CHECKS = {
@@ -84,6 +120,7 @@ NOT_CHECKS = {
     "audit/quote-fidelity.mjs": "library: quote graders (pure functions) used by the fidelity audit; no claim of its own",
     "audit/pdf-pages.mjs": "library: page labelling of pdftotext output used by the fidelity audit; no claim of its own",
     "audit/build-venue-baseline.py": "corpus builder: fetches a venue's papers from arXiv and writes a manifest; makes no pass/fail claim about a manuscript, and its own corpus floor exits 2 (T176)",
+    "audit/venue-topic-fit.py": "venue survey: places a manuscript's topic among a venue's articles and tallies coded contribution types; a position is not a pass or a fail, and an empty corpus, an uncoded row or an unknown code exits 2 (T211, T212)",
 }
 
 
@@ -93,7 +130,8 @@ def discovered():
         if path.suffix not in {".py", ".mjs"} or "__pycache__" in path.parts:
             continue
         out[f"{path.parent.parent.name}/{path.name}"] = path
-    for path in sorted(SCRIPTS.glob("audit-*.py")):
+    # scripts/check_*.py make pass/fail claims too; one sat outside this registry until 2026-09-21.
+    for path in sorted(list(SCRIPTS.glob("audit-*.py")) + list(SCRIPTS.glob("check_*.py"))):
         out[f"scripts/{path.name}"] = path
     return out
 

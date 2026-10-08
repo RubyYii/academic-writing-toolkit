@@ -48,8 +48,26 @@ DISCOURSE = (
     r"\b(?:[Hh]owever|[Mm]oreover|[Ff]urthermore|[Tt]hus|[Tt]herefore"
     r"|[Nn]evertheless|[Cc]onsequently|[Nn]onetheless)\b"
 )
+# A sentence that opens with a linking adverbial says how it stands to the sentence before it: a contrast, a
+# consequence, an example, an addition. Published papers open a steady share of their sentences this way; a draft
+# that opens almost none of them leaves the reader to supply every relation. The count is of sentences, not of
+# words, and only of the opening: "however" in mid-sentence is the discourse-marker rate above.
+# Not counted: enumerators (First, Second, Finally), which order a list without saying how its items relate, and
+# subordinators (Although, Because, While), which relate two clauses inside one sentence. "Instead of" and
+# "In addition to" open a phrase, not a link. Words that are links only when a comma follows them need the comma.
+# The list is closed: a link it does not name is not counted. audit-sentence-changes.py reads it from here.
+LINKING_OPENER = re.compile(
+    r"^[\"'\u201c\u2018]?(?:"
+    r"(?:However|Thus|Therefore|Hence|Moreover|Furthermore|Consequently|Nevertheless|Nonetheless|Accordingly"
+    r"|Conversely|Similarly|Likewise|Indeed|Yet|Additionally|Specifically|Notably|Importantly|Meanwhile"
+    r"|As a result|As a consequence|In contrast|By contrast|For example|For instance|In particular"
+    r"|On the other hand|In other words|In turn|In summary|In short|To this end|Even so|Instead(?! of)"
+    r"|In addition(?! to))\b"
+    r"|(?:That is|Overall|Still|Otherwise|In practice|Taken together|Put differently)\s*,)")
 NOMINALISATION = r"\b\w+(?:tion|ment|ness|ity)s?\b"
-HEDGE = r"\b(?:may|might|could|appears?|suggests?|seems?|likely|plausibl\w+)\b"
+# [Ss]peculat\w*: speculate(s/d), speculating, speculation(s), speculative(ly) hedge a claim as "may" does. The capital
+# is allowed for these alone: a sentence may open on them, and unlike "May" none of them is also a month.
+HEDGE = r"\b(?:may|might|could|appears?|suggests?|seems?|likely|plausibl\w+|[Ss]peculat\w*)\b"
 
 DISTRIBUTED = ("contrast", "explanatory_colon", "semicolon", "discourse_marker")
 PATTERNS = {
@@ -66,6 +84,18 @@ STOP_HEADINGS = re.compile(r"\n\s*(?:References|REFERENCES|Bibliography|Works Ci
 
 
 # --- extraction --------------------------------------------------------------
+
+# Share of whitespace tokens that are words. Measured 2026-09-22 on 81 real papers: lowest 0.579 (a table-heavy
+# paper), median 0.886; a PDF whose fonts extracted as symbols scored 0.036.
+MIN_WORD_SHARE = 0.30
+_WORD = re.compile(r"^[(\[\"'\u201c\u2018]?[A-Za-z][A-Za-z'\u2019\-]*[.,;:!?)\]\"'\u201d\u2019]*$")
+
+
+def word_share(text: str) -> float:
+    tokens = text.split()
+    return sum(1 for x in tokens if _WORD.match(x)) / len(tokens) if tokens else 0.0
+
+
 def read_pdf(path: Path) -> Optional[str]:
     if not shutil.which("pdftotext"):
         return None
@@ -100,6 +130,9 @@ def strip_markup(text: str, suffix: str) -> str:
         text = re.sub(r"\\begin\{(?:tabular|table|figure|itemize|enumerate|description|equation|align)\*?\}"
                       r".*?\\end\{(?:tabular|table|figure|itemize|enumerate|description|equation|align)\*?\}",
                       " ", text, flags=re.S)
+        # An environment's name is not prose: \begin{center} used to leave the word "center" behind, and a
+        # colon before it ("character by character: center") was counted as an explanatory colon.
+        text = re.sub(r"\\(?:begin|end)\{[^}]*\}", " ", text)
         text = re.sub(r"\\[a-zA-Z]+\*?", " ", text)
         text = re.sub(r"[{}$&~\\]", " ", text)
     elif suffix == ".md":
@@ -205,6 +238,15 @@ def sentence_lengths(text: str) -> List[Optional[int]]:
     return out
 
 
+def linking_opener_share(text: str) -> Optional[float]:
+    """Share of sentences that open with a linking adverbial (LINKING_OPENER). Sentences are split and kept as in
+    sentence_lengths, so the denominator is the same set of sentences the length metrics read."""
+    kept = [s for s in re.split(r"(?<=[.!?])\s+(?=[A-Z])", text) if 4 <= len(s.split()) <= 120]
+    if len(kept) < 30:
+        return None
+    return sum(1 for s in kept if LINKING_OPENER.match(s.strip())) / len(kept)
+
+
 def lag1(values: Sequence[Optional[int]]) -> Optional[float]:
     """Positive: long sentences cluster with long ones, as in human drafts.
     Near zero: each length drawn independently.
@@ -279,6 +321,7 @@ def measure(text: str) -> Dict[str, Optional[float]]:
     lengths = sentence_lengths(text)
     out["sentence_length_cv"] = cv([n for n in lengths if n is not None])
     out["sentence_length_lag1"] = lag1(lengths)
+    out["linking_opener_share"] = linking_opener_share(text)
     out["repeat_4gram_per_1k"] = repeat_ngram_rate(text)
     verbs = re.findall(r"\b[Ww]e ([a-z]+)\b", text)
     out["first_person_verb_diversity"] = (len(set(verbs)) / len(verbs)) if verbs else None
@@ -305,6 +348,21 @@ def sections(text: str, suffix: str, raw: str) -> Dict[str, str]:
     return out
 
 
+# The range alone calls a value at the baseline's first or last paper "inside". A draft can sit there on several
+# metrics at once, below all but one or two published papers, and read as clean. The band is the middle 90% of the
+# baseline (the 5th and 95th percentiles, interpolated); a value inside the range but outside the band is at the edge:
+# reported beside the outliers, never counted as one, and it does not change the exit code.
+EDGE_BAND = (5, 95)
+
+
+def band(population: List[float]) -> Tuple[float, float]:
+    """The 5th and 95th percentiles of a sorted population, by linear interpolation between its values."""
+    if len(population) < 2:
+        return population[0], population[-1]
+    cuts = statistics.quantiles(population, n=20, method="inclusive")
+    return cuts[EDGE_BAND[0] // 5 - 1], cuts[EDGE_BAND[1] // 5 - 1]
+
+
 def percentile(value: Optional[float], population: List[float]) -> Optional[float]:
     if value is None or not population:
         return None
@@ -321,11 +379,74 @@ KEY_ORDER = [
     ("discourse_marker_per_1k", "discourse marker  /1k"),
     ("sentence_length_cv", "sentence length CV"),
     ("sentence_length_lag1", "sentence length lag-1"),
+    ("linking_opener_share", "linking opener share"),
     ("repeat_4gram_per_1k", "repeated 4-gram  /1k"),
     ("nominalisation_per_1k", "nominalisation  /1k"),
     ("hedge_per_1k", "hedging  /1k"),
     ("first_person_verb_diversity", "we+verb diversity"),
 ]
+
+# --per-file: a directory target measured file by file. The whole-paper numbers above are unchanged; this adds where
+# each rhetorical device peaks. A section's rate is NOT compared with the baseline's range: that range is built from
+# whole-paper averages, and a paper's average is never above its highest section, so every lively discussion section
+# would read as out of range and every flat method section as fine. What needs no baseline is the shape (the global
+# prose rules): plain sections (methods, limitations) near zero, the voice in the discussion and conclusion. A peak in
+# a plain section is backwards; in related work or the dataset section it is worth a look.
+DEVICE_KEYS = [("contrast_per_1k", "corrective diptych"),
+               ("explanatory_colon_per_1k", "explanatory colon"),
+               ("semicolon_per_1k", "semicolon")]
+MIN_SECTION_WORDS = 800
+ROLES = [("abstract", r"abstract"), ("introduction", r"intro"), ("related", r"related|background|prior"),
+         ("limitations", r"limit"), ("method", r"method|pipeline|approach|procedure|protocol"),
+         ("dataset", r"dataset|data|corpus|benchmark|collection"),
+         ("results", r"result|finding|experiment|evaluat"), ("discussion", r"discuss"), ("conclusion", r"conclu")]
+PLAIN_ROLES = {"method", "limitations"}
+LOOK_ROLES = {"related", "dataset"}
+
+
+def role_of(name: str) -> Optional[str]:
+    """The section a file holds, guessed from its name only; None when the name says nothing."""
+    stem = Path(name).stem.lower()
+    for role, pat in ROLES:
+        if re.search(pat, stem):
+            return role
+    return None
+
+
+def per_file(target: Path) -> Dict[str, dict]:
+    """Every .tex/.md/.txt file under a directory target, short ones included (and marked), measured alone."""
+    out = {}
+    for p in sorted(target.rglob("*")):
+        if not p.is_file() or p.suffix.lower() not in TEXT_SUFFIXES:
+            continue
+        t = load(p)
+        if not t:
+            # A file with no prose after markup is removed (a stub kept so the main file need not change) is listed,
+            # not dropped: a reader cannot otherwise tell an empty file from one that was never read.
+            out[str(p.relative_to(target))] = {"words": 0, "short": True, "role": role_of(p.name),
+                                               "metrics": {k: None for k, _ in DEVICE_KEYS}}
+            continue
+        m = measure(t)
+        out[str(p.relative_to(target))] = {
+            "words": int(m["words"]), "short": m["words"] < MIN_SECTION_WORDS, "role": role_of(p.name),
+            "metrics": {k: m.get(k) for k, _ in DEVICE_KEYS}}
+    return out
+
+
+def peaks(files: Dict[str, dict]) -> Dict[str, dict]:
+    """Where each device peaks among the files long enough to judge."""
+    judged = {n: f for n, f in files.items() if not f["short"]}
+    out = {}
+    for key, _ in DEVICE_KEYS:
+        vals = {n: f["metrics"][key] for n, f in judged.items() if f["metrics"].get(key) is not None}
+        if len(vals) < 2 or max(vals.values()) <= 0:
+            continue
+        top = max(vals, key=vals.get)
+        role = judged[top]["role"]
+        out[key] = {"file": top, "value": vals[top], "role": role,
+                    "verdict": ("backwards" if role in PLAIN_ROLES else "look" if role in LOOK_ROLES
+                                else "ok" if role else "unknown")}
+    return out
 
 
 def main() -> int:
@@ -351,6 +472,9 @@ def main() -> int:
                     help="report percentiles even when that scan finds one. Use only "
                          "when the overlap is intended and you can say why")
     ap.add_argument("--json", action="store_true", dest="emit_json")
+    ap.add_argument("--per-file", action="store_true", dest="per_file",
+                    help="with a directory target, also measure each file alone and report where each "
+                         "rhetorical device peaks (see DEVICE_KEYS)")
     args = ap.parse_args()
 
     target = Path(args.target)
@@ -371,6 +495,7 @@ def main() -> int:
     suspect: List[Dict[str, object]] = []
     target_grams = ngram_hashes(text)
     too_short: List[Dict] = []
+    garbled: List[Dict] = []
     base_pipelines: Dict[str, int] = {}
     if args.baseline:
         bdir = Path(args.baseline)
@@ -388,6 +513,14 @@ def main() -> int:
                 skipped.append(p.name)
                 continue
             words = len(t.split())
+            share = word_share(t)
+            if share < MIN_WORD_SHARE:
+                # A PDF whose fonts extract as symbols still yields thousands of
+                # "words". Counted as a baseline document, one such file set the
+                # lower bound of three ranges while the structure audit, which
+                # needs sentences, skipped it.
+                garbled.append({"file": p.name, "word_share": round(share, 3)})
+                continue
             if words < 1500:
                 # A document also leaves the baseline by being too short to
                 # measure, and that exit had no name. `baseline_skipped` held
@@ -426,6 +559,7 @@ def main() -> int:
               "baseline_sufficient": len(base_rows) >= args.min_baseline,
               "baseline_skipped": skipped,
               "baseline_too_short": too_short,
+              "baseline_garbled": garbled,
               "target_pipeline": target_pipelines,
               "baseline_pipeline_mix": base_pipelines,
               "pipeline_mismatch": bool(base_pipelines)
@@ -438,7 +572,7 @@ def main() -> int:
               "overlap_waived": waived,
               "metrics": {}}
 
-    outliers = []
+    outliers, edges = [], []
     for key, _ in KEY_ORDER:
         pop = [r[key] for r in base_rows if r.get(key) is not None]
         entry = {"value": mine.get(key)}
@@ -451,8 +585,13 @@ def main() -> int:
                 "percentile": percentile(mine[key], pop_sorted),
                 "outside_range": not (pop_sorted[0] <= mine[key] <= pop_sorted[-1]),
             })
+            low, high = band(pop_sorted)
+            entry.update({"band_low": low, "band_high": high,
+                          "edge": not entry["outside_range"] and not (low <= mine[key] <= high)})
             if entry["outside_range"]:
                 outliers.append(key)
+            elif entry["edge"]:
+                edges.append(key)
         report["metrics"][key] = entry
 
     # Per-section evenness needs no baseline at all, which makes it the one
@@ -488,6 +627,20 @@ def main() -> int:
                 "A low cross-section CV means the device runs at the same rate in the "
                 "dutiful sections as in the discussion. That evenness is the signature; "
                 "the fix is to redistribute, not merely to reduce.")
+    if args.per_file and target.is_dir():
+        files = per_file(target)
+        judged = [f for f in files.values() if not f["short"]]
+        report["per_file"] = files
+        report["peaks"] = peaks(files)
+        if len(judged) >= 3:
+            report["per_section_cv"] = {k: cv([f["metrics"][k] for f in judged if f["metrics"].get(k) is not None])
+                                        for k, _ in DEVICE_KEYS}
+            report["per_section_note"] = None
+        else:
+            report["per_section_cv"] = None
+            report["per_section_note"] = (
+                "NOT COMPUTED: {} file(s) have at least {} words; three are needed for a "
+                "cross-section spread.".format(len(judged), MIN_SECTION_WORDS))
     # When the target is read one way and the baseline another, every
     # percentile above compares two readings, not two documents. The tool
     # cannot remove the asymmetry -- a published PDF has no source to strip --
@@ -523,6 +676,7 @@ def main() -> int:
         report["pipeline_note"] = note
 
     report["outliers"] = outliers
+    report["edge"] = edges
 
     if contaminated:
         sys.stderr.write(
@@ -566,14 +720,29 @@ def main() -> int:
                     e["percentile"])
                 if e["outside_range"]:
                     line += "  *"
+                elif e.get("edge"):
+                    line += "  ~"
             print(line)
-        if "per_section_cv" in report and report["per_section_cv"] is not None:
+        if report.get("per_file"):
+            print("\nper file, /1k: " + ", ".join(label for _, label in DEVICE_KEYS) + "  (* too short to judge)")
+            for name, f in report["per_file"].items():
+                vals = "".join("{:>9.2f}".format(f["metrics"][k] or 0.0) for k, _ in DEVICE_KEYS)
+                print("  {:<44}{}{}".format(name[:44], vals, "  *" if f["short"] else ""))
+            for key, pk in report.get("peaks", {}).items():
+                if pk["verdict"] in ("backwards", "look"):
+                    print("  {} peaks in {} ({}): {}".format(
+                        key, pk["file"], pk["role"],
+                        "backwards, this section should be plain" if pk["verdict"] == "backwards" else "worth a look"))
+        if isinstance(report.get("per_section_cv"), float):
             print("\nper-section corrective-diptych rate  (cross-section CV {:.2f})".format(
                 report["per_section_cv"]))
             for name, r in report["per_section_contrast_per_1k"].items():
                 print("  {:<44}{:>7.1f}".format(name, r))
         if outliers:
             print("\noutside the baseline range: {}".format(", ".join(outliers)))
+        if edges:
+            print("at the edge (inside the range, outside the baseline's {}th-{}th percentile band): {}".format(
+                EDGE_BAND[0], EDGE_BAND[1], ", ".join(edges)))
         print("\nNote: none of these values is a target to hit. Editing to move a "
               "number\nrather than to fix a sentence produces a different artefact, "
               "not a better one.")

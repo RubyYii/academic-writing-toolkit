@@ -1,0 +1,593 @@
+#!/usr/bin/env python3
+"""Build what a panel of readers reads: numbered paragraphs, one prompt per persona, and a record of the version.
+
+    python3 build-reader-packet.py --workspace <loop workspace> --out <dir> [--sections A,I] [--questions q.tsv] [--aux main.aux]
+    python3 build-reader-packet.py --text <file> --out <dir> [--format text|latex] [--bib refs.bib] [--questions q.tsv] [--aux main.aux]
+
+With --workspace the paragraphs come from the writing loop's index (the tracked draft at its head, the sections
+named in the workspace's target.readers.sections unless --sections is given), and packet.json records which
+sentences, at which commit, against which intent card, so `loop coverage` can tell when a later edit has made the
+panel's reading stale. An index behind the workspace's branch (an update still running) is refused: the packet would
+be of the older version. A packet whose --sections differ from the workspace's is a targeted comparison, not the
+readers check: the build says how many of the configured sentences it reads, and packet.json has no snapshot, so the
+tally does not record it as the check's run (one such packet read only the abstract and introduction of a panel
+configured for the whole text, and the loop then called every other sentence "new" and asked for the panel again).
+
+With --text any file is split on blank lines. It is read as plain text unless it ends in .tex or --format latex is
+given: in plain text a % is a percent sign, and read as a LaTeX comment it cut one packet off mid-sentence.
+
+LaTeX is made readable, not summarised: a citation becomes the author-year form a reader of the published paper
+would see (from --bib, or the workspace's inputs.bib), never "[cite]"; a cross-reference shows the number the page
+shows, read from the compiled --aux ("§3.2", "Figure 2", "Table 4"), and one the .aux does not have becomes
+"(number omitted)", which the prompt tells readers is the packet's limit, not the manuscript's. It used to become "§x"
+everywhere, and most readers of one panel spent "what got in the way" on that placeholder. Math shows its symbols
+(≤, ≥, ·, α, a/b): with only the backslash removed, $x \\le y$ reached the readers as "x le y", and readers reported
+it as unrendered markup. A math command the packet has no symbol for keeps its backslash and is counted in
+packet.json (residual_commands). Figures and their descriptions are dropped. Directed questions (--questions: one `id<TAB>question` per line) are asked of every
+reader after the free questions. A third column may give the answer's key phrases (`key ‖ key`), for the judges: they
+never reach a reader and do not change the packet id. A question whose key phrase the first paragraph prints verbatim
+is flagged in packet.json (copyable_questions): a reader can answer it by copying, so it cannot tell who understood.
+
+Output in --out: manuscript.txt, prompt_<persona>.txt per persona, packet.json, blank_reader.json.
+
+blank_reader.json is a reader who read nothing but the first paragraph and copied it into every answer. Judge it like
+the others (reader id BLANK): a point it carries can be scored by copying, so readers carrying it is no evidence the
+text got it across. With a workspace packet, packet.json also measures how much of the introduction's first paragraph
+repeats the abstract (shared four-word sequences, the longest verbatim run): readers' complaints are only a sign.
+Exit: 0 written; 2 nothing to read (no paragraph, unreadable input), or an argument it does not recognise.
+"""
+import argparse
+import datetime as dt
+import difflib
+import hashlib
+import json
+import os
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[4]
+# AWT_LOOP_ENGINE: the engine copy a mutation run is testing; otherwise the one in this checkout.
+ENGINE = Path(os.environ.get("AWT_LOOP_ENGINE") or ROOT / "experimental" / "writing-loop" / "engine")
+if not ENGINE.is_dir():
+    # A user-scope install has no engine beside it; the installer records the checkout's (references/loop-engine.txt).
+    _rec = Path(__file__).resolve().parent.parent / "references" / "loop-engine.txt"
+    if _rec.is_file():
+        ENGINE = Path(_rec.read_text(encoding="utf-8").strip())
+
+PERSONAS = {
+    "R1": "a researcher in the manuscript's field whose first language is not English; you read English papers daily",
+    "R2": "a senior reviewer for the target venue whose first language is English",
+}
+
+INSTRUCTIONS = """READER INSTRUCTIONS
+You are a reader, not an editor. Persona: {persona}. You have NOT read this manuscript before and know nothing about
+its authors or its history. Ignore any background notes, memory, project files or earlier conversation you may be
+able to see: read only the text below, as this reader would.
+
+Below is part of a manuscript submitted to {venue}. Paragraphs are numbered [P1], [P2], ... Read them in order,
+once, carrying forward what you have read.
+
+For EACH paragraph report:
+- "believe": one sentence: what you now believe the manuscript is claiming or doing, given everything so far
+- "expect": one sentence: what you expect to read next
+- "reread": the first 4-6 words (verbatim) of any sentence in this paragraph you had to go back and re-read
+- "guessed": words or phrases (verbatim) whose meaning you had to guess
+
+After the last paragraph report:
+- "remember": the three things you will remember from this manuscript, most important first
+- "why_accept": one sentence: the best reason, if any, to accept this paper
+- "closest_prior_work": what kind of existing work it most resembles
+- "reuse": what, if anything, you could apply to your own work after reading this
+- "writing_got_in_way": anything about how it is written that got in your way (or "nothing")
+{directed_block}- "outside_knowledge": any knowledge you used that is not in the text (or "none"). Report this last.
+{refs_note}
+Output ONLY one JSON object with the keys packet, paragraphs, remember, why_accept, closest_prior_work, reuse,
+writing_got_in_way{directed_keys}, outside_knowledge, where packet is exactly "{packet_id}" and paragraphs is a list of
+{{"p": 1, "believe": "...", "expect": "...", "reread": [], "guessed": []}}. No other text.
+
+MANUSCRIPT
+{manuscript}
+"""
+
+
+# Readers asked only what got in their way named density and qualifiers, rarely a missing link between two sentences,
+# which is what a draft with almost no linking words leaves them to supply. Asked directly, with a quote, it can be
+# placed: tally-readers.py finds each quote in the paragraphs and counts readers per paragraph.
+RELATION_ID = "relation_guessed"
+RELATION_QUESTION = ('the two sentences, one right after the other, between which you most had to guess how the '
+                     'second follows from the first: quote the first 4-6 words of each in double quotes (or "none")')
+
+
+def die(msg, code=2):
+    sys.stderr.write(f"build-reader-packet: {msg}\n")
+    sys.exit(code)
+
+
+def sha(b):
+    return hashlib.sha1(b if isinstance(b, bytes) else b.encode("utf-8")).hexdigest()
+
+
+# ------------------------------------------------------------------ bibliography
+
+def bib_entries(text):
+    """{key: "Surname et al., 2020"} from a BibTeX file; only author and year are read."""
+    out = {}
+    for m in re.finditer(r"@\w+\s*\{\s*([^,\s]+)\s*,(.*?)(?=\n@|\Z)", text or "", re.S):
+        key, body = m.group(1), m.group(2)
+        au = re.search(r"\bauthor\s*=\s*[{\"](.*?)[}\"]\s*,?\s*\n", body, re.S | re.I)
+        yr = re.search(r"\byear\s*=\s*[{\"]?(\d{4})", body, re.I)
+        names = [n.strip() for n in re.split(r"\s+and\s+", au.group(1))] if au else []
+
+        def surname(n):
+            n = re.sub(r"[{}]", "", n)
+            return n.split(",")[0].strip() if "," in n else (n.split()[-1] if n.split() else n)
+        if not names:
+            who = key
+        elif len(names) == 1:
+            who = surname(names[0])
+        elif len(names) == 2:
+            who = f"{surname(names[0])} and {surname(names[1])}"
+        else:
+            who = f"{surname(names[0])} et al."
+        out[key] = f"{who}, {yr.group(1)}" if yr else who
+    return out
+
+
+# ------------------------------------------------------------------ LaTeX to reading text
+
+CITE = re.compile(r"\\(citet|citep|cite|citeauthor|citeyear)\*?(?:\[[^\]]*\])*\{([^}]*)\}")
+
+
+def balanced_end(t, k):
+    """Index just past the group that opens at t[k] == "{". An escaped brace (\\{ or \\}) is text, not structure: counted,
+    one unpaired \\{ in alt text swallowed the rest of the paragraph."""
+    depth, k = 1, k + 1
+    while k < len(t) and depth:
+        if t[k] == "\\":
+            k += 2
+            continue
+        depth += {"{": 1, "}": -1}.get(t[k], 0)
+        k += 1
+    return k
+
+
+def drop_command(t, name):
+    """Remove \\name[...]{...} with its optional argument and its whole balanced argument; a figure's alt text
+    (\\Description, whose acmart form takes an optional short text) is for screen readers, and a reader of the page
+    never sees it."""
+    out, i = [], 0
+    rx = re.compile(r"\\" + name + r"(?![A-Za-z])\s*(?:\[[^\]]*\])?\s*\{")
+    while True:
+        m = rx.search(t, i)
+        if not m:
+            return "".join(out) + t[i:]
+        out.append(t[i:m.start()])
+        i = balanced_end(t, m.end() - 1)
+
+
+def drop_env_args(t):
+    """A tabular's column specification (and a tabular*/tabularx width) is typesetting, not text."""
+    rx = re.compile(r"\\begin\{(tabular\*?|tabularx|array)\}\s*(?:\[[^\]]*\])?")
+    out, i = [], 0
+    while True:
+        m = rx.search(t, i)
+        if not m:
+            return "".join(out) + t[i:]
+        out.append(t[i:m.start()] + " ")
+        k = m.end()
+        for _ in range(1 if m.group(1) in ("tabular", "array") else 2):
+            while k < len(t) and t[k].isspace():
+                k += 1
+            if k < len(t) and t[k] == "{":
+                k = balanced_end(t, k)
+        i = k
+
+
+# \S\ref{..}, \S~\ref{..} (the ~ is a space by then), \ref, \eqref, \autoref, \cref, \Cref.
+REF = re.compile(r"(\\S\s*)?\\(ref|eqref|autoref|cref|Cref)\{([^}]*)\}")
+# What \autoref and \cref print before the number, by the label's conventional prefix.
+REF_KIND = {"sec": "Section", "subsec": "Section", "ssec": "Section", "fig": "Figure", "tab": "Table", "eq": "Equation",
+            "app": "Appendix", "alg": "Algorithm", "lst": "Listing"}
+OMITTED = "(number omitted)"
+
+
+def aux_labels(path):
+    """{label: number as printed} from a compiled .aux (`\newlabel{key}{{number}{page}...}`)."""
+    try:
+        raw = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        die(f"cannot read --aux {path}: {e}")
+    out = {}
+    for m in re.finditer(r"\\newlabel\{([^}]*)\}\{\{((?:[^{}]|\{[^{}]*\})*)\}", raw):
+        num = re.sub(r"\\[a-zA-Z@]+\s*", "", m.group(2)).replace("{", "").replace("}", "").strip()
+        if num:
+            out[m.group(1)] = num
+    return out
+
+
+def reference(m, refs):
+    """One cross-reference as the page shows it; counted in refs (resolved or omitted)."""
+    section, cmd, keys = m.group(1), m.group(2), [k.strip() for k in m.group(3).split(",") if k.strip()]
+    labels = refs.get("labels") or {}
+    nums = [labels.get(k) for k in keys]
+    if not keys or any(n is None for n in nums):
+        refs["omitted"] = refs.get("omitted", 0) + 1
+        return ("§" if section else "") + OMITTED
+    refs["resolved"] = refs.get("resolved", 0) + 1
+    shown = ", ".join(nums)
+    if section:
+        return "§" + shown
+    if cmd == "eqref":
+        return f"({shown})"
+    if cmd in ("autoref", "cref", "Cref"):
+        kind = REF_KIND.get(keys[0].split(":")[0].lower())
+        return f"{kind} {shown}" if kind else shown
+    return shown
+
+
+# What the page prints for a symbol command. Without it a symbol only lost its backslash and reached the readers as a
+# word ("x le y"). Sizing commands (\left, \big) print nothing of their own.
+SYMBOLS = {
+    "le": "≤", "leq": "≤", "ge": "≥", "geq": "≥", "ne": "≠", "neq": "≠", "approx": "≈", "sim": "~", "simeq": "≃",
+    "equiv": "≡", "pm": "±", "mp": "∓", "cdot": "·", "times": "×", "div": "÷", "ll": "≪", "gg": "≫", "propto": "∝",
+    "infty": "∞", "to": "→", "rightarrow": "→", "leftarrow": "←", "Rightarrow": "⇒", "Leftrightarrow": "⇔",
+    "in": "∈", "notin": "∉", "subset": "⊂", "subseteq": "⊆", "cup": "∪", "cap": "∩", "emptyset": "∅", "mid": "|",
+    "ldots": "…", "dots": "…", "cdots": "⋯", "sum": "Σ", "prod": "Π", "partial": "∂", "nabla": "∇", "circ": "∘",
+    "prime": "′", "degree": "°", "S": "§",
+    "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε", "varepsilon": "ε", "zeta": "ζ", "eta": "η",
+    "theta": "θ", "iota": "ι", "kappa": "κ", "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ", "pi": "π", "rho": "ρ",
+    "sigma": "σ", "tau": "τ", "upsilon": "υ", "phi": "φ", "varphi": "φ", "chi": "χ", "psi": "ψ", "omega": "ω",
+    "Gamma": "Γ", "Delta": "Δ", "Theta": "Θ", "Lambda": "Λ", "Xi": "Ξ", "Pi": "Π", "Sigma": "Σ", "Phi": "Φ",
+    "Psi": "Ψ", "Omega": "Ω",
+    "left": "", "right": "", "big": "", "Big": "", "bigg": "", "Bigg": "", "bigl": "", "bigr": "", "Bigl": "",
+    "Bigr": "",
+}
+KEEP = "\x00"    # a backslash that must reach the reader: a math command with no symbol here
+DOLLAR = "\x01"  # an escaped \$, which is text and must not open a formula
+LB, RB = "\x02", "\x03"  # the braces of such a command's argument, which stay: "\foo{z}", not "\fooz"
+
+
+def readable(text, bib, unknown, refs=None, residual=None):
+    """What a reader of the typeset page sees, as plain text. Applied to a whole paragraph: an environment or a
+    figure's alt text often spans several indexed sentences, and cleaning each alone leaves its markup behind.
+    residual (a Counter), when given, counts the math commands left with their backslash."""
+    def math(m):
+        def keep(c):
+            if residual is not None:
+                residual["\\" + c.group(1)] += 1
+            return KEEP + c.group(1) + (LB + c.group(2)[1:-1] + RB if c.group(2) else "")
+        body = re.sub(r"\\([A-Za-z]+)(\{[^{}]*\})?", keep, m.group(1).strip())
+        return re.sub(r"[{}\\]", "", body)
+
+    def cite(m):
+        cmd, keys = m.group(1), [k.strip() for k in m.group(2).split(",") if k.strip()]
+        parts = []
+        for k in keys:
+            if k not in bib:
+                unknown.add(k)
+            parts.append(bib.get(k, k))
+        if cmd == "citet":
+            return "; ".join(re.sub(r", (\d{4})$", r" (\1)", p) for p in parts)
+        return "(" + "; ".join(parts) + ")"
+    t = CITE.sub(cite, text.replace("\\$", DOLLAR))
+    t = drop_command(t, "Description")
+    t = drop_env_args(t)
+    t = re.sub(r"\\(?:input|include|includegraphics)\*?(?:\[[^\]]*\])?\{[^}]*\}", "", t)
+    t = re.sub(r"\\caption\s*(?:\[[^\]]*\])?\s*\{", " Caption: {", t)
+    t = re.sub(r"\\begin\{[^}]*\}(?:\[[^\]]*\])*", " ", t)
+    t = re.sub(r"\\end\{[^}]*\}", " ", t)
+    t = re.sub(r"\\item\[([^\]]*)\]", r"\1", t)
+    t = re.sub(r"~", " ", t)
+    t = REF.sub(lambda m: reference(m, refs if refs is not None else {}), t)
+    t = re.sub(r"\\label\{[^}]*\}", "", t)
+    t = re.sub(r"\\(?:emph|textit|textbf|texttt|textsc|textsf|text|mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathbb|"
+               r"mathfrak|boldsymbol|operatorname|mbox)\{([^{}]*)\}", r"\1", t)
+    t = re.sub(r"\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}", r"\1/\2", t)
+    t = re.sub(r"\\sqrt\{([^{}]*)\}", lambda m: "√" + (m.group(1) if len(m.group(1)) == 1 else f"({m.group(1)})"), t)
+    t = re.sub(r"\\(hat|bar|tilde|vec|dot)\{([^{}]*)\}",
+               lambda m: m.group(2) + {"hat": "\u0302", "bar": "\u0304", "tilde": "\u0303", "vec": "\u20d7",
+                                       "dot": "\u0307"}[m.group(1)], t)
+    t = re.sub(r"\\([A-Za-z]+)", lambda m: SYMBOLS.get(m.group(1), m.group(0)), t)
+    t = re.sub(r"\\%", "%", t)
+    t = re.sub(r"\\,|\\;|\\!", " ", t)
+    t = re.sub(r"\{=\}", "=", t)
+    t = re.sub(r"\\\((.*?)\\\)|\\\[(.*?)\\\]", lambda m: "$" + (m.group(1) or m.group(2) or "") + "$", t, flags=re.S)
+    t = re.sub(r"\$([^$]*)\$", math, t)
+    t = re.sub(r"\\[a-zA-Z]+\*?", "", t)
+    t = re.sub(r"[{}]", "", t)
+    t = re.sub(r"---", "—", t).replace("--", "–")
+    t = re.sub(r"\s+", " ", t).strip()
+    return t.replace(KEEP, "\\").replace(LB, "{").replace(RB, "}").replace(DOLLAR, "$")
+
+
+# ------------------------------------------------------------------ sources of paragraphs
+
+def ref_commit(cfg):
+    """The commit the workspace's branch is at now, or None when it cannot be read."""
+    if not cfg.get("repo") or not cfg.get("ref"):
+        return None
+    import subprocess
+    r = subprocess.run(["git", "-C", str(cfg["repo"]), "rev-parse", "--verify", "--quiet", f"{cfg['ref']}^{{commit}}"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() or None
+
+
+def from_workspace(ws, sections_arg):
+    if not ENGINE.is_dir():
+        die(f"--workspace needs the writing loop engine at {ENGINE}; this copy of the skill does not have it")
+    sys.path.insert(0, str(ENGINE))
+    from loop import catalogue as K  # noqa: E402
+    from loop import config as C  # noqa: E402
+    from loop import coverage as V  # noqa: E402
+    from loop import targets as TG  # noqa: E402
+    try:
+        cfg = C.load(ws)
+    except (OSError, ValueError) as e:
+        die(f"workspace config unreadable: {e}")
+    check = dict(K.by_id("readers"))
+    configured = K.get(cfg, "target.readers.sections") or check["scope"]["default"]
+    sentences, head = V.current_sentences(ws)
+    if sentences is None:
+        die("the workspace has no index yet (run `loop update` first)")
+    now = ref_commit(cfg)
+    if head and now and now != head:
+        # 09-28: a packet built while an update was running read the version before the one just committed.
+        die(f"the index was built at {head[:7]} but {cfg['ref']} is at {now[:7]}: an update is still running or has "
+            "not run; wait for `loop update` to finish, then build the packet")
+    override = bool(sections_arg) and set(sections_arg) != set(configured)
+    if sections_arg:
+        cfg.setdefault("target", {}).setdefault("readers", {})["sections"] = sections_arg
+    prefixes = K.get(cfg, "target.readers.sections") or check["scope"]["default"]
+    kept = [s for s in sentences if V.in_sections(s.get("section"), prefixes)]
+    paras, order = {}, []
+    for s in kept:
+        key = (s.get("section"), s.get("par"))
+        if key not in paras:
+            paras[key] = []
+            order.append(key)
+        paras[key].append(s)
+    bibtext = ""
+    b = K.get(cfg, "inputs.bib")
+    if b:
+        import subprocess
+        r = subprocess.run(["git", "-C", str(cfg["repo"]), "show", f"{head}:{b}"], capture_output=True)
+        bibtext = r.stdout.decode("utf-8", "replace") if r.returncode == 0 else ""
+    # A packet of other sections is a targeted comparison: without a snapshot the tally does not record it as the
+    # readers check's run, so the loop keeps judging the check by its last panel of the configured sections.
+    snap = None if override else V.snapshot(check, cfg, sentences, head)
+    state, card = TG.intent_card_state(cfg)
+    personas = K.get(cfg, "target.readers.personas")
+    if personas:
+        PERSONAS.clear()
+        PERSONAS.update(personas)
+    questions = K.get(cfg, "target.readers.questions")
+    source = {"workspace": str(Path(ws).resolve()), "commit": head, "sections": prefixes, "questions_file": questions,
+              "format": V.draft_format(cfg), "venue": K.get(cfg, "target.venue"),
+              "intent_card": {"path": card, "state": state,
+                              "sha1": sha(Path(card).read_bytes()) if card and Path(card).is_file() else None}}
+    source["paragraph_sections"] = [k[0] for k in order]
+    if override:
+        source["scope_override"] = {
+            "configured": list(configured), "read_sentences": len(kept),
+            "configured_sentences": sum(1 for s in sentences if V.in_sections(s.get("section"), configured))}
+    # When the draft on disk last changed: an .aux compiled before that may number cross-references the draft has moved.
+    # Not the commit time: compiling and then committing is the usual order, and the .aux would always read as a few
+    # seconds older than a commit of the same text (09-28, found on a real workspace).
+    times = []
+    for pat in (cfg.get("draft") or {}).get("glob") or []:
+        for f in Path(cfg["repo"]).glob(pat):
+            try:
+                times.append(f.stat().st_mtime)
+            except OSError:
+                pass
+    source["draft_changed"] = max(times) if times else None
+    return [[(s["text"], s["sid"], s["hash"]) for s in paras[k]] for k in order], bibtext, source, snap
+
+
+def aux_staleness(aux, source, text_path):
+    """{aux, source} (local times) when the .aux is older than the last change to the draft it numbers, else None: the
+    draft files on disk (workspace) or the file read (--text). 09-27: an .aux compiled at 18:09 numbered a draft changed
+    again before its 18:34 commit, and nothing said so."""
+    if not aux:
+        return None
+    try:
+        aux_t = Path(aux).stat().st_mtime
+    except OSError:
+        return None
+    src_t = source.get("draft_changed")
+    if src_t is None and text_path:
+        try:
+            src_t = Path(text_path).stat().st_mtime
+        except OSError:
+            src_t = None
+    if src_t is None or aux_t >= src_t:
+        return None
+    fmt = lambda t: dt.datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S")  # noqa: E731
+    return {"aux": fmt(aux_t), "source": fmt(src_t)}
+
+
+def text_format(path, fmt):
+    """latex for a .tex file or when asked; plain text otherwise, where a % is a percent sign."""
+    return fmt or ("latex" if str(path).lower().endswith(".tex") else "text")
+
+
+def from_text(path, fmt):
+    try:
+        raw = Path(path).read_text(encoding="utf-8")
+    except OSError as e:
+        die(f"cannot read {path}: {e}")
+    source = {"text": str(Path(path).resolve()), "sha1": sha(raw), "format": fmt}
+    if fmt == "latex":
+        # LaTeX drops the rest of a line after an unescaped %, so the packet does too; after a figure it is almost
+        # always a percentage that was meant, and in a plain-text file read as LaTeX it cut the packet mid-sentence.
+        source["percent_after_digit"] = [n for n, line in enumerate(raw.splitlines(), 1) if re.search(r"\d%", line)]
+        raw = re.sub(r"(?m)(?<!\\)%.*$", "", raw)
+        raw = re.sub(r"\\begin\{figure\*?\}.*?\\end\{figure\*?\}", "", raw, flags=re.S)
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", raw) if b.strip()]
+    if fmt == "latex":
+        blocks = [b for b in blocks if not re.fullmatch(r"\\[a-zA-Z]+\*?(\{[^}]*\})*", b)]
+    return [[(b, None, sha(b)[:10])] for b in blocks], "", source, None
+
+
+def repetition(rendered, sections):
+    """How much of the introduction's first paragraph repeats the abstract: the share of its four-word sequences that
+    occur in the abstract, and its longest verbatim run of words. None without sections (a --text packet)."""
+    if not sections or len(sections) != len(rendered):
+        return None
+    ab = [r for r, s in zip(rendered, sections) if str(s).upper().startswith("A")]
+    intro = next((r for r, s in zip(rendered, sections) if str(s).upper().startswith("I")), None)
+    if not ab or intro is None:
+        return None
+    a = re.findall(r"[\w'-]+", " ".join(r["text"] for r in ab).lower())
+    i = re.findall(r"[\w'-]+", intro["text"].lower())
+    grams = lambda w: {tuple(w[k:k + 4]) for k in range(len(w) - 3)}
+    ig = grams(i)
+    m = difflib.SequenceMatcher(None, a, i, autojunk=False).find_longest_match(0, len(a), 0, len(i))
+    return {"abstract": [r["p"] for r in ab], "introduction_first": intro["p"],
+            "shared_four_word_share": round(len(ig & grams(a)) / len(ig), 3) if ig else 0.0,
+            "longest_verbatim_words": m.size, "longest_verbatim": " ".join(i[m.b:m.b + m.size])}
+
+
+def blank_reader(rendered, questions, packet_id):
+    """A reader who copies the first paragraph into every answer (reader id BLANK)."""
+    first = rendered[0]["text"]
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+", first) if s.strip()]
+    out = {"reader": "BLANK", "packet": packet_id,
+           "note": "Not a reader: every answer is copied from the first paragraph. Judge it like the others; a point "
+                   "it carries can be scored by copying.",
+           "remember": sentences[:3], "why_accept": first, "closest_prior_work": first, "reuse": first}
+    for q in questions:
+        out[q["id"]] = first
+    return out
+
+
+def read_questions(path):
+    out = []
+    if not path:
+        return out
+    for i, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip() or line.startswith("#"):
+            continue
+        qid, _, rest = line.partition("\t")
+        q, _, keys = rest.partition("\t")
+        if not q.strip():
+            die(f"{path}:{i}: a directed question is `id<TAB>question[<TAB>key ‖ key]`")
+        item = {"id": qid.strip(), "question": q.strip()}
+        if keys.strip():
+            item["keys"] = [k.strip() for k in keys.split("‖") if k.strip()]
+        out.append(item)
+    return out
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--workspace")
+    src.add_argument("--text")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--sections", help="comma-separated section prefixes (workspace mode)")
+    ap.add_argument("--bib", help="BibTeX file for author-year citations")
+    ap.add_argument("--questions", help="directed questions: id<TAB>question per line")
+    ap.add_argument("--ask-relations", action="store_true",
+                    help=f"add the directed question {RELATION_ID}: where the reader had to guess how one sentence "
+                         "follows from the one before (tally-readers.py places the quotes in paragraphs)")
+    ap.add_argument("--venue", help="how the prompt names the venue (default: the workspace's target.venue)")
+    ap.add_argument("--aux", help="the compiled .aux, for the numbers cross-references show on the page")
+    ap.add_argument("--format", choices=("text", "latex"),
+                    help="how --text is read (default: latex for a .tex file, plain text otherwise)")
+    try:
+        a = ap.parse_args(argv)
+    except SystemExit as e:
+        sys.exit(2 if e.code else 0)
+
+    if a.workspace:
+        paras, bibtext, source, snap = from_workspace(a.workspace, a.sections.split(",") if a.sections else None)
+    else:
+        paras, bibtext, source, snap = from_text(a.text, text_format(a.text, a.format))
+    if a.bib:
+        try:
+            bibtext = Path(a.bib).read_text(encoding="utf-8")
+        except OSError as e:
+            die(f"cannot read --bib {a.bib}: {e}")
+    if not paras:
+        die("no paragraph to give the readers: nothing was built")
+    bib, unknown = bib_entries(bibtext), set()
+    refs = {"labels": aux_labels(a.aux) if a.aux else {}, "resolved": 0, "omitted": 0}
+    stale_aux = aux_staleness(a.aux, source, a.text)
+    plain = bool(a.text) and source.get("format") == "text"
+    residual = Counter()
+    rendered = []
+    for i, para in enumerate(paras, 1):
+        joined = " ".join(t for t, _, _ in para)
+        text = re.sub(r"\s+", " ", joined).strip() if plain else readable(joined, bib, unknown, refs, residual)
+        rendered.append({"p": i, "text": text, "sids": [s for _, s, _ in para if s], "hashes": [h for _, _, h in para]})
+    manuscript = "\n\n".join(f"[P{r['p']}] {r['text']}" for r in rendered)
+    keyed = read_questions(a.questions or (source.get("questions_file") and str(Path(source["questions_file"]).expanduser())))
+    # Keys are for the judges: what the readers read, and the packet id, hold the questions without them.
+    questions = [{"id": q["id"], "question": q["question"]} for q in keyed]
+    if a.ask_relations and all(q["id"] != RELATION_ID for q in questions):
+        questions.append({"id": RELATION_ID, "question": RELATION_QUESTION})
+    first = rendered[0]["text"].lower()
+    copyable = [q["id"] for q in keyed if any(k.lower() in first for k in q.get("keys") or [])]
+    venue = a.venue or source.get("venue") or "a journal"
+    directed_block = "".join(f'- "{q["id"]}": {q["question"]}\n' for q in questions)
+    directed_keys = "".join(f", {q['id']}" for q in questions)
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "manuscript.txt").write_text(manuscript + "\n", encoding="utf-8")
+    # The packet id travels through every reader's output, so an output written for another version of the text
+    # cannot be tallied against this one.
+    packet_id = sha(json.dumps([manuscript, questions, sorted(PERSONAS.items()), venue]))[:12]
+    refs_note = (f'Cross-references this packet has no number for read "{OMITTED}". That is a limit of the packet, not of '
+                 f'the manuscript: the published page shows the number. Do not report it under writing_got_in_way.\n'
+                 if refs["omitted"] else "")
+    prompts = {}
+    for pid, persona in PERSONAS.items():
+        text = INSTRUCTIONS.format(persona=persona, venue=venue, directed_block=directed_block, refs_note=refs_note,
+                                   directed_keys=directed_keys, manuscript=manuscript, packet_id=packet_id)
+        (out / f"prompt_{pid}.txt").write_text(text, encoding="utf-8")
+        prompts[pid] = {"file": f"prompt_{pid}.txt", "sha1": sha(text)}
+    packet = {"schema": 1, "packet_id": packet_id, "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+              "source": source,
+              "paragraphs": rendered, "questions": questions, "personas": PERSONAS, "prompts": prompts,
+              "unknown_citation_keys": sorted(unknown), "snapshot": snap,
+              "residual_commands": dict(residual.most_common()),
+              "references": {"resolved": refs["resolved"], "omitted": refs["omitted"],
+                             "aux": str(Path(a.aux).resolve()) if a.aux else None, "aux_older_than_source": stale_aux},
+              "repetition": repetition(rendered, source.get("paragraph_sections")),
+              "question_keys": {q["id"]: q["keys"] for q in keyed if q.get("keys")}, "copyable_questions": copyable}
+    (out / "packet.json").write_text(json.dumps(packet, ensure_ascii=False, indent=1), encoding="utf-8")
+    (out / "blank_reader.json").write_text(json.dumps(blank_reader(rendered, questions, packet_id), ensure_ascii=False,
+                                                      indent=1), encoding="utf-8")
+    words = sum(len(r["text"].split()) for r in rendered)
+    print(f"packet: {len(rendered)} paragraphs, {words} words, {len(questions)} directed question(s), "
+          f"{len(PERSONAS)} personas -> {out}")
+    over = source.get("scope_override")
+    if over:
+        print(f"  --sections {','.join(source['sections'])} is not the workspace's readers scope "
+              f"({','.join(over['configured'])}): this packet reads {over['read_sentences']} of the "
+              f"{over['configured_sentences']} sentences in that scope and will not be recorded as the readers check's "
+              "run; to change what the check reads, change target.readers.sections")
+    if source.get("percent_after_digit"):
+        print(f"  read as LaTeX, a % after a number drops the rest of the line (lines "
+              f"{', '.join(map(str, source['percent_after_digit'][:8]))}); if the file is plain text, give --format text")
+    if residual:
+        print(f"  math commands with no symbol in the packet, left with their backslash: "
+              f"{', '.join(f'{c} ×{n}' for c, n in residual.most_common(8))}")
+    if unknown:
+        print(f"  citation keys not in the bibliography, left as keys: {', '.join(sorted(unknown))}")
+    if copyable:
+        print(f"  directed questions the first paragraph answers verbatim (a reader can copy the answer): {', '.join(copyable)}")
+    if stale_aux:
+        print(f"  the .aux was compiled {stale_aux['aux']}, before the draft last changed ({stale_aux['source']}): cross-reference "
+              "numbers may be out of date; recompile, then build the packet again")
+    if refs["omitted"]:
+        print(f"  cross-references shown as {OMITTED}: {refs['omitted']} of {refs['omitted'] + refs['resolved']}"
+              + ("" if a.aux else " (give --aux, the compiled .aux, for the numbers)"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

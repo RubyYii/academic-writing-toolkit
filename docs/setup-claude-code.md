@@ -30,7 +30,7 @@ If `make doctor` reports anything red, run `make repair` to fix what it can.
 
 Ask Claude: "What skills are available?"
 
-You should see the nine canonical skills listed in [the skills guide](skills/README.md), including the experimental `/research-plan`, `/review` and `/audit`.
+You should see the ten canonical skills listed in [the skills guide](skills/README.md), including the experimental `/research-plan`, `/review` and `/audit`.
 
 ## Available Skills
 
@@ -41,6 +41,7 @@ You should see the nine canonical skills listed in [the skills guide](skills/REA
 | `/note` | Record structured reading notes |
 | `/map` | View literature coverage matrix |
 | `/review` | External manuscript review or own-work clean-room review |
+| `/readers` | Reader panel: what first-time readers carried away, against the author's intended points |
 | `/integrate` | Weave reading notes into chapter drafts |
 | `/audit` | Pre-submission consistency check |
 | `/verify-refs` | Check BibTeX records and metadata |

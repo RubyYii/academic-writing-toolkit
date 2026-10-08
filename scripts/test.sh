@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test.sh — runs the regression test suite (183 automated tests, labelled T2-T197: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T196-T197 a venue name containing an ampersand) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
+# scripts/test.sh — runs the regression test suite (253 automated tests, labelled T2-T271: T2-T18 toolkit + T19-T32 citation/env + T33-T44 public toolkit features + T45-T49 reference metadata + T50 canonical skills tree + T54-T58 release governance + T59 docs consistency + T60 Markdown BibTeX + T61-T63 productization + T64-T72 thesis control + T73 lost-in-conversation bench + T74-T111 revision escalation and human gates + T112-T115 argument and clean-room review governance + T116-T124 project-intent control + T125-T126 verify-refs parser + T127-T128 prose fingerprint + T129-T130 claim positioning + T131-T134 estimator alignment + T137 lightweight author control + T138 Harvard/Markdown claim positioning + T139-T140 and T203 fingerprint baseline precondition + T142-T147 claim ledger + T148-T153 commit gate + T154-T157 fails-closed registry + T158-T162 review findings + T163-T168 and T198-T202 number ledger + T169-T171 audits that name what they did not read + T172-T174 claim-positioning precision + T175-T177 venue baseline construction + T178-T183 session scan + T184 the header's own count + T185-T187 the public-content audit reports what it read + T188-T189 the scripts/ audits fail closed and the docs' skill count is derived + T190 every path the README's structure block names exists + T191-T193 writing loop, experimental + T194-T195 method credits in the full claim-ledger scan + T204-T210 and T214-T215 changed-sentence audit + T216-T218 prose view, spelling consistency and citation reconciliation for LaTeX drafts + T219 fingerprint drops environment names + T220 fingerprint per-file peaks + T211-T213 venue topic and contribution type + T196-T197 a venue name containing an ampersand + T230-T238, T247, T250 and T252 generated copies rerun against their generators + T239-T246, T248, T249, T251 and T253 figure and table reviews + T254-T255 a supplement's ledgers and files + T256-T257 links between sentences + T258 the edge of the baseline + T259-T267 a found snippet is not a read one, and claims with no \cite + T268 paragraph openers + T269 a number that ends a sentence + T270 speculation is a hedge + T271 method word forms share one source) for academic-writing-toolkit. Tests whose body reaches into archive/skills/ run only with AWT_TEST_RETIRED=1.
 # Self-contained; saves and restores any state it mutates.
 # Exit 0 if all tests pass, 1 if any fail. CI-suitable.
 # Note: pipefail is intentionally NOT enabled. Several tests assert that a
@@ -3471,7 +3471,9 @@ root, n = pathlib.Path(sys.argv[1]), int(sys.argv[2])
 words = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve".split())}
 num = r"(\d+|" + "|".join(words) + r")"
 pats = [re.compile(r"\b" + num + r"[- ]skill\b", re.I),
-        re.compile(r"\b(?:the|all|these|its|those|same)\s+" + num + r"\s+skills\b", re.I),
+        # one adjective may sit between the number and "skills" ("the eight canonical skills" slipped past this
+        # check until 2026-09-21), and "provides N skills" names the catalogue too
+        re.compile(r"\b(?:the|all|these|its|those|same|provides)\s+" + num + r"\s+(?:\w+\s+)?skills\b", re.I),
         re.compile(r"\b" + num + r"\s+academic[- ]writing[- ]skills\b", re.I),
         re.compile(r"\b" + num + r"\s+advisory\s+skills\b", re.I)]
 skip = {"specs", "research", "product"}
@@ -3528,6 +3530,706 @@ test_T190() {
     missing=$(_readme_structure_paths "$REPO_ROOT/README.md" | while read -r p; do [ -e "$REPO_ROOT/$p" ] || echo "$p"; done)
     [ -z "$missing" ] || { echo "the README names paths that do not exist:"; echo "$missing" | sed 's/^/  /'; return 1; }
     [ "$(_readme_structure_paths "$REPO_ROOT/README.md" | wc -l | tr -d ' ')" -ge 8 ] || { echo "fewer than 8 paths parsed; the parser lost the block"; return 1; }
+}
+
+# ── T191–T193: the writing loop (experimental/writing-loop/) ──────────────────
+# The engine is stdlib-only Python. Its tests build throwaway git repositories
+# and fake transcripts; tests that read a real manuscript are kept outside this
+# public repository and are not part of this suite.
+
+test_T191() {
+    # The engine's own tests pass, and at least one ran: "OK" over zero tests
+    # would be a vacuous pass.
+    local out
+    out=$(cd experimental/writing-loop/engine/tests && PYTHONPATH="..:." python3 -m unittest -q 2>&1)
+    echo "$out" | grep -qE '^Ran [1-9][0-9]* tests?' || { echo "$out" | tail -40; return 1; }
+    echo "$out" | grep -q '^OK' || { echo "$out" | grep -E '^(ERROR|FAIL):' | head -40; echo "$out" | tail -40; return 1; }
+    ! echo "$out" | grep -q 'skipped'
+}
+
+test_T192() {
+    # Red check: each mutation breaks the engine in one known way and names the
+    # test that must then fail. A mutation whose test stays green means that
+    # test cannot see the fault it claims to guard.
+    local out rc
+    out=$(python3 experimental/writing-loop/engine/tests/redcheck.py 2>&1); rc=$?
+    [ "$rc" -eq 0 ] || { echo "$out" | grep -E '没变红|基线就不通过|无法注入'; echo "$out" | tail -2; return 1; }
+    echo "$out" | grep -qE '^\[[0-9.]+\] ' || return 1
+}
+
+_home_paths_under() {
+    grep -rIlE '(/Users/[^/[:space:]"]+/|/home/[^/[:space:]"]+/)' "$1" 2>/dev/null
+}
+
+test_T193() {
+    # experimental/ is a public surface. The public-content audit must cover it
+    # and no file there may carry an absolute home-directory path. Both checks
+    # are first shown able to fail on a planted residue.
+    local tmp rc
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/experimental/x"
+    printf 'owner = "%s%s"\n' "Hao" "rui" > "$tmp/experimental/x/a.py"
+    printf 'root = "/Users/%s/work/"\n' "someone" > "$tmp/experimental/x/b.py"
+    python3 scripts/audit-public-content.py --base-dir "$tmp" >/dev/null 2>&1; rc=$?
+    local planted_path
+    planted_path=$(_home_paths_under "$tmp/experimental")
+    rm -rf "$tmp"
+    [ "$rc" -eq 1 ] || return 1
+    [ -n "$planted_path" ] || return 1
+    [ -z "$(_home_paths_under experimental)" ]
+}
+
+# --- T256-T257: links between sentences ----------------------------------------
+test_T256() {
+    # A rewrite that only links a sentence to the one before it ("However,", "As a result,", ", in turn,") is not
+    # flagged: the comma, the adverb, the opener and the extra words belong to the link. The link is reported as
+    # links_added. A link that arrives with a real addition still leaves the addition flagged, and "Instead of"
+    # opens a phrase, not a link.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    printf 'id\told\tnew\n' > "$tmp/pairs.tsv"
+    printf 'a\tThe gauge reads the river level twice a day.\tHowever, the gauge reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    printf 'b\tThe gauge reads the river level twice a day.\tAs a result, the gauge reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    printf 'c\tThe gauge reads the river level twice a day.\tThe gauge, in turn, reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    printf 'd\tThe gauge reads the river level twice a day.\tFor example, the gauge, which the survey installed in spring, reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    printf 'e\tThe gauge reads the river level twice a day.\tInstead of the old float, the gauge reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    printf 'f\tSpecifically, the gauge reads the river level twice a day.\tThe gauge reads the river level twice a day.\n' >> "$tmp/pairs.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --json 2>/dev/null)
+    code=$?
+    rm -rf "$tmp"
+    [ "$code" -eq 1 ] || return 1
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+by = {r['where']: r for r in d['sentences']}
+for k in 'abcf':
+    assert by[k]['flags'] == [], (k, by[k]['flags'])
+assert by['a']['links_added'] == ['however'] and by['b']['links_added'] == ['as a result'], (by['a'], by['b'])
+assert by['c']['links_added'] == ['in turn'] and by['f']['links_added'] == [], (by['c'], by['f'])
+assert {'clause', 'comma'} <= set(by['d']['flags']) and by['d']['links_added'] == ['for example'], by['d']
+assert by['e']['flags'] and by['e']['links_added'] == [], by['e']
+assert d['links_added'] == {'as a result': 1, 'for example': 1, 'however': 1, 'in turn': 1}, d['links_added']
+"
+}
+
+test_T257() {
+    # The fingerprint counts sentences that open with a linking adverbial, as a share of sentences. Enumerators
+    # (First, Second), subordinators (Although) and "Instead of" do not count; a link that needs a comma counts
+    # only with it.
+    local tmp none some
+    tmp=$(mktemp -d) || return 1
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib
+d = pathlib.Path(sys.argv[1])
+plain = "The gauge reads the river level twice a day at the north bridge. "
+notlink = ["First, the gauge reads the river level at the north bridge. ",
+           "Although the float sticks, the gauge reads the level at the north bridge. ",
+           "Instead of the float, the gauge reads the level at the north bridge. ",
+           "Overall accuracy of the gauge stays high at the north bridge. "]
+link = ["However, the gauge reads the river level at the north bridge. ",
+        "For example, the gauge reads the river level at the north bridge. ",
+        "Overall, the gauge reads the river level at the north bridge. ",
+        "In addition, the gauge reads the river level at the north bridge. "]
+(d / "none.txt").write_text((plain * 6 + "".join(notlink)) * 5, encoding="utf-8")
+(d / "some.txt").write_text((plain * 6 + "".join(link)) * 5, encoding="utf-8")
+PYEOF
+    none=$(python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target "$tmp/none.txt" --json 2>/dev/null \
+        | python3 -c "import json,sys; print(json.load(sys.stdin)['metrics']['linking_opener_share']['value'])")
+    some=$(python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target "$tmp/some.txt" --json 2>/dev/null \
+        | python3 -c "import json,sys; print(json.load(sys.stdin)['metrics']['linking_opener_share']['value'])")
+    rm -rf "$tmp"
+    python3 - "$none" "$some" <<'PYEOF'
+import sys
+none, some = float(sys.argv[1]), float(sys.argv[2])
+assert none == 0.0, none
+assert abs(some - 0.4) < 1e-9, some
+PYEOF
+}
+
+test_T258() {
+    # The range is min-max: a draft below all but one venue paper reads as inside it. Both prose audits also name the
+    # metrics outside the baseline's 5th-95th percentile band ("edge"), apart from the outliers, and an edge does not
+    # change the exit code. Twenty baseline documents whose semicolon and comma rates rise one step at a time; one
+    # target below the lowest (outlier), one between the lowest and the band (edge), one in the middle (neither).
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/base"
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib, itertools
+d = pathlib.Path(sys.argv[1])
+toks = iter("".join(c) for c in itertools.product("abcdefghij", repeat=4))
+def doc(n, k):
+    out = []
+    for i in range(n):
+        w = next(toks)
+        out.append(("The %s stage scored the pool; so, it kept rank. " if i % (n // k) == 0 and i // (n // k) < k
+                    else "The %s stage scored the pool and kept the rank. ") % w)
+    return "".join(out)
+for i in range(20):
+    (d / "base" / ("paper%02d.txt" % i)).write_text(doc(200, 2 * (i + 1)))
+(d / "outlier.txt").write_text(doc(400, 2))
+(d / "edge.txt").write_text(doc(400, 5))
+(d / "middle.txt").write_text(doc(200, 20))
+PYEOF
+    for t in outlier edge middle; do
+        python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target "$tmp/$t.txt" --baseline "$tmp/base" \
+            --json > "$tmp/$t.fp.json" 2>/dev/null
+        python3 .claude/skills/audit/scripts/audit-prose-structure.py --target "$tmp/$t.txt" --baseline "$tmp/base" \
+            --json > "$tmp/$t.st.json" 2>/dev/null
+    done
+    python3 - "$tmp" <<'PYEOF'
+import json, sys, pathlib
+d = pathlib.Path(sys.argv[1])
+for script, key, flag in (("fp", "semicolon_per_1k", "outside_range"), ("st", "comma_per_100w", "outside")):
+    r = {t: json.loads((d / ("%s.%s.json" % (t, script))).read_text()) for t in ("outlier", "edge", "middle")}
+    m = {t: r[t]["metrics"][key] for t in r}
+    assert m["outlier"][flag] and not m["outlier"]["edge"] and key in r["outlier"]["outliers"], (script, m["outlier"])
+    assert key not in r["outlier"]["edge"], (script, r["outlier"]["edge"])
+    assert not m["edge"][flag] and m["edge"]["edge"], (script, m["edge"])
+    assert key in r["edge"]["edge"] and key not in r["edge"]["outliers"], (script, r["edge"])
+    assert m["edge"]["value"] < m["edge"]["band_low"], (script, m["edge"])
+    assert not m["middle"][flag] and not m["middle"]["edge"] and key not in r["middle"]["edge"], (script, m["middle"])
+PYEOF
+    local rc=$?
+    rm -rf "$tmp"
+    return $rc
+}
+
+# --- T268: paragraph openers ---------------------------------------------------------
+test_T268() {
+    # An author rejected an abstract and an introduction that led with figures after every sentence-level check had
+    # passed them. audit-openers.py lists paragraphs whose first sentence carries a number or a formula (MATH in the
+    # prose view) or opens on a table or figure; a year, a metric's name (Recall@10), a pointer (Section 3), a list
+    # marker and a model's version (BLIP 2) are not figures. It points and does not judge: exit 1 with the list,
+    # exit 2 when there is nothing to read.
+    local tmp out rc
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/draft/chapters" "$tmp/empty"
+    cat > "$tmp/draft/chapters/01-intro.md" <<'MDEOF'
+## Introduction
+
+Readers who cannot read the source language need another way into a collection. A search system can offer one.
+
+The pilot reached 37.5% accuracy on the held-out split, which is what motivated the rest of this study.
+
+MATH of the queries return the target in first place, a share no other system reaches.
+
+Table lists the corpora used here and the size of each.
+
+In 2019 the archive opened its catalogue to outside readers, and the requests changed.
+
+Recall@10 is the share of queries whose target appears among the first ten results.
+
+As shown in Figure, the curve flattens after the fifth step.
+
+We follow the protocol of Section 3 (e.g. the same splits), and report every run.
+
+Across the three archives, Recall@ MATH rises as the candidate pool shrinks.
+
+We compare BLIP 2 with two older captioners on the same corpus.
+
+- a list item with 12 numbers 3 4
+MDEOF
+    out=$(python3 "$REPO_ROOT/scripts/audit-openers.py" --base-dir "$tmp/draft" --json 2>/dev/null)
+    rc=$?
+    [ "$rc" = "1" ] || { rm -rf "$tmp"; echo "expected exit 1 with findings, got $rc"; return 1; }
+    python3 - "$out" <<'PYEOF2'
+import json, sys
+d = json.loads(sys.argv[1])
+got = sorted((x["location"].rsplit(":", 1)[1], x["kind"]) for x in d["issues"])
+want = sorted([("5", "number-opener"), ("7", "number-opener"), ("9", "float-opener"), ("15", "float-opener")])
+assert got == want, got
+assert d["paragraphs"] == 10, d["paragraphs"]
+assert "首句带数字或公式 2 段" in d["summary_zh"] and "以图表开头 2 段" in d["summary_zh"], d["summary_zh"]
+PYEOF2
+    rc=$?
+    if [ "$rc" = "0" ]; then
+        python3 "$REPO_ROOT/scripts/audit-openers.py" --base-dir "$tmp/empty" --json >/dev/null 2>&1
+        [ "$?" = "2" ] || { echo "expected exit 2 on a base-dir with no chapters"; rc=1; }
+    fi
+    rm -rf "$tmp"
+    return $rc
+}
+
+test_T269() {
+    # A number that ends a sentence is followed by the full stop. The
+    # boundary after a number used to refuse any following "." so that
+    # 0.45 would not be read inside 0.456; it also refused the full stop,
+    # and every sentence-final number went unseen: a ledgered one was
+    # reported as gone, an unledgered one was never listed. Only a "." that
+    # starts more digits continues the number.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/sections" "$tmp/results"
+    cat > "$tmp/sections/06_results.tex" <<'EOF'
+\section{Results}
+The first value is $0.123$ in the table. The second value is $0.456$.
+The sample holds 27 plates. The count rose to 41.
+A finer reading gives $0.7891$ for the third value.
+EOF
+    cat > "$tmp/results/summary.tex" <<'EOF'
+first 0.123 and second 0.456.
+third 0.789 and fourth 27.
+EOF
+    printf 'printed\tin_artifact\tscope\tartifact\tlocator\n' > "$tmp/numbers.tsv"
+    printf '0.123\t0.123\t-\tresults/summary.tex\tfirst 0.123\n' >> "$tmp/numbers.tsv"
+    printf '0.456\t0.456\t-\tresults/summary.tex\tsecond 0.456\n' >> "$tmp/numbers.tsv"
+    printf '0.789\t0.789\t-\tresults/summary.tex\tthird 0.789\n' >> "$tmp/numbers.tsv"
+    printf '27\t27\t-\tresults/summary.tex\tfourth 27\n' >> "$tmp/numbers.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" \
+          --ledger "$tmp/numbers.tsv" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+got=sorted((f['kind'],f['number']) for f in d['findings'])
+# 0.456 ends its sentence and is still reported; its locator ends a line of the artifact.
+assert ('number-not-in-manuscript','0.456') not in got, got
+assert ('locator-not-in-artifact','0.456') not in got, got
+# 41 ends its sentence and has no row: it is listed.
+assert ('unledgered-number','41') in got, got
+# 0.789 is not read inside 0.7891, nor 0.789 inside the artifact's longer numbers.
+assert ('number-not-in-manuscript','0.789') in got, got
+assert ('unledgered-number','0.7891') in got, got
+assert not [g for g in got if g[1] in ('0.123','27')], got
+" || return 1
+    [ "$status" = "1" ] || { echo "expected exit 1, got $status"; return 1; }
+}
+
+test_T270() {
+    # "We speculate", "the speculation", "a speculative reading" hedge a claim as "may" does, and the hedge rate
+    # counted none of them. Every inflection counts; a word that only looks alike does not.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib
+d = pathlib.Path(sys.argv[1])
+hedged = ("We speculate that the gauge drifts. The team speculates about the bridge. They speculated twice. "
+          "Speculating helps little. The speculation rests on two readings. Speculations differ. "
+          "A speculative reading follows. It is read speculatively. ")
+plain = "The gauge reads the river level twice a day at the north bridge. A spectacular flood came in spring. "
+(d / "t.txt").write_text((hedged + plain * 4) * 5, encoding="utf-8")
+PYEOF
+    out=$(python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target "$tmp/t.txt" --json 2>/dev/null)
+    rm -rf "$tmp"
+    printf '%s' "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+words = d['target_words']
+got = d['metrics']['hedge_per_1k']['value']
+want = 1000.0 * 8 * 5 / words
+assert abs(got - want) < 1e-9, (got, want, words)
+"
+}
+
+test_T271() {
+    # Word forms of one procedure share one sourced state. A study preregistered
+    # with a citation in one paragraph, and called "the preregistration" in a
+    # later one, was reported as uncited-method preregistration: the two forms
+    # were separate entries, so the citation sourced only the form beside it.
+    # A family with no citation anywhere is still reported, and once.
+    local tmp out out2
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/cited" "$tmp/bare"
+    cat > "$tmp/cited/main.tex" <<'TEXEOF'
+\documentclass{article}
+\begin{document}
+The gauge protocol was preregistered before any reading was taken \citep{plan2020}.
+
+The preregistration also fixed the stopping rule for the readings.
+\end{document}
+TEXEOF
+    cat > "$tmp/bare/main.tex" <<'TEXEOF'
+\documentclass{article}
+\begin{document}
+The gauge protocol was preregistered before any reading was taken.
+
+The preregistration also fixed the stopping rule for the readings.
+\end{document}
+TEXEOF
+    printf '@article{plan2020, author = {Plan, P.}, title = {A plan}, year = {2020}}\n' \
+        | tee "$tmp/cited/references.bib" > "$tmp/bare/references.bib"
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-positioning.py \
+            --base-dir "$tmp/cited" --bib "$tmp/cited/references.bib" --json 2>/dev/null)
+    out2=$(python3 .claude/skills/audit/scripts/audit-claim-positioning.py \
+            --base-dir "$tmp/bare" --bib "$tmp/bare/references.bib" --json 2>/dev/null)
+    rm -rf "$tmp"
+    printf '%s\n%s\n' "$out" "$out2" | python3 -c "
+import json, sys
+raw = sys.stdin.read()
+dec = json.JSONDecoder()
+cited, end = dec.raw_decode(raw)
+bare, _ = dec.raw_decode(raw[end:].lstrip())
+meth = [i['detail'] for i in cited['issues'] if i['kind'] == 'uncited-method']
+assert meth == [], 'a citation beside one form sources the other: %r' % meth
+meth = [i['detail'] for i in bare['issues'] if i['kind'] == 'uncited-method']
+assert len(meth) == 1 and meth[0].startswith('preregist'), \
+    'an uncited family is reported once, not once per form: %r' % meth
+"
+}
+
+# --- T254-T255: a supplement's ledgers and files --------------------------------
+test_T254() {
+    # Text moved into a supplement outside --base-dir: its ledger row reads as edited away until the supplement is
+    # given with --also-file; two ledgers are read together; a missing --also-file fails instead of reading less.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    ledger_fixture "$tmp"
+    printf 'Sakai finds that deeper pools change the ranking of runs~\\cite{sakai2008}.\n' > "$tmp/supplement.tex"
+    printf 'Deeper pools change the ranking of runs, which we show on three test collections.\n' > "$tmp/evidence/sakai2008.txt"
+    printf 'claim\tcite_key\tsnippet\tsource_file\tlevel\n' > "$tmp/ledger-supp.tsv"
+    printf 'Sakai finds that deeper pools change the ranking of runs\tsakai2008\tDeeper pools change the ranking of runs\tevidence/sakai2008.txt\tfulltext\n' >> "$tmp/ledger-supp.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp/sections" --ledger "$tmp/ledger.tsv" \
+          --ledger "$tmp/ledger-supp.tsv" --json 2>&1)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+gone=[f for f in d['findings'] if f['kind']=='claim-not-in-manuscript']
+assert d['ledger_rows'] == 2 and len(d['ledgers']) == 2, d
+assert len(gone) == 1 and gone[0]['location'].startswith('ledger-supp.tsv:'), gone
+" || { echo "without the supplement: $out"; rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp/sections" --ledger "$tmp/ledger.tsv" \
+          --ledger "$tmp/ledger-supp.tsv" --also-file "$tmp/supplement.tex" --json 2>&1)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+kinds=[f['kind'] for f in d['findings']]
+assert 'claim-not-in-manuscript' not in kinds and 'source-file-missing' not in kinds, kinds
+assert d['citing_sentences'] == 4, d['citing_sentences']
+" || { echo "with the supplement: $out"; rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp/sections" --ledger "$tmp/ledger.tsv" \
+          --also-file "$tmp/nowhere.tex" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" != "0" ] && echo "$out" | grep -q "ALSO_FILE_MISSING" || { echo "a missing --also-file passed: $status $out"; return 1; }
+}
+
+test_T255() {
+    # A supplement's numbers in a ledger of their own: both ledgers are read and a finding names its ledger. With
+    # --ledger-files each ledger counts its copies in its own files: a text number that the supplement repeats is not
+    # a changed copy. A declared scope that matches no prose file fails instead of reading less.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    number_fixture "$tmp"
+    printf '\\section{Supplement}\nThe k1 share is $21.0\\%%$ in the first condition, beside the pooled $63.5\\%%$.\n' > "$tmp/supplement.tex"
+    printf 'printed\tin_artifact\tscope\tartifact\tlocator\tcopies\n' > "$tmp/numbers.tsv"
+    printf '63.5\t0.635\t-\tresults/variance.csv\tpooled,0.635\t1\n' >> "$tmp/numbers.tsv"
+    printf 'printed\tin_artifact\tscope\tartifact\tlocator\tcopies\n' > "$tmp/numbers-supp.tsv"
+    printf '21.0\t0.210\t-\tresults/variance.csv\tk1,0.210\t1\n' >> "$tmp/numbers-supp.tsv"
+    printf '99.9\t0.999\t-\tresults/variance.csv\tk9,0.999\t-\n' >> "$tmp/numbers-supp.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" --ledger "$tmp/numbers.tsv" \
+          --ledger "$tmp/numbers-supp.tsv" --json 2>&1)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert len(d['ledgers']) == 2, d.get('ledgers')
+bad=[f for f in d['findings'] if f['kind']=='locator-not-in-artifact']
+assert len(bad) == 1 and bad[0]['location'].startswith('numbers-supp.tsv:'), bad
+assert [f['location'] for f in d['findings'] if f['kind']=='copies-changed'] == ['numbers.tsv:2'], 'unscoped: the supplement copy counts'
+" || { echo "unscoped: $out"; rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" --ledger "$tmp/numbers.tsv" \
+          --ledger "$tmp/numbers-supp.tsv" --ledger-files "$tmp/numbers.tsv=sections" \
+          --ledger-files "$tmp/numbers-supp.tsv=supplement.tex" --json 2>&1)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+kinds=[f['kind'] for f in d['findings']]
+assert 'copies-changed' not in kinds, kinds
+assert [f['location'] for f in d['findings'] if f['kind']=='number-not-in-manuscript'] == ['numbers-supp.tsv:3'], 'only the 99.9 row, printed nowhere'
+assert d['ledger_files'] == {'numbers.tsv': ['sections'], 'numbers-supp.tsv': ['supplement.tex']}, d['ledger_files']
+" || { echo "scoped: $out"; rm -rf "$tmp"; return 1; }
+    # a table that is the text ledger's artifact is prose to the supplement's ledger, which counts the copy in it
+    mkdir -p "$tmp/tables"
+    printf 'k1 & 21.0 \\\\\n' > "$tmp/tables/k.tex"
+    printf '21.0\t21.0\t-\ttables/k.tex\tk1 & 21.0\t-\n' >> "$tmp/numbers.tsv"
+    printf 'printed\tin_artifact\tscope\tartifact\tlocator\tcopies\n21.0\t0.210\t-\tresults/variance.csv\tk1,0.210\t2\n' > "$tmp/numbers-supp.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" --ledger "$tmp/numbers.tsv" \
+          --ledger "$tmp/numbers-supp.tsv" --ledger-files "$tmp/numbers.tsv=sections" \
+          --ledger-files "$tmp/numbers-supp.tsv=supplement.tex,tables/*.tex" --json 2>&1)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert not [f for f in d['findings'] if f['kind']=='copies-changed'], [f for f in d['findings'] if f['kind']!='unledgered-number']
+" || { echo "a table the other ledger draws from was not counted: $out"; rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" --ledger "$tmp/numbers.tsv" \
+          --ledger-files "$tmp/numbers.tsv=chapters" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" != "0" ] && echo "$out" | grep -q "LEDGER_FILES_MATCH_NOTHING" \
+        || { echo "a scope that matches nothing passed: $status $out"; return 1; }
+}
+
+# --- T259-T266: the claim ledger separates a found snippet from a read one, and claims with no \cite are still claims
+# (spec docs/specs/2026-09-30-claim-ledger-reading.md). Synthetic sources and sentences throughout.
+reading_fixture() {
+    # $1 = dir. One sentence whose row holds a real snippet about something else (and a number the source does not
+    # give); one claim supported by two rows; one sentence that points at "the benchmarks cited here" with no \cite;
+    # one that names a registered work with no \cite; one cited negative claim with no row.
+    mkdir -p "$1/sections" "$1/sources"
+    cat > "$1/sections/s.tex" <<'EOF'
+\section{Related work}
+FooNet reported a speed of ninety frames a second on the test clips~\cite{foo}.
+BarBench showed that lighting and background both change the scores~\cite{bar}.
+The tools cited here handle only printed text.
+BarBench, whose authors fixed the lighting, is the closest benchmark.
+Earlier work did not test handwritten text~\cite{foo}.
+EOF
+    cat > "$1/refs.bib" <<'EOF'
+@inproceedings{foo, title={FooNet}, author={A. Author}, year={2020}}
+@inproceedings{bar, title={BarBench: a benchmark}, shorttitle={BarBench}, author={B. Author}, year={2021}}
+EOF
+    printf 'The dataset contains ten thousand clips. We report a speed of seventy one frames a second on the test clips.\n' > "$1/sources/foo.txt"
+    printf 'We fix the lighting. The background is also shown to change the scores.\n' > "$1/sources/bar.txt"
+    printf 'claim\tcite_key\tsnippet\tsource_file\tlevel\tread\tversion\n' > "$1/ledger.tsv"
+    printf 'FooNet reported a speed of ninety frames a second on the test clips\tfoo\tThe dataset contains ten thousand clips.\tsources/foo.txt\tfulltext\t\t\n' >> "$1/ledger.tsv"
+    printf 'BarBench showed that lighting and background both change the scores\tbar\tWe fix the lighting.\tsources/bar.txt\tfulltext\t\tarXiv v2\n' >> "$1/ledger.tsv"
+    printf 'BarBench showed that lighting and background both change the scores\tbar\tThe background is also shown to change the scores.\tsources/bar.txt\tfulltext\t\t\n' >> "$1/ledger.tsv"
+}
+
+reading_json() {
+    python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$1" --ledger "$1/ledger.tsv" --bib "$1/refs.bib" --json "${@:2}" 2>&1
+}
+
+test_T259() {
+    # A found snippet is not a read one: a numeric claim whose snippets hold none of its numbers is a finding until an
+    # author has read it; the report counts found, draft-read and author-read rows.
+    local tmp out status out2
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(reading_json "$tmp"); status=$?
+    python3 - "$tmp/ledger.tsv" <<'EOF'
+import sys
+p = sys.argv[1]
+lines = open(p, encoding="utf-8").read().split("\n")
+parts = lines[1].split("\t")
+parts[5] = "author: the snippet counts clips; the sentence adds a speed of ninety frames the source does not give"
+lines[1] = "\t".join(parts)
+open(p, "w", encoding="utf-8").write("\n".join(lines))
+EOF
+    out2=$(reading_json "$tmp")
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='unread-high-risk']
+assert len(u)==1 and 'ninety' in u[0]['detail'] and not u[0].get('prompt'), u
+assert d['reading']=={'found':3,'author':0,'draft':0,'unread':3}, d['reading']
+" || return 1
+    [ "$status" = "1" ] || { echo "expected exit 1 before the reading, got $status"; return 1; }
+    echo "$out2" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert not [f for f in d['findings'] if f['kind']=='unread-high-risk'], d['findings']
+assert d['reading']['author']==1, d['reading']
+" || return 1
+}
+
+test_T260() {
+    # A claim that is neither negative nor scoped nor numeric is counted as not read, and is not a finding.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(reading_json "$tmp")
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='unread-high-risk']
+assert len(u)==1 and all('bar' not in f['cite_key'] for f in u), u
+assert d['reading']['unread']==3, d['reading']
+" || return 1
+    # The same claim made negative, then scoped, is high-risk.
+    local word kind
+    for pair in "never change:negative" "only lighting and background both change:scope"; do
+        word=${pair%%:*}; kind=${pair##*:}
+        tmp=$(mktemp -d) || return 1
+        reading_fixture "$tmp"
+        if [ "$kind" = "negative" ]; then
+            sed -i.bak "s/both change/$word/" "$tmp/sections/s.tex" "$tmp/ledger.tsv"
+        else
+            sed -i.bak "s/lighting and background both change/$word/" "$tmp/sections/s.tex" "$tmp/ledger.tsv"
+        fi
+        out=$(reading_json "$tmp")
+        rm -rf "$tmp"
+        echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='unread-high-risk' and f['cite_key']=='bar']
+assert len(u)==1 and u[0]['detail'].startswith('$kind'), (u, '$kind')
+" || return 1
+    done
+}
+
+test_T261() {
+    # "The benchmarks cited here ..." with no \cite is listed in the full scan, and is a hard finding in gate mode
+    # when this change added it.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(reading_json "$tmp")
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='uncited-literature-claim']
+assert len(u)==1 and u[0]['prompt'] and 'cited here' in u[0]['detail'], u
+" || { rm -rf "$tmp"; return 1; }
+    (cd "$tmp" && git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm base) || { rm -rf "$tmp"; return 1; }
+    printf 'Prior studies handle only colour photos.\n' >> "$tmp/sections/s.tex"
+    out=$(reading_json "$tmp" --gate-since HEAD); status=$?
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='uncited-literature-claim']
+new=[f for f in u if not f['prompt']]
+assert len(new)==1 and 'Prior studies' in new[0]['detail'], u
+assert any(f['prompt'] and 'cited here' in f['detail'] for f in u), u
+" || return 1
+    [ "$status" = "1" ] || { echo "expected exit 1 in gate mode, got $status"; return 1; }
+}
+
+test_T262() {
+    # A work the bibliography names (shorttitle) mentioned with no \cite is listed; the report says how many cited
+    # keys have no name.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(reading_json "$tmp")
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='named-work-without-cite']
+assert len(u)==1 and 'BarBench' in u[0]['detail'] and u[0]['cite_key']=='bar', u
+assert d['names']=={'named_works':1,'cited_keys_without_name':1}, d['names']
+" || return 1
+}
+
+test_T263() {
+    # "Earlier work did not evaluate X~\cite{foo}" with no row is a finding, not a credit prompt.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(reading_json "$tmp")
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='unledgered-negative-claim']
+assert len(u)==1 and not u[0].get('prompt') and 'did not test' in u[0]['detail'], u
+assert not [f for f in d['findings'] if f['kind']=='unledgered-credit' and 'did not' in f['detail']], d['findings']
+" || return 1
+}
+
+test_T264() {
+    # --pairs puts every snippet of one claim under it, with the version the evidence came from.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp" --ledger "$tmp/ledger.tsv" --pairs 2>&1)
+    rm -rf "$tmp"
+    printf '%s\n' "$out" | python3 -c "
+import sys
+t=sys.stdin.read()
+block=t.split('claim: BarBench showed')[1].split('claim:')[0]
+assert '(2 snippets)' in block, block
+assert block.count('snippet:')==2 and 'arXiv v2' in block, block
+" || return 1
+}
+
+test_T265() {
+    # A row the author read as wrong lists the other sentences that cite the same key, to read again.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    python3 - "$tmp/ledger.tsv" <<'EOF'
+import sys
+p = sys.argv[1]
+lines = open(p, encoding="utf-8").read().split("\n")
+parts = lines[1].split("\t")
+parts[5] = "author: wrong, the source reports seventy one frames"
+lines[1] = "\t".join(parts)
+open(p, "w", encoding="utf-8").write("\n".join(lines))
+EOF
+    out=$(reading_json "$tmp")
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+u=[f for f in d['findings'] if f['kind']=='recheck-same-key']
+assert len(u)==1 and u[0]['prompt'] and 'Earlier work did not test' in u[0]['sentence'], u
+" || return 1
+}
+
+test_T266() {
+    # The changed-sentence audit names the claim-ledger rows an edit takes a bound claim out of; without a ledger it
+    # does not; a ledger that is not there is said.
+    local tmp out out2 out3
+    tmp=$(mktemp -d) || return 1
+    reading_fixture "$tmp"
+    mkdir -p "$tmp/cur/sections" "$tmp/base/sections"
+    cp "$tmp/sections/s.tex" "$tmp/base/sections/"
+    sed 's/a speed of ninety frames a second/a high speed/' "$tmp/sections/s.tex" > "$tmp/cur/sections/s.tex"
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --target "$tmp/cur" --base "$tmp/base" --ledger "$tmp/ledger.tsv" --json 2>&1)
+    out2=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --target "$tmp/cur" --base "$tmp/base" --json 2>&1)
+    out3=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --target "$tmp/cur" --base "$tmp/base" --ledger "$tmp/nope.tsv" --json 2>&1)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+b=[s for s in d['sentences'] if 'bound_in_ledger' in s['flags']]
+assert len(b)==1 and b[0]['ledger_rows']==['ledger.tsv:2'], d['sentences']
+" || return 1
+    echo "$out2" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert not [s for s in d['sentences'] if 'bound_in_ledger' in s['flags']], d['sentences']
+" || return 1
+    echo "$out3" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d['ledgers_missing'] and d['ledgers_missing'][0].endswith('nope.tsv'), d.get('ledgers_missing')
+" || return 1
+}
+
+test_T267() {
+    # Measured on one real ledger, four kinds of words made most high-risk hits noise: "one" as a determiner, digits
+    # inside a name, "first ... then" as a sequence, and "-only" inside a compound. None of them makes a claim high-risk;
+    # a standalone count and "the first" still do.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/sections" "$tmp/sources"
+    cat > "$tmp/sections/s.tex" <<'EOF'
+\section{Related work}
+One method sorts the photos by colour~\cite{a}.
+The model ResNet50-v1.5 labels the photos~\cite{b}.
+The tool first crops the photo and then resizes it~\cite{c}.
+A text-only baseline ignores the photo~\cite{d}.
+The survey covers seven datasets~\cite{e}.
+This was the first benchmark of its kind~\cite{f}.
+EOF
+    printf 'Some words that support nothing in particular.\n' > "$tmp/sources/x.txt"
+    printf 'claim\tcite_key\tsnippet\tsource_file\tlevel\n' > "$tmp/ledger.tsv"
+    local k claim
+    while IFS='|' read -r k claim; do
+        printf '%s\t%s\tSome words that support nothing in particular.\tsources/x.txt\tfulltext\n' "$claim" "$k" >> "$tmp/ledger.tsv"
+    done <<'EOF'
+a|One method sorts the photos by colour
+b|The model ResNet50-v1.5 labels the photos
+c|The tool first crops the photo and then resizes it
+d|A text-only baseline ignores the photo
+e|The survey covers seven datasets
+f|This was the first benchmark of its kind
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp" --ledger "$tmp/ledger.tsv" --json 2>&1)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+keys=sorted(f['cite_key'] for f in d['findings'] if f['kind']=='unread-high-risk')
+assert keys==['e','f'], keys
+" || return 1
 }
 
 run_test "T2  symlink corruption + repair"        test_T2
@@ -4839,6 +5541,64 @@ assert 'credit-outside-its-procedure' in kinds, kinds
     [ "$status" = "1" ] || { echo "expected exit 1, got $status"; return 1; }
 }
 
+# --- T194-T195: method credits in the full scan -------------------------------
+# The credits file was read only in gate mode, so over a whole manuscript a
+# sentence the author had already accepted as a method credit ("we report
+# bootstrap intervals") stayed in the unledgered-assertion count forever,
+# and the count the author sees kept saying more was missing than was.
+test_T194() {
+    # An asserting sentence whose key is accepted for a procedure the sentence
+    # names is a credit, not a missing ledger row; the finding carries the
+    # whole sentence so a reader can act on it.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    ledger_fixture "$tmp"
+    printf 'voorhees2002 = absolute score\n' > "$tmp/credits.txt"
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp" \
+          --ledger "$tmp/ledger.tsv" --credits "$tmp/credits.txt" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+by={f['kind']:f for f in d['findings']}
+assert 'unledgered-assertion' not in by, [f['kind'] for f in d['findings']]
+assert by['credited']['cite_key'] == 'voorhees2002', by.get('credited')
+assert 'absolute score is not meaningful' in by['credited']['sentence'], by['credited']
+assert 'Benjamini' in by['unledgered-credit']['sentence'], by['unledgered-credit']
+" || return 1
+    [ "$status" = "0" ] || { echo "expected exit 0, got $status"; return 1; }
+}
+
+test_T195() {
+    # A key may be accepted for more than one procedure; any one the sentence
+    # names covers it. A procedure the sentence does not name covers nothing.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    ledger_fixture "$tmp"
+    printf 'voorhees2002 = absolute score\nvoorhees2002 = pooling depth\n' > "$tmp/credits.txt"
+    out=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp" \
+          --ledger "$tmp/ledger.tsv" --credits "$tmp/credits.txt" --json 2>&1)
+    status=$?
+    printf 'voorhees2002 = pooling depth\n' > "$tmp/credits.txt"
+    out2=$(python3 .claude/skills/audit/scripts/audit-claim-ledger.py --base-dir "$tmp" \
+           --ledger "$tmp/ledger.tsv" --credits "$tmp/credits.txt" --json 2>&1)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+kinds=[f['kind'] for f in d['findings']]
+assert 'credited' in kinds and 'unledgered-assertion' not in kinds, kinds
+" || return 1
+    echo "$out2" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+kinds=[f['kind'] for f in d['findings']]
+assert 'unledgered-assertion' in kinds and 'credited' not in kinds, kinds
+" || return 1
+    [ "$status" = "0" ] || { echo "expected exit 0, got $status"; return 1; }
+}
+
 # --- Fails closed ----------------------------------------------------------
 # A check that examines nothing and exits 0 is worse than no check: the green
 # result is read as "looked and found nothing wrong". Three of these shipped.
@@ -5088,7 +5848,7 @@ test_T165() {
     number_fixture "$tmp"
     cat > "$tmp/sections/06_results.tex" <<'EOF'
 \section{Results}
-The pooled variance share is $91.9\%$ across all five conditions.
+The pooled variance share is $73.6\%$ across all four gauges.
 EOF
     out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" \
           --ledger "$tmp/numbers.tsv" --json 2>&1)
@@ -5165,6 +5925,768 @@ assert 'printed-artifact-mismatch' in kinds, kinds
     [ "$status" = "1" ] || { echo "expected exit 1, got $status"; return 1; }
 }
 
+test_T198() {
+    # A ledger row's artifact is a source, not prose. With the table read as
+    # prose, cutting the only sentence that reports a number left the row
+    # looking current, because the table itself still carried the number.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    number_fixture "$tmp"
+    mkdir -p "$tmp/tables"
+    cat > "$tmp/tables/rates.tex" <<'EOF'
+\begin{tabular}{lr} top-1 & 30.2 \\ \end{tabular}
+EOF
+    printf '30.2\t30.2\t-\ttables/rates.tex\ttop-1 & 30.2\n' >> "$tmp/numbers.tsv"
+    cat > "$tmp/sections/06_results.tex" <<'EOF'
+\section{Results}
+The pooled share is $63.5\%$ across all four conditions.
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" \
+          --ledger "$tmp/numbers.tsv" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+stale=[f for f in d['findings'] if f['kind']=='number-not-in-manuscript']
+assert [f['number'] for f in stale] == ['30.2'], d['findings']
+assert not any(f['location'].startswith('tables/') for f in d['findings']), d['findings']
+" || return 1
+    [ "$status" = "1" ] || { echo "expected exit 1, got $status"; return 1; }
+}
+
+test_T199() {
+    # 2{,}048 is one number. Read digit by digit it was "614", which no
+    # sentence reports, so a row for 2,048 could never bind and the coverage
+    # list named a number the manuscript does not contain.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    number_fixture "$tmp"
+    cat > "$tmp/sections/06_results.tex" <<'EOF'
+\section{Results}
+The pooled share is $63.5\%$ across all four conditions.
+The pool holds $2{,}048$ distractors and 3,071 images in all.
+EOF
+    printf 'pool,2048\n' >> "$tmp/results/variance.csv"
+    printf '2,048\t2048\t-\tresults/variance.csv\tpool,2048\n' >> "$tmp/numbers.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" \
+          --ledger "$tmp/numbers.tsv" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d['hard_finding_count'] == 0, d['findings']
+nums=[f['number'] for f in d['findings'] if f['kind']=='unledgered-number']
+assert '3,071' in nums and '048' not in nums and '071' not in nums, nums
+" || return 1
+    [ "$status" = "0" ] || { echo "expected exit 0, got $status"; return 1; }
+}
+
+test_T200() {
+    # The text prints an artifact's 17.36 as 17.4: exact rounding to the
+    # printed precision is a recorded relation, and a digit that rounding
+    # cannot produce (17.3) is still a mismatch.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    number_fixture "$tmp"
+    cat > "$tmp/sections/06_results.tex" <<'EOF'
+\section{Results}
+The pooled share is $63.5\%$ across all four conditions.
+Siblings take $17.4\%$ of slots, and the ratio is 12.3 times.
+EOF
+    printf 'siblings,17.36\nratio,12.3456\n' >> "$tmp/results/variance.csv"
+    printf '17.4\t17.36\t-\tresults/variance.csv\tsiblings,17.36\n' >> "$tmp/numbers.tsv"
+    printf '12.3\t12.3456\t-\tresults/variance.csv\tratio,12.3456\n' >> "$tmp/numbers.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" \
+          --ledger "$tmp/numbers.tsv" --json 2>&1)
+    status=$?
+    sed -i.bak 's/^17.4	17.36/17.3	17.36/' "$tmp/numbers.tsv"
+    sed -i.bak 's/17\.4\\%/17.3\\%/' "$tmp/sections/06_results.tex"
+    bad=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" \
+          --ledger "$tmp/numbers.tsv" --json 2>&1)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d['hard_finding_count'] == 0, d['findings']
+" || return 1
+    [ "$status" = "0" ] || { echo "expected exit 0, got $status"; return 1; }
+    echo "$bad" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert [f['number'] for f in d['findings'] if f['kind']=='printed-artifact-mismatch'] == ['17.3'], d['findings']
+" || return 1
+}
+
+test_T201() {
+    # A number printed in two places drifts in one of them. "Is the value
+    # still reported somewhere" passed on the other copy; with the copies
+    # column the count of reporting sentences is checked.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    number_fixture "$tmp"
+    cat > "$tmp/sections/06_results.tex" <<'EOF'
+\section{Results}
+The pooled share is $63.5\%$ across all four conditions.
+Summed over conditions, the pooled share is $63.9\%$.
+EOF
+    printf 'printed\tin_artifact\tscope\tartifact\tlocator\tcopies\n' > "$tmp/numbers.tsv"
+    printf '63.5\t0.635\tpooled\tresults/variance.csv\tpooled,0.635\t2\n' >> "$tmp/numbers.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" \
+          --ledger "$tmp/numbers.tsv" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert [f['number'] for f in d['findings'] if f['kind']=='copies-changed'] == ['63.5'], d['findings']
+" || return 1
+    [ "$status" = "1" ] || { echo "expected exit 1, got $status"; return 1; }
+}
+
+test_T202() {
+    # A scope or locator ending in a digit must not continue into another
+    # digit: K=1 is not in "K=10", and a locator ending 0.635 is not in a
+    # file that now writes 0.6357.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    number_fixture "$tmp"
+    cat > "$tmp/sections/06_results.tex" <<'EOF'
+\section{Results}
+The pooled share is $63.5\%$ across all four conditions.
+The model explains 71.2\% of the variance at K=10.
+EOF
+    printf 'condition,share\npooled,0.6357\nk1,0.712\n' > "$tmp/results/variance.csv"
+    printf 'printed\tin_artifact\tscope\tartifact\tlocator\n' > "$tmp/numbers.tsv"
+    printf '63.5\t0.635\tpooled\tresults/variance.csv\tpooled,0.635\n' >> "$tmp/numbers.tsv"
+    printf '71.2\t0.712\tK=1\tresults/variance.csv\tk1,0.712\n' >> "$tmp/numbers.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-number-ledger.py --base-dir "$tmp" \
+          --ledger "$tmp/numbers.tsv" --json 2>&1)
+    status=$?
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+kinds=sorted((f['kind'], f['number']) for f in d['findings'] if f['kind'] != 'unledgered-number')
+assert kinds == [('locator-not-in-artifact', '63.5'), ('scope-missing', '71.2')], kinds
+" || return 1
+    [ "$status" = "1" ] || { echo "expected exit 1, got $status"; return 1; }
+}
+
+test_T203() {
+    # A baseline file whose text extracted as symbols is not a document of
+    # the baseline: it is named under baseline_garbled and not counted.
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/base"
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib, itertools, random
+d = pathlib.Path(sys.argv[1])
+toks = ["".join(c) for c in itertools.product("abcdefgh", repeat=3)]
+(d / "target.txt").write_text("".join("The %s stage scored the pool and kept the rank. " % w for w in toks[:220]))
+others = ["Sediment cores record winter runoff in annual layers that are counted twice. ",
+          "The compiler rewrites loops whose bounds are known and emits a specialised body. ",
+          "Participants rated photographs on a scale and then described what they noticed. ",
+          "Orbital decay below six hundred kilometres is dominated by atmospheric drag. ",
+          "Enzyme activity fell above forty degrees and did not recover on cooling. "]
+for i, body in enumerate(others):
+    (d / "base" / ("other%d.txt" % i)).write_text(body * 140)
+rnd = random.Random(7)
+junk = " ".join("".join(rnd.choice("!#%$&'()*+,-/0123456789:;<=>") for _ in range(4)) for _ in range(2500))
+(d / "base" / "garbled.txt").write_text(junk)
+PYEOF
+    out=$(python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py \
+            --target "$tmp/target.txt" --baseline "$tmp/base" --json 2>/dev/null)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert [g['file'] for g in d['baseline_garbled']] == ['garbled.txt'], d['baseline_garbled']
+assert d['baseline_documents'] == 5, d['baseline_documents']
+"
+}
+
+test_T204() {
+    # A proposed rewrite is read against the sentence it replaces: one that grows
+    # and gains a colon and a relative clause is flagged; one that got shorter
+    # and plainer is not.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    printf 'id\told\tnew\n' > "$tmp/pairs.tsv"
+    printf 'a\tThe gauge reads the river level twice a day.\tThe gauge, which the survey installed in spring, reads the river level twice a day: once at dawn and once at dusk.\n' >> "$tmp/pairs.tsv"
+    printf 'b\tThe survey counted the bridges that had cracked piers in the northern district.\tThe survey counted bridges with cracked piers.\n' >> "$tmp/pairs.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --json 2>/dev/null)
+    code=$?
+    rm -rf "$tmp"
+    [ "$code" -eq 1 ] || return 1
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+by = {r['where']: r for r in d['sentences']}
+assert d['changed'] == 2 and d['flagged'] == 1, (d['changed'], d['flagged'])
+assert {'longer', 'colon', 'clause'} <= set(by['a']['flags']), by['a']['flags']
+assert by['b']['flags'] == [], by['b']['flags']
+"
+}
+
+test_T205() {
+    # Two versions of a draft: only the sentences that changed are read, a
+    # revision is paired with the sentence it replaced, a dot directory beside
+    # the draft is not part of it, and a draft identical to its base reports no
+    # change rather than failing.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/base" "$tmp/draft/.awt-base"
+    printf '%s\n' 'Sediment cores record winter runoff in annual layers. The layers are counted twice by separate readers. Counting stops at the ash band.' > "$tmp/base/ch.md"
+    printf '%s\n' 'Sediment cores record winter runoff in annual layers. The layers are counted twice by separate readers; disagreements go to a third. Counting stops at the ash band. A second core confirms the count.' > "$tmp/draft/ch.md"
+    printf '%s\n' 'This sentence sits in a dot directory and is not part of the draft at all.' > "$tmp/draft/.awt-base/ch.md"
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --target "$tmp/draft" --base "$tmp/base" --json 2>/dev/null)
+    code=$?
+    [ "$code" -eq 1 ] || { rm -rf "$tmp"; return 1; }
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+c = d['compared']
+assert (d['changed'], c['revised'], c['added']) == (2, 1, 1), c
+rev = next(r for r in d['sentences'] if r['kind'] == 'revised')
+assert rev['old'].startswith('The layers are counted twice'), rev['old']
+assert 'semicolon' in rev['flags'], rev['flags']
+assert not any('dot directory' in r['new'] for r in d['sentences'])
+" || { rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --target "$tmp/base" --base "$tmp/base" --json 2>/dev/null)
+    code=$?
+    rm -rf "$tmp"
+    [ "$code" -eq 0 ] || return 1
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['changed'] == 0 and d['flagged'] == 0, d['compared']
+"
+}
+
+test_T206() {
+    # Against a venue corpus a rewrite is placed among the venue's sentences: one
+    # that grows past the venue's 90th percentile is flagged for that too. A
+    # corpus too small for percentiles is refused (exit 2), never read as a pass.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/venue" "$tmp/tiny"
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib, itertools
+d = pathlib.Path(sys.argv[1])
+words = ["".join(c) for c in itertools.product("abcdefg", repeat=3)]
+for i in range(6):
+    sents = []
+    for j in range(200):
+        w = words[(i * 200 + j) % len(words)]
+        sents.append("The %s stage kept the %s rank in the pool today." % (w, w))
+    (d / "venue" / ("doc%d.txt" % i)).write_text(" ".join(sents))
+(d / "tiny" / "doc0.txt").write_text(" ".join(["The pool kept the rank of the stage today."] * 60))
+long_new = "The station logged the level of the river at dawn and at dusk on every day of the season " \
+           "for the survey team and the regional office and the two partner universities that funded the gauge."
+(d / "pairs.tsv").write_text("id\told\tnew\nx\tThe station logged the river level at dawn.\t%s\n" % long_new)
+PYEOF
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --baseline "$tmp/venue" --json 2>/dev/null)
+    code=$?
+    [ "$code" -eq 1 ] || { rm -rf "$tmp"; return 1; }
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['venue']['documents'] == 6 and d['venue']['sentences'] >= 1000, d['venue']
+flags = d['sentences'][0]['flags']
+assert 'long_for_venue' in flags and 'longer' in flags, flags
+" || { rm -rf "$tmp"; return 1; }
+    python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --baseline "$tmp/tiny" --json >/dev/null 2>&1
+    code=$?
+    rm -rf "$tmp"
+    [ "$code" -eq 2 ]
+}
+
+test_T207() {
+    # Every kind of addition a rewrite can make is flagged by name, one row each,
+    # and a rewrite that only gets shorter is not. Clauses are counted as gained:
+    # trading "because" for "which" is an added clause even though the count is
+    # unchanged. Modifiers and adverbs are counted net: swapping one for another
+    # adds none.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib
+rows = [
+    ("longer", "The gauge reads the river twice a day.", "The gauge reads the level of the river twice a day in spring."),
+    ("comma", "The survey counted bridges in the north.", "The survey counted bridges in the north, the port and the hills."),
+    ("colon", "The survey counted three kinds of bridge.", "The survey counted three kinds: stone, iron and timber."),
+    ("semicolon", "The survey counted stone bridges in the north.", "The survey counted stone bridges; the timber ones were skipped."),
+    ("dash", "The survey counted stone bridges in the north.", "The survey counted stone bridges --- the old ones --- in the north."),
+    ("parenthesis", "The survey counted stone bridges in the north.", "The survey counted stone bridges (the old ones) in the north."),
+    ("clause", "The gauge failed because the river froze.", "The gauge failed in the frost, which froze the river."),
+    ("adverb", "The gauge reads the river twice a day.", "The gauge still reads the river only twice a day."),
+    ("modifier", "The survey counted bridges in the north.", "The survey counted the damaged bridges collected from the north."),
+    ("prepositions", "The survey counted bridges.", "The survey counted bridges of stone in the north."),
+    ("opener", "The gauge failed in the frost.", "When the frost came the gauge failed."),
+    ("merged", "The gauge failed. The river froze.", "The gauge failed and the river froze."),
+    ("clean", "The survey counted the bridges that had cracked piers in the northern district.", "The survey counted bridges with cracked piers."),
+    ("swap", "The survey used a stone-age baseline for the count.", "The survey used an iron-age baseline for the count."),
+]
+lines = ["id\told\tnew"] + ["\t".join(r) for r in rows]
+(pathlib.Path(sys.argv[1]) / "pairs.tsv").write_text("\n".join(lines) + "\n")
+PYEOF
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --json 2>/dev/null)
+    code=$?
+    rm -rf "$tmp"
+    [ "$code" -eq 1 ] || return 1
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+by = {r['where']: r for r in d['sentences']}
+for flag in ('longer', 'comma', 'colon', 'semicolon', 'dash', 'parenthesis', 'clause', 'adverb', 'modifier',
+             'prepositions', 'opener', 'merged'):
+    assert flag in by[flag]['flags'], (flag, by[flag]['flags'])
+assert by['clause']['added']['clauses'] == ['which'], by['clause']['added']
+assert set(by['adverb']['added']['adverbs']) == {'still', 'only'}, by['adverb']['added']
+assert by['clean']['flags'] == [], by['clean']['flags']
+assert by['swap']['flags'] == [], by['swap']['flags']
+assert d['limits'].startswith('not measured'), d['limits']
+"
+}
+
+test_T208() {
+    # Between two versions every changed sentence is judged. A sentence split in
+    # two is read as the old sentence against both pieces; a short sentence
+    # expanded past recognition is still a revision; a new sentence with no
+    # predecessor is held to the default ceilings when no venue is given, and
+    # the report says so.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/base" "$tmp/draft"
+    printf '%s\n' 'The team logged the river level at the gauge each morning for the regional office that funds the gauge. Floods are rare. The office keeps the logs.' > "$tmp/base/ch.md"
+    printf '%s\n' 'The team logged the river level at the gauge each morning. The regional office, which funds the gauge, reads the logs. Floods, which the county still fears, are rare: one per decade. The office keeps the logs. Staff also checked salinity (roughly) because farmers asked. Pumps rust; crews repaint them.' > "$tmp/draft/ch.md"
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --target "$tmp/draft" --base "$tmp/base" --json 2>/dev/null)
+    code=$?
+    rm -rf "$tmp"
+    [ "$code" -eq 1 ] || return 1
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+kinds = {r['kind']: r for r in d['sentences']}
+assert {r['kind'] for r in d['sentences']} == {'split', 'revised', 'added'}, [(r['kind'], r['new'][:30]) for r in d['sentences']]
+assert kinds['split']['pieces'] == 2 and 'clause' in kinds['split']['flags'], kinds['split']
+assert {'colon', 'clause', 'adverb'} <= set(kinds['revised']['flags']), kinds['revised']['flags']
+added = {r['new'][:5]: r for r in d['sentences'] if r['kind'] == 'added'}
+assert {'parenthesis', 'dense_for_venue'} <= set(added['Staff']['flags']), added['Staff']['flags']
+assert 'semicolon' in added['Pumps']['flags'], added['Pumps']['flags']
+assert d['added_without_venue'] == 2, d['added_without_venue']
+assert all(r['flags'] for r in d['sentences']), 'no changed sentence passes unread'
+"
+}
+
+test_T209() {
+    # LaTeX is read the way a reader sees it: a change inside a list item or a
+    # figure caption is a changed sentence; reference commands, inline comments
+    # and inline math do not make colons or parentheses; a stray quotation mark
+    # in a pairs file stays text and does not swallow the rows after it.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/base" "$tmp/draft"
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib
+d = pathlib.Path(sys.argv[1])
+base = r"""\section{Method}
+The gauge reads the river twice a day, as \cref{sec:setup} explains. % TODO: link
+\begin{itemize}
+\item The first gauge sits at the bridge
+\item The second gauge sits in the reeds upstream
+\end{itemize}
+\begin{figure}\centering\includegraphics{g.pdf}
+\caption{The gauge at the bridge in winter.}\end{figure}
+The level $f(x)$ rises in spring.
+"""
+draft = base.replace("The first gauge sits at the bridge",
+                     "The first gauge, which the county bought, sits at the bridge; it rusted in March")
+draft = draft.replace("The gauge at the bridge in winter.", "The gauge at the bridge in winter: it froze twice.")
+draft = draft.replace("rises in spring.", "rises in spring, see \\autoref{fig:g}.")
+(d / "base" / "ch.tex").write_text(base)
+(d / "draft" / "ch.tex").write_text(draft)
+(d / "pairs.tsv").write_text('id\told\tnew\nq1\tThe gauge reads the river.\t"The gauge reads the river twice.\n'
+                             'q2\tThe office keeps logs.\tThe office keeps the logs.\n')
+PYEOF
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --target "$tmp/draft" --base "$tmp/base" --json 2>/dev/null)
+    code=$?
+    [ "$code" -eq 1 ] || { rm -rf "$tmp"; return 1; }
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+item = next(r for r in d['sentences'] if 'county' in r['new'])
+cap = next(r for r in d['sentences'] if 'froze' in r['new'])
+assert {'semicolon', 'clause'} <= set(item['flags']), item['flags']
+assert 'reeds' not in item['new'], 'a list item without a full stop is still its own sentence'
+assert 'colon' in cap['flags'], cap['flags']
+level = [r for r in d['sentences'] if 'rises' in r['new']]
+assert all('colon' not in r['flags'] and 'parenthesis' not in r['flags'] for r in level), level
+" || { rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --json 2>/dev/null)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['compared']['pairs'] == 2, d['compared']
+"
+}
+
+test_T210() {
+    # Rewrites that get plainer are not flagged: a preposition that looks like a
+    # conjunction ("since 2019", "after training", "once a year"), an adjective
+    # that ends in -ly, a comma that replaces a semicolon, a proper noun ending
+    # in -ly.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    printf 'id\told\tnew\n' > "$tmp/pairs.tsv"
+    printf 'a\tThe archive has grown steadily for a decade.\tThe archive has grown since 2019.\n' >> "$tmp/pairs.tsv"
+    printf 'b\tThe model was tested at the end of the training schedule.\tThe model was tested after training.\n' >> "$tmp/pairs.tsv"
+    printf 'c\tThe team checks the gauge each year.\tThe team checks the gauge once a year.\n' >> "$tmp/pairs.tsv"
+    printf 'd\tA second failure is possible.\tA second failure is likely.\n' >> "$tmp/pairs.tsv"
+    printf 'e\tThe gauge failed; the river froze; the team left.\tThe gauge failed, and the team left.\n' >> "$tmp/pairs.tsv"
+    printf 'f\tThe second coder was a student.\tThe second coder was Kelly.\n' >> "$tmp/pairs.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --json 2>/dev/null)
+    code=$?
+    rm -rf "$tmp"
+    [ "$code" -eq 0 ] || { echo "$out" | head -40; return 1; }
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['changed'] == 6 and d['flagged'] == 0, [(r['where'], r['flags']) for r in d['sentences']]
+"
+}
+
+test_T211() {
+    # A manuscript is placed among a venue's articles by word overlap: the
+    # nearest article is the one that shares its words, and its percentile is
+    # where its own nearest-neighbour similarity falls among the articles'. An
+    # empty corpus or a title with no content word is refused, never a pass.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    python3 - "$tmp" <<'PYEOF'
+import json, sys, pathlib
+d = pathlib.Path(sys.argv[1])
+works = [
+    {"title": "Graph neural networks for traffic forecasting", "year": 2024, "doi": "10.1/a", "abstract": ""},
+    {"title": "Graph neural networks for route forecasting", "year": 2024, "doi": "10.1/b", "abstract": ""},
+    {"title": "Contrastive hashing for image retrieval", "year": 2025, "doi": "10.1/c", "abstract": ""},
+    {"title": "Deep hashing for sketch image retrieval", "year": 2025, "doi": "10.1/d", "abstract": ""},
+    {"title": "Auditing river gauge benchmarks for sampling shortcuts", "year": 2026, "doi": "10.1/e", "abstract": ""},
+    {"title": "Recommendation with session intent modelling", "year": 2026, "doi": "10.1/f", "abstract": ""},
+]
+(d / "corpus.json").write_text(json.dumps({"works": works}))
+(d / "empty.json").write_text(json.dumps({"works": []}))
+PYEOF
+    out=$(python3 .claude/skills/audit/scripts/venue-topic-fit.py neighbors --corpus "$tmp/corpus.json" --title "Sampling shortcuts in river gauge benchmarks" --json 2>/dev/null)
+    code=$?
+    [ "$code" -eq 0 ] || { rm -rf "$tmp"; return 1; }
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)['titles']
+assert d['n'] == 6, d['n']
+assert d['top'][0]['doi'] == '10.1/e', d['top'][0]
+assert 0 <= d['ours_percentile'] <= 100, d['ours_percentile']
+" || { rm -rf "$tmp"; return 1; }
+    python3 .claude/skills/audit/scripts/venue-topic-fit.py neighbors --corpus "$tmp/empty.json" --title "Anything at all" >/dev/null 2>&1
+    code=$?
+    [ "$code" -eq 2 ] || { rm -rf "$tmp"; return 1; }
+    python3 .claude/skills/audit/scripts/venue-topic-fit.py neighbors --corpus "$tmp/corpus.json" --title "of the and" >/dev/null 2>&1
+    code=$?
+    rm -rf "$tmp"
+    [ "$code" -eq 2 ]
+}
+
+test_T212() {
+    # A sample for coding is the same for the same seed, and a tally reports
+    # counts with Wilson intervals. An uncoded row or an unknown code stops the
+    # tally: a sheet half coded is not a result.
+    local tmp out code
+    tmp=$(mktemp -d) || return 1
+    python3 - "$tmp" <<'PYEOF'
+import json, sys, pathlib
+d = pathlib.Path(sys.argv[1])
+works = [{"title": "Paper number %d on gauges" % i, "year": 2025, "doi": "10.1/%d" % i, "abstract": ""} for i in range(40)]
+(d / "corpus.json").write_text(json.dumps({"works": works}))
+PYEOF
+    python3 .claude/skills/audit/scripts/venue-topic-fit.py sample --corpus "$tmp/corpus.json" --n 10 --seed 7 --out "$tmp/a.tsv" >/dev/null 2>&1 || { rm -rf "$tmp"; return 1; }
+    python3 .claude/skills/audit/scripts/venue-topic-fit.py sample --corpus "$tmp/corpus.json" --n 10 --seed 7 --out "$tmp/b.tsv" >/dev/null 2>&1 || { rm -rf "$tmp"; return 1; }
+    cmp -s "$tmp/a.tsv" "$tmp/b.tsv" || { rm -rf "$tmp"; return 1; }
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib
+d = pathlib.Path(sys.argv[1])
+rows = d.joinpath("a.tsv").read_text().splitlines()
+codes = ["M"] * 7 + ["E", "E?", "R"]
+d.joinpath("coded.tsv").write_text("\n".join([rows[0]] + [r + c for r, c in zip(rows[1:], codes)]) + "\n")
+d.joinpath("half.tsv").write_text("\n".join([rows[0]] + [r + c for r, c in zip(rows[1:], codes[:5])] + rows[6:]) + "\n")
+d.joinpath("odd.tsv").write_text("\n".join([rows[0]] + [r + "X" for r in rows[1:]]) + "\n")
+PYEOF
+    out=$(python3 .claude/skills/audit/scripts/venue-topic-fit.py tally --sheet "$tmp/coded.tsv" --json 2>/dev/null)
+    code=$?
+    [ "$code" -eq 0 ] || { rm -rf "$tmp"; return 1; }
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['n'] == 10 and d['doubtful'] == 1, d
+assert d['codes']['M']['count'] == 7 and d['codes']['E']['count'] == 2, d['codes']
+lo, hi = d['codes']['E']['wilson95']
+assert 0.05 < lo < 0.2 and 0.4 < hi < 0.6, (lo, hi)
+" || { rm -rf "$tmp"; return 1; }
+    python3 .claude/skills/audit/scripts/venue-topic-fit.py tally --sheet "$tmp/half.tsv" >/dev/null 2>&1
+    code=$?
+    [ "$code" -eq 2 ] || { rm -rf "$tmp"; return 1; }
+    python3 .claude/skills/audit/scripts/venue-topic-fit.py tally --sheet "$tmp/odd.tsv" >/dev/null 2>&1
+    code=$?
+    rm -rf "$tmp"
+    [ "$code" -eq 2 ]
+}
+
+test_T213() {
+    # The corpus request names the tool and carries no personal data: no e-mail
+    # address and no mailto parameter. Checked on the request itself, without
+    # the network. An abstract stored as an inverted index is rebuilt in order.
+    local out
+    out=$(python3 .claude/skills/audit/scripts/venue-topic-fit.py fetch --issn 1234-5678 --out /dev/null --dry-run 2>/dev/null) || return 1
+    echo "$out" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert 'issn:1234-5678' in d['url'].replace('%3A', ':'), d['url']
+blob = json.dumps(d)
+assert 'mailto' not in blob and '@' not in blob, blob
+assert 'venue-topic-fit' in d['headers'].get('User-agent', ''), d['headers']
+" || return 1
+    python3 .claude/skills/audit/scripts/venue-topic-fit.py fetch --issn not-an-issn --out /dev/null --dry-run >/dev/null 2>&1
+    [ "$?" -eq 2 ] || return 1
+    python3 -c "
+import importlib.util
+spec = importlib.util.spec_from_file_location('v', '.claude/skills/audit/scripts/venue-topic-fit.py')
+v = importlib.util.module_from_spec(spec); spec.loader.exec_module(v)
+assert v.abstract_from_index({'gauges': [1], 'River': [0], 'rise': [2]}) == 'River gauges rise'
+"
+}
+
+test_T214() {
+    # The venue's measured sentences are kept with --venue-cache: a second run
+    # reads the cache and reports the same thing; a change to any corpus file
+    # makes the cache stale, so it is measured again.
+    local tmp a b c
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/venue"
+    python3 - "$tmp" <<'PYEOF'
+import sys, pathlib, itertools
+d = pathlib.Path(sys.argv[1])
+words = ["".join(c) for c in itertools.product("abcdefg", repeat=3)]
+for i in range(6):
+    sents = ["The %s stage kept the %s rank in the pool today." % (words[(i * 200 + j) % len(words)],
+                                                                  words[(i * 200 + j) % len(words)]) for j in range(200)]
+    (d / "venue" / ("doc%d.txt" % i)).write_text(" ".join(sents))
+(d / "pairs.tsv").write_text("id\told\tnew\nx\tThe station logged the river level at dawn.\tThe station logged the level of the river at dawn and at dusk on every day of the long season for the survey team and the regional office and the two partner universities.\n")
+PYEOF
+    a=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --baseline "$tmp/venue" --json 2>/dev/null)
+    b=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --baseline "$tmp/venue" --venue-cache "$tmp/vc.json" --json 2>/dev/null)
+    [ -s "$tmp/vc.json" ] || { rm -rf "$tmp"; return 1; }
+    local before
+    before=$(python3 -c "import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)" "$tmp/vc.json")
+    c=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --baseline "$tmp/venue" --venue-cache "$tmp/vc.json" --json 2>/dev/null)
+    [ "$before" = "$(python3 -c "import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)" "$tmp/vc.json")" ] || { rm -rf "$tmp"; return 1; }
+    [ "$a" = "$b" ] && [ "$b" = "$c" ] || { rm -rf "$tmp"; return 1; }
+    python3 - "$tmp" <<'PYEOF' || { rm -rf "$tmp"; exit 1; }
+import json, sys, pathlib
+d = pathlib.Path(sys.argv[1])
+key = json.loads((d / "vc.json").read_text())["key"]
+(d / "venue" / "doc0.txt").write_text((d / "venue" / "doc0.txt").read_text() + " The added stage kept the added rank in the pool today.")
+(d / "key_before").write_text(key)
+PYEOF
+    python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/pairs.tsv" --baseline "$tmp/venue" --venue-cache "$tmp/vc.json" --json >/dev/null 2>&1
+    python3 - "$tmp" <<'PYEOF'
+import json, sys, pathlib
+d = pathlib.Path(sys.argv[1])
+assert json.loads((d / "vc.json").read_text())["key"] != (d / "key_before").read_text(), "a changed corpus reused the cache"
+PYEOF
+    local rc=$?
+    rm -rf "$tmp"
+    return $rc
+}
+
+test_T215() {
+    # Author verdicts in a pairs file are set against the flags, and the report
+    # names the script that judged: the out-of-sample test of the thresholds is
+    # a later round's verdicts. A verdict nobody can read is refused (exit 2).
+    local tmp out rc
+    tmp=$(mktemp -d) || return 1
+    printf 'id\told\tnew\tverdict\treason\na\tThe gauge read twelve points.\tThe gauge read twelve points: a clear sign of drift.\trejected\tcolon\nb\tThe bridge is old.\tThe bridge is very old.\t\t\nc\tThe team met twice.\tThe team met three times.\taccepted\tfact\nd\tRivers rise in spring.\tRivers rise in the spring.\trevised\trewrote\n' > "$tmp/p.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/p.tsv" --json 2>/dev/null)
+    printf '%s' "$out" | python3 -c '
+import hashlib, json, sys
+d = json.load(sys.stdin)
+v = d["verdicts"]
+assert (v["judged"], v["flagged_rejected"], v["flagged_accepted"], v["unflagged_rejected"], v["unflagged_accepted"]) == (3, 1, 0, 1, 1), v
+assert v["script"] == hashlib.sha256(open(".claude/skills/audit/scripts/audit-sentence-changes.py", "rb").read()).hexdigest()
+s = {r["where"]: r for r in d["sentences"]}
+assert s["d"]["verdict"] == "rejected" and s["d"]["reason"] == "rewrote" and s["b"].get("verdict") is None
+' || { rm -rf "$tmp"; return 1; }
+    printf 'id\told\tnew\tverdict\nx\tThe gauge read twelve points.\tThe gauge read about twelve points.\tmaybe\n' > "$tmp/q.tsv"
+    python3 .claude/skills/audit/scripts/audit-sentence-changes.py --pairs "$tmp/q.tsv" >/dev/null 2>&1; rc=$?
+    rm -rf "$tmp"
+    [ "$rc" -eq 2 ]
+}
+
+test_T216() {
+    # The prose view turns a LaTeX draft into Markdown chapters that the
+    # chapters/*.md checks can read: headings kept, citations, references,
+    # comments and environment names gone, captions fenced at the end, and a
+    # file with no prose at all is refused (exit 2).
+    local tmp out
+    tmp=$(mktemp -d) || return 1
+    cat > "$tmp/a.tex" <<'TEXEOF'
+\documentclass{article}
+\begin{document}
+\begin{abstract}
+We survey old bridges.
+\end{abstract}
+\section{Introduction}\label{sec:intro}
+Bridges fail slowly~\cite{smith2020} (\S\ref{sec:intro}).% hidden remark
+\begin{center}
+Spans are long.
+\end{center}
+
+Inspections are rare.
+\input{sections/02_methods}
+\makeatletter\let\x@internal\relax\makeatother
+\bibliographystyle{plainstyle}
+\bibliography{refs}
+\begin{figure}[t]\caption{Cracked piers.}\end{figure}
+\begin{equation} x = y \end{equation}
+\end{document}
+TEXEOF
+    printf '%% only a comment\n' > "$tmp/empty.tex"
+    python3 .claude/skills/audit/scripts/prose-view.py --out "$tmp/v" "$tmp/a.tex" >/dev/null 2>&1 || { rm -rf "$tmp"; return 1; }
+    out=$(cat "$tmp/v/chapters/01-a.md")
+    printf '%s' "$out" | grep -q '^## Abstract$' || { rm -rf "$tmp"; return 1; }
+    printf '%s' "$out" | grep -q '^## Introduction$' || { rm -rf "$tmp"; return 1; }
+    printf '%s' "$out" | grep -q '^Bridges fail slowly\.' || { rm -rf "$tmp"; return 1; }
+    printf '%s' "$out" | grep -q '^Inspections are rare\.$' || { rm -rf "$tmp"; return 1; }
+    printf '%s' "$out" | grep -q 'Cracked piers\.' || { rm -rf "$tmp"; return 1; }
+    printf '%s' "$out" | grep -q '^```captions' || { rm -rf "$tmp"; return 1; }
+    if printf '%s' "$out" | grep -qE 'smith2020|hidden|\\|center|x = y|02_methods|refs|plainstyle|internal'; then rm -rf "$tmp"; return 1; fi
+    python3 .claude/skills/audit/scripts/prose-view.py --out "$tmp/w" "$tmp/empty.tex" >/dev/null 2>&1
+    local rc=$?
+    rm -rf "$tmp"
+    [ "$rc" -eq 2 ]
+}
+
+test_T217() {
+    # Spelling consistency: a family written both ways is reported at the
+    # rarer form; words spelt alike in both conventions (revised, advised) and
+    # a capitalised name in mid-sentence are not counted; a text that keeps to
+    # one convention passes; the default British mode is unchanged.
+    local tmp
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/mixed/chapters" "$tmp/clean/chapters"
+    printf 'We organise the survey and digitised the maps.\nThey revised and advised the Research Center on colour.\nA third volume was digitized later.\nThe catalogue grew.\n' > "$tmp/mixed/chapters/01.md"
+    printf 'We organise the survey and digitised the maps.\nThey revised the catalogue on colour.\n' > "$tmp/clean/chapters/01.md"
+    python3 scripts/audit-british-english.py --base-dir "$tmp/mixed" --mode consistent --json > "$tmp/m.json" 2>/dev/null
+    [ $? -eq 1 ] || { rm -rf "$tmp"; return 1; }
+    python3 - "$tmp/m.json" <<'PYEOF' || { rm -rf "$tmp"; exit 1; }
+import json, sys
+d = json.load(open(sys.argv[1]))
+words = [i["current"] for i in d["issues"]]
+assert words == ["digitized"], words
+f = d["families"]["-ise/-ize"]
+assert (f["uk"], f["us"]) == (2, 1), f
+assert "-re/-er" not in d["families"], "a name in mid-sentence was counted"
+PYEOF
+    python3 scripts/audit-british-english.py --base-dir "$tmp/clean" --mode consistent >/dev/null 2>&1
+    [ $? -eq 0 ] || { rm -rf "$tmp"; return 1; }
+    python3 scripts/audit-british-english.py --base-dir "$tmp/mixed" --json | grep -q '"digitized"\|"organize"\|"Center"'
+    local rc=$?
+    rm -rf "$tmp"
+    return $rc
+}
+
+test_T218() {
+    # Citation reconciliation follows \input into included files, reports a
+    # key cited but not defined and an entry defined but never cited, treats
+    # \nocite{*} as citing everything, and refuses an unreadable bibliography.
+    local tmp
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/tables"
+    printf '@article{alpha2020, title={A}, year={2020}}\n@article{beta2021, title={B}, year={2021}}\n@article{gamma2022, title={C}, year={2022}}\n' > "$tmp/refs.bib"
+    printf '\\documentclass{article}\\begin{document}\nSee \\citet{alpha2020} and \\cite[p.~3]{delta2023}.\n%% \\cite{gamma2022} is commented out\n\\input{tables/t1}\n\\end{document}\n' > "$tmp/main.tex"
+    printf 'Table from \\citep{beta2021}.\n' > "$tmp/tables/t1.tex"
+    (cd "$tmp" && python3 "$OLDPWD/.claude/skills/verify-refs/scripts/reconcile-cites.py" --bib refs.bib --json main.tex > r.json 2>/dev/null)
+    [ $? -eq 1 ] || { rm -rf "$tmp"; return 1; }
+    python3 - "$tmp/r.json" <<'PYEOF' || { rm -rf "$tmp"; exit 1; }
+import json, sys
+d = json.load(open(sys.argv[1]))
+got = sorted((i["kind"], i["key"]) for i in d["issues"])
+assert got == [("bib-not-cited", "gamma2022"), ("cited-not-in-bib", "delta2023")], got
+assert len(d["files_read"]) == 2, d["files_read"]
+PYEOF
+    printf '\\nocite{*}\\cite{alpha2020}\n' > "$tmp/all.tex"
+    (cd "$tmp" && python3 "$OLDPWD/.claude/skills/verify-refs/scripts/reconcile-cites.py" --bib refs.bib all.tex >/dev/null 2>&1)
+    [ $? -eq 0 ] || { rm -rf "$tmp"; return 1; }
+    (cd "$tmp" && python3 "$OLDPWD/.claude/skills/verify-refs/scripts/reconcile-cites.py" --bib missing.bib main.tex >/dev/null 2>&1)
+    local rc=$?
+    rm -rf "$tmp"
+    [ "$rc" -eq 2 ]
+}
+
+test_T220() {
+    # A directory target used to get only the whole-paper average: per-section rates were never computed, so one
+    # section far from the rest was averaged away. --per-file measures each file, names the section where each
+    # device peaks, and says when the peak sits in a section that should be plain (methods, limitations). A file
+    # too short to judge is listed but kept out of the peaks. Synthetic prose only.
+    local tmp
+    tmp=$(mktemp -d)
+    python3 - "$tmp" <<'PYEOF'
+import sys
+from pathlib import Path
+d = Path(sys.argv[1]); (d / "sections").mkdir()
+plain = ("The pool holds four hundred images drawn from two collections. Each query names one technique. "
+         "We report recall at ten for every retriever and every pool. The counts are listed in the table. ")
+dense = ("The score reflects the source of the page rather than its content. "
+         "It is the layout, not the drawing, that the retriever reads. ")
+(d / "sections" / "02_method.tex").write_text(r"\section{Method}" + " ".join([plain, dense] * 40), encoding="utf-8")
+(d / "sections" / "03_results.tex").write_text(r"\section{Results}" + plain * 60, encoding="utf-8")
+(d / "sections" / "05_discussion.tex").write_text(r"\section{Discussion}" + plain * 60, encoding="utf-8")
+(d / "sections" / "06_note.tex").write_text(r"\section{Note}" + dense * 3, encoding="utf-8")
+(d / "sections" / "04_stub.tex").write_text("%% folded into another section; kept so main.tex need not change\n", encoding="utf-8")
+PYEOF
+    local out
+    out=$(python3 .claude/skills/audit/scripts/audit-prose-fingerprint.py --target "$tmp/sections" --per-file --json 2>&1) || true
+    rm -rf "$tmp"
+    python3 - "$out" <<'PYEOF'
+import json, sys
+r = json.loads(sys.argv[1])
+pf = r.get("per_file") or {}
+assert set(pf) == {"02_method.tex", "03_results.tex", "04_stub.tex", "05_discussion.tex", "06_note.tex"}, sorted(pf)
+assert pf["04_stub.tex"]["words"] == 0 and pf["04_stub.tex"]["short"] is True, "a file with no prose is listed, not dropped"
+assert pf["06_note.tex"]["short"] is True and pf["02_method.tex"]["short"] is False, pf
+peak = (r.get("peaks") or {}).get("contrast_per_1k") or {}
+assert peak.get("file") == "02_method.tex" and peak.get("role") == "method" and peak.get("verdict") == "backwards", peak
+assert "06_note.tex" not in json.dumps(r.get("peaks")), "a file too short to judge must stay out of the peaks"
+assert r.get("per_section_note") is None and isinstance(r.get("per_section_cv"), dict), (r.get("per_section_note"), r.get("per_section_cv"))
+PYEOF
+}
+
+test_T219() {
+    # The fingerprint reads LaTeX prose without environment names: a
+    # \begin{center} left the word "center" in the text, and a colon before
+    # it was counted as an explanatory colon.
+    python3 - <<'PYEOF'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("fp", ".claude/skills/audit/scripts/audit-prose-fingerprint.py")
+fp = importlib.util.module_from_spec(spec); sys.argv = ["x"]; spec.loader.exec_module(fp)
+text = fp.strip_markup("\\begin{document}Checked character by character:\n\\begin{center}\\small Plate one.\\end{center}\\end{document}", ".tex")
+assert "center" not in text and "document" not in text, text
+import re
+assert not re.search(fp.EXPLANATORY_COLON, text), text
+PYEOF
+}
+
 run_test "T138 claim positioning recognises Harvard author-year in Markdown" test_T138
 run_test "T142 claim ledger: a snippet that is not in the archived source" test_T142
 run_test "T143 claim ledger: a claim that is no longer in the manuscript" test_T143
@@ -5216,9 +6738,1062 @@ run_test "T186 public-content audit: the count is the files read, none skipped f
 run_test "T187 public-content audit: the real tree's count clears an independent floor" test_T187
 run_test "T188 the scripts/ audits fail closed on an empty base-dir" test_T188
 run_test "T189 every numbered mention of the skill catalogue matches the skills on disk" test_T189
+run_test "T198 number ledger: an artifact file is a source, never prose" test_T198
+run_test "T199 number ledger: a number with thousands separators is one number" test_T199
+run_test "T200 number ledger: exact rounding is a relation, other digits are not" test_T200
+run_test "T201 number ledger: a copy that drifts while another copy holds" test_T201
+run_test "T202 number ledger: scopes and locators end at a digit boundary" test_T202
+run_test "T203 prose fingerprint: a baseline file that extracted as symbols is named, not counted" test_T203
+run_test "T204 changed sentences: a proposed rewrite is read against the sentence it replaces" test_T204
+run_test "T205 changed sentences: only what changed between two versions is read, a dot directory is not the draft" test_T205
+run_test "T206 changed sentences: a rewrite is placed among the venue's sentences; a corpus too small is refused" test_T206
+run_test "T207 changed sentences: each kind of addition is flagged by name; a plainer rewrite and a term swap are not" test_T207
+run_test "T208 changed sentences: splits, expansions and additions between two versions are all judged" test_T208
+run_test "T209 changed sentences: list items and captions are read; references, comments and math make no punctuation" test_T209
+run_test "T210 changed sentences: prepositions, -ly adjectives, a comma for a semicolon and a name are not flagged" test_T210
+run_test "T211 venue topic fit: the nearest article and the percentile; an empty corpus or an empty title is refused" test_T211
+run_test "T212 venue topic fit: a seeded sample repeats; a tally with intervals; a half-coded sheet is refused" test_T212
+run_test "T213 venue topic fit: the corpus request carries no personal data; abstracts rebuilt in order" test_T213
+run_test "T214 changed sentences: the venue's measured sentences are cached and a changed corpus is measured again" test_T214
+run_test "T215 changed sentences: author verdicts are set against the flags, and an unreadable verdict is refused" test_T215
+run_test "T216 prose view: a LaTeX draft becomes Markdown chapters the chapter checks can read" test_T216
+run_test "T217 spelling consistency: a convention written both ways is reported at the rarer form" test_T217
+run_test "T218 citation reconciliation: cited-not-defined and defined-not-cited, across \\input" test_T218
+run_test "T219 fingerprint: LaTeX environment names are not prose" test_T219
+run_test "T220 fingerprint: --per-file names the section where a device peaks, and a plain section that peaks is backwards" test_T220
 run_test "T190 every path the README's structure block names exists on disk" test_T190
+run_test "T191 writing-loop engine tests pass (hermetic fixtures only)" test_T191
+run_test "T192 every writing-loop mutation turns its named test red" test_T192
+run_test "T193 experimental/ is audited and carries no home-directory paths" test_T193
+run_test "T194 claim ledger: an accepted method credit is not a missing row in the full scan" test_T194
+run_test "T195 claim ledger: a key may be credited for several procedures, only a named one covers" test_T195
 run_test "T196 an escaped ampersand in the registrar's title is not another journal" test_T196
 run_test "T197 both spellings of a venue's ampersand are queried, once each" test_T197
+
+# --- Generated copies --------------------------------------------------------
+
+gencopy_fixture() {
+    # $1/data: a data repository whose committed generator writes t1.tex from outputs/values.json.
+    # $1/ms: a manuscript holding a copy of that table, with a provenance comment the generator does not write.
+    mkdir -p "$1/data/outputs" "$1/ms/tables" || return 1
+    cat > "$1/data/gen.py" <<'EOF'
+import json, os, sys
+out = sys.argv[1]
+v = json.load(open("outputs/values.json"))
+os.makedirs(out, exist_ok=True)
+with open(os.path.join(out, "t1.tex"), "w") as f:
+    f.write("% generated by gen.py\n\\begin{tabular}{lr}\nA & " + "{:.2f}".format(v["a"]) + " \\\\\nB & "
+            + "{:.2f}".format(v["b"]) + " \\\\\n\\end{tabular}\n")
+EOF
+    printf '{"a": 0.634, "b": 12.5}\n' > "$1/data/outputs/values.json"
+    git -C "$1/data" init -q && git -C "$1/data" add gen.py outputs/values.json \
+        && git -C "$1/data" -c user.name=t -c user.email=t@example.invalid commit -qm init || return 1
+    printf '%% source: outputs/values.json\n\\begin{tabular}{lr}\nA & 0.63 \\\\\nB & 12.50 \\\\\n\\end{tabular}\n' \
+        > "$1/ms/tables/t1.tex"
+    python3 - "$1" <<'EOF'
+import json, sys
+root = sys.argv[1]
+json.dump({"covers": ["tables/*.tex"], "hand": {},
+           "generators": [{"name": "gen", "repo": root + "/data", "export": ["gen.py", "outputs/*.json"],
+                           "run": ["python3", "gen.py", "{out}"], "copies": {"tables/t1.tex": "{out}/t1.tex"}}]},
+          open(root + "/ms/generated.json", "w"))
+EOF
+}
+
+test_T230() {
+    # A copy that is what the committed generator emits passes, a provenance comment aside; one changed cell fails
+    # and the report shows the line.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    gencopy_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    status=$?
+    [ "$status" = "0" ] || { echo "same copy: expected exit 0, got $status: $out"; rm -rf "$tmp"; return 1; }
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['same']==['tables/t1.tex'], d" || { rm -rf "$tmp"; return 1; }
+    sed -i.bak 's/A \& 0.63/A \& 0.64/' "$tmp/ms/tables/t1.tex" && rm "$tmp/ms/tables/t1.tex.bak"
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" = "1" ] || { echo "changed cell: expected exit 1, got $status"; return 1; }
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+f=[x for x in d['findings'] if x['kind']=='differs']
+assert len(f)==1 and f[0]['copy']=='tables/t1.tex', d['findings']
+assert '-A & 0.64 \\\\\\\\' in f[0]['lines'] and '+A & 0.63 \\\\\\\\' in f[0]['lines'], f[0]['lines']
+"
+}
+
+test_T231() {
+    # The data repository's working tree is not what is checked: an uncommitted change to the generator is
+    # reported and not used, and a committed file at a produced path is removed before the run, so a generator
+    # that writes nothing cannot pass on the file already there.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    gencopy_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    sed -i.bak 's/"{:.2f}".format(v\["a"\])/"{:.3f}".format(v["a"])/' "$tmp/data/gen.py" && rm "$tmp/data/gen.py.bak"
+    git -C "$tmp/data" diff --quiet && { echo "fixture: the working-tree edit did not happen"; rm -rf "$tmp"; return 1; }
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    status=$?
+    [ "$status" = "0" ] || { echo "uncommitted edit was used: exit $status: $out"; rm -rf "$tmp"; return 1; }
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['generators'][0]['dirty']==['gen.py'], d['generators']" \
+        || { rm -rf "$tmp"; return 1; }
+    git -C "$tmp/data" checkout -q gen.py
+    cp "$tmp/ms/tables/t1.tex" "$tmp/data/outputs/t1.tex"
+    git -C "$tmp/data" add outputs/t1.tex && git -C "$tmp/data" -c user.name=t -c user.email=t@example.invalid commit -qm stale
+    python3 - "$tmp" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p))
+m["generators"][0]["export"].append("outputs/t1.tex")
+m["generators"][0]["copies"]["tables/t1.tex"] = "outputs/t1.tex"
+json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" = "1" ] || { echo "stale committed output was read back: exit $status"; return 1; }
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert [f['kind'] for f in d['findings']]==['output-missing'], d['findings']"
+}
+
+test_T232() {
+    # A table under covers that no generator names fails until it is listed as made by hand; a produced path
+    # outside the run's own directories is refused.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    gencopy_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    printf '\\begin{tabular}{l}\nx \\\\\n\\end{tabular}\n' > "$tmp/ms/tables/t2.tex"
+    python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json > "$tmp/o.json"
+    status=$?
+    [ "$status" = "1" ] || { echo "unlisted: expected exit 1, got $status"; rm -rf "$tmp"; return 1; }
+    python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert [(f['kind'],f['copy']) for f in d['findings']]==[('unlisted','tables/t2.tex')], d['findings']" "$tmp/o.json" \
+        || { rm -rf "$tmp"; return 1; }
+    python3 - "$tmp" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); m["hand"] = {"tables/t2.tex": "typed by hand"}; json.dump(m, open(p, "w"))
+EOF
+    python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json > "$tmp/o.json"
+    status=$?
+    [ "$status" = "0" ] || { echo "hand-listed: expected exit 0, got $status"; rm -rf "$tmp"; return 1; }
+    python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['hand']==[{'copy':'tables/t2.tex','reason':'typed by hand'}], d['hand']" "$tmp/o.json" \
+        || { rm -rf "$tmp"; return 1; }
+    python3 - "$tmp" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); m["generators"][0]["copies"]["tables/t1.tex"] = sys.argv[1] + "/ms/tables/t1.tex"; json.dump(m, open(p, "w"))
+EOF
+    python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json > "$tmp/o.json"
+    status=$?
+    python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert [f['kind'] for f in d['findings']]==['generator-failed'] and 'outside' in d['findings'][0]['detail'], d['findings']" "$tmp/o.json"
+    local ok=$?
+    rm -rf "$tmp"
+    [ "$ok" = "0" ] && [ "$status" = "1" ] || { echo "outside produced path: exit $status"; return 1; }
+}
+
+test_T233() {
+    # Nothing compared is not a pass: a missing manifest, and a manifest whose only entry is made by hand, exit 2.
+    local tmp status
+    tmp=$(mktemp -d) || return 1
+    python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp" --manifest generated.json --json >/dev/null 2>&1
+    status=$?
+    [ "$status" = "2" ] || { echo "missing manifest: expected 2, got $status"; rm -rf "$tmp"; return 1; }
+    mkdir -p "$tmp/tables" && printf 'x\n' > "$tmp/tables/t.tex"
+    printf '{"covers": ["tables/*.tex"], "hand": {"tables/t.tex": "by hand"}, "generators": []}\n' > "$tmp/generated.json"
+    python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp" --manifest generated.json --json >/dev/null 2>&1
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" = "2" ] || { echo "hand only: expected 2, got $status"; return 1; }
+}
+
+run_test "T230 generated copies: a copy the committed generator emits passes, one changed cell fails with its line" test_T230
+run_test "T231 generated copies: the data repository's working tree is not used, and a committed output is not read back" test_T231
+run_test "T232 generated copies: an unlisted table fails until listed as made by hand; a produced path outside the run is refused" test_T232
+run_test "T233 generated copies: nothing compared exits 2" test_T233
+
+gencopy_lib_fixture() {
+    # A data repository whose generator lives in scripts/ and imports mylib from the repository root, so only the
+    # archive's own mylib is the committed one; the working tree's mylib is edited and not committed.
+    mkdir -p "$1/data/scripts" "$1/data/mylib" "$1/ms/tables" || return 1
+    printf 'V = "0.63"\n' > "$1/data/mylib/__init__.py"
+    cat > "$1/data/scripts/make.py" <<'EOF'
+import os, sys
+sys.path.append(os.getcwd())
+import mylib
+out = sys.argv[1]
+os.makedirs(out, exist_ok=True)
+open(os.path.join(out, "t.tex"), "w").write("A & " + mylib.V + "\n")
+EOF
+    git -C "$1/data" init -q && git -C "$1/data" add scripts mylib \
+        && git -C "$1/data" -c user.name=t -c user.email=t@example.invalid commit -qm init || return 1
+    printf 'V = "0.71"\n' > "$1/data/mylib/__init__.py"
+    printf 'A & 0.71\n' > "$1/ms/tables/t.tex"
+    python3 - "$1" "$2" <<'EOF'
+import json, sys
+root, py = sys.argv[1], sys.argv[2]
+json.dump({"covers": ["tables/*.tex"], "hand": {},
+           "generators": [{"name": "gen", "repo": root + "/data", "export": ["scripts", "mylib"],
+                           "run": [py, "scripts/make.py", "{out}"], "copies": {"tables/t.tex": "{out}/t.tex"}}]},
+          open(root + "/ms/generated.json", "w"))
+EOF
+}
+
+test_T234() {
+    # The working tree must not reach the run: not through PYTHONPATH, not through an editable install in the
+    # interpreter's environment, not through {repo} in the arguments. Each would make a copy that matches only
+    # uncommitted code pass.
+    local tmp out status sp
+    tmp=$(mktemp -d) || return 1
+    python3 -m venv --without-pip "$tmp/venv" || { rm -rf "$tmp"; return 1; }
+    gencopy_lib_fixture "$tmp" "$tmp/venv/bin/python" || { rm -rf "$tmp"; return 1; }
+    out=$(PYTHONPATH="$tmp/data" python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    status=$?
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['same']==[] and [f['kind'] for f in d['findings']]==['differs'], d['findings']" \
+        || { echo "PYTHONPATH reached the run (exit $status)"; rm -rf "$tmp"; return 1; }
+    sp=$("$tmp/venv/bin/python" -c "import site; print(site.getsitepackages()[0])")
+    printf '%s\n' "$tmp/data" > "$sp/_editable_data.pth"
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    status=$?
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert d['same']==[] and [x['kind'] for x in f]==['generator-failed'] and '_editable_data.pth' in f[0]['detail'], f" \
+        || { echo "an editable install into the repository was not caught (exit $status)"; rm -rf "$tmp"; return 1; }
+    rm "$sp/_editable_data.pth"
+    python3 - "$tmp" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); m["generators"][0]["run"][1] = "{repo}/scripts/make.py"; json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" = "1" ] || { echo "{repo} in the arguments: expected exit 1, got $status"; return 1; }
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert [x['kind'] for x in f]==['generator-failed'] and 'names the working tree' in f[0]['detail'], f"
+}
+
+test_T235() {
+    # Copies are read before the generators run: a generator that also writes into the manuscript cannot make its
+    # own copy match, and the change is reported.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    gencopy_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    printf 'import shutil, sys\nshutil.copy(sys.argv[1] + "/t1.tex", sys.argv[2])\n' > "$tmp/data/sync.py"
+    git -C "$tmp/data" add sync.py && git -C "$tmp/data" -c user.name=t -c user.email=t@example.invalid commit -qm sync
+    sed -i.bak 's/A \& 0.63/A \& 0.99/' "$tmp/ms/tables/t1.tex" && rm "$tmp/ms/tables/t1.tex.bak"
+    python3 - "$tmp" <<'EOF'
+import json, sys
+root = sys.argv[1]
+p = root + "/ms/generated.json"
+m = json.load(open(p))
+m["generators"][0]["export"].append("sync.py")
+m["generators"][0]["run"] = ["sh", "-c", "python3 gen.py {out} && python3 sync.py {out} " + root + "/ms/tables/t1.tex"]
+json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" = "1" ] || { echo "expected exit 1, got $status"; return 1; }
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); k=sorted(f['kind'] for f in d['findings']); assert k==['copy-changed','differs'], d['findings']"
+}
+
+test_T236() {
+    # A produced path that climbs out with .. or through a committed link is refused, and nothing outside the
+    # run's own directories is removed.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    gencopy_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    mkdir -p "$tmp/elsewhere" && printf 'keep\n' > "$tmp/elsewhere/t1.tex" && printf 'keep\n' > "$tmp/victim.tex"
+    ln -s "$tmp/elsewhere" "$tmp/data/results"
+    git -C "$tmp/data" add results && git -C "$tmp/data" -c user.name=t -c user.email=t@example.invalid commit -qm link
+    for target in "{out}/../../../victim.tex" "results/t1.tex"; do
+        python3 - "$tmp" "$target" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p))
+m["generators"][0]["export"] = ["gen.py", "outputs/values.json", "results"]
+m["generators"][0]["copies"]["tables/t1.tex"] = sys.argv[2]
+json.dump(m, open(p, "w"))
+EOF
+        out=$(TMPDIR="$tmp" python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json 2>&1)
+        status=$?
+        [ -f "$tmp/victim.tex" ] && [ -f "$tmp/elsewhere/t1.tex" ] || { echo "$target: a file outside the run was removed"; rm -rf "$tmp"; return 1; }
+        [ "$status" = "1" ] || { echo "$target: expected exit 1, got $status: $out"; rm -rf "$tmp"; return 1; }
+        echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert [f['kind'] for f in d['findings']] in (['generator-failed'], ['output-missing']), d['findings']" \
+            || { rm -rf "$tmp"; return 1; }
+    done
+    rm -rf "$tmp"
+}
+
+test_T237() {
+    # Comparisons that used to fold two different files together: an empty output against a comment-only copy, a
+    # trailing % (which joins lines in LaTeX), an invalid UTF-8 byte. And a covers pattern with a typo is said, and
+    # a table whose name differs only in case is still unlisted.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    gencopy_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    # LaTeX joins a line ending in % to the next: the copy prints 0.85 where the generator prints 0.8 and 5.
+    printf 'import os, sys\nos.makedirs(sys.argv[1], exist_ok=True)\nopen(os.path.join(sys.argv[1], "t1.tex"), "w").write("A & 0.8\\n5 \\\\\\\\\\n")\n' > "$tmp/data/gen.py"
+    git -C "$tmp/data" -c user.name=t -c user.email=t@example.invalid commit -qam joined
+    printf 'A & 0.8%%\n5 \\\\\n' > "$tmp/ms/tables/t1.tex"
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert [f['kind'] for f in d['findings']]==['differs'], d['findings']" \
+        || { echo "a trailing % was folded away"; rm -rf "$tmp"; return 1; }
+    printf '%% nothing but a comment\n' > "$tmp/ms/tables/t1.tex"
+    printf 'import os, sys\nos.makedirs(sys.argv[1], exist_ok=True)\nopen(os.path.join(sys.argv[1], "t1.tex"), "w").write("%% generated\\n")\n' > "$tmp/data/gen.py"
+    git -C "$tmp/data" -c user.name=t -c user.email=t@example.invalid commit -qam empty
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    status=$?
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert [f['kind'] for f in d['findings']]==['empty-output'], d['findings']" \
+        || { echo "empty output matched a comment-only copy (exit $status)"; rm -rf "$tmp"; return 1; }
+    printf 'import os, sys\nos.makedirs(sys.argv[1], exist_ok=True)\nopen(os.path.join(sys.argv[1], "t1.tex"), "wb").write(b"caf\\xe9\\n")\n' > "$tmp/data/gen.py"
+    git -C "$tmp/data" -c user.name=t -c user.email=t@example.invalid commit -qam bytes
+    printf 'caf\xe8\n' > "$tmp/ms/tables/t1.tex"
+    printf 'x\n' > "$tmp/ms/tables/T2.TEX"
+    python3 - "$tmp" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); m["covers"] = ["tables/*.tex", "tabels/*.tex"]; json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" = "1" ] || { echo "expected exit 1, got $status"; return 1; }
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+k=sorted((f['kind'], f['copy']) for f in d['findings'])
+assert k==[('covers-empty','tabels/*.tex'),('differs','tables/t1.tex'),('unlisted','tables/T2.TEX')], k
+"
+}
+
+test_T238() {
+    # One copy is one copy: ./ in a key names the same file, a copy named by two generators is reported once as a
+    # manifest error, and a generator that outlives its timeout takes its children with it.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    gencopy_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    python3 - "$tmp" <<'EOF'
+import json, sys, copy
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p))
+g = m["generators"][0]; g["copies"] = {"./tables/t1.tex": "{out}/t1.tex"}
+g2 = copy.deepcopy(g); g2["name"] = "gen2"; g2["copies"] = {"tables/t1.tex": "{out}/t1.tex"}
+m["generators"].append(g2)
+json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    echo "$out" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d['same']==['tables/t1.tex'] and d['copies_checked']==1, (d['same'], d['copies_checked'])
+assert [f['kind'] for f in d['findings']]==['listed-twice'], d['findings']
+" || { rm -rf "$tmp"; return 1; }
+    python3 - "$tmp" <<'EOF'
+import json, sys
+root = sys.argv[1]
+p = root + "/ms/generated.json"
+m = json.load(open(p)); m["generators"] = m["generators"][:1]
+m["generators"][0]["run"] = ["sh", "-c", "(sleep 3; touch " + root + "/late) & sleep 30"]
+json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json --timeout 1)
+    status=$?
+    sleep 4
+    [ ! -e "$tmp/late" ] || { echo "a child outlived the timeout"; rm -rf "$tmp"; return 1; }
+    rm -rf "$tmp"
+    [ "$status" = "1" ] || { echo "timeout: expected exit 1, got $status"; return 1; }
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'timed out' in d['findings'][0]['detail'], d['findings']"
+}
+
+run_test "T234 generated copies: the working tree does not reach the run through PYTHONPATH, an editable install or {repo}" test_T234
+run_test "T235 generated copies: copies are read before the run, and a generator writing into one is reported" test_T235
+run_test "T236 generated copies: a produced path out through .. or a link is refused and removes nothing outside" test_T236
+run_test "T237 generated copies: empty output, a trailing %, a stray byte, a covers typo and a case-only name are not folded away" test_T237
+run_test "T238 generated copies: one copy is counted once, and a timeout takes the generator's children with it" test_T238
+
+# --- Float reviews -------------------------------------------------------------
+
+float_fixture() {
+    # A draft with a figure (a TikZ input and an image) in its main file and a table whose environment lives in an
+    # input file; a paragraph of prose besides.
+    mkdir -p "$1/figures" "$1/tables" "$1/sections" || return 1
+    cat > "$1/main.tex" <<'EOF'
+\documentclass{article}
+\begin{document}
+\input{sections/results}
+\end{document}
+EOF
+    cat > "$1/sections/results.tex" <<'EOF'
+\section{Results}
+The gauges agree.
+\begin{figure}[tb]
+  \input{figures/span}
+  \includegraphics{figures/photo}
+  \caption{Two spans, read at dawn.}\label{fig:span}
+\end{figure}
+\input{tables/counts}
+EOF
+    printf '\\begin{tikzpicture}\\node {span};\\end{tikzpicture}\n' > "$1/figures/span.tex"
+    printf 'PNGBYTES-1' > "$1/figures/photo.png"
+    printf '\\begin{table}\\caption{Counts.}\\label{tab:counts}\n\\begin{tabular}{lr}A & 12 \\\\\n\\end{tabular}\\end{table}\n' > "$1/tables/counts.tex"
+}
+
+float_fp() {
+    python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$1" --main main.tex --reviews reviews.tsv --json \
+        | python3 -c "import json,sys; d=json.load(sys.stdin); print({f['id']: f['fingerprint'] for f in d['floats'] + d.get('preambles', [])}['$2'])"
+}
+
+test_T239() {
+    # One reviewed float of two fails and names the other; both reviewed passes; new bytes in the figure's image
+    # make its review an older version's; a prose edit elsewhere does not.
+    local tmp out status fp_fig fp_tab
+    tmp=$(mktemp -d) || return 1
+    float_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    fp_fig=$(float_fp "$tmp" fig:span) && fp_tab=$(float_fp "$tmp" tab:counts) && fp_pre=$(float_fp "$tmp" preamble:main.tex) \
+        || { rm -rf "$tmp"; return 1; }
+    printf 'label\tfingerprint\treviewer\tdate\tverdict\tnote\nfig:span\t%s\tA. Reader\t2026-01-01\tok\t\npreamble:main.tex\t%s\tA. Reader\t2026-01-01\tok\t\n' "$fp_fig" "$fp_pre" > "$tmp/reviews.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv --json)
+    status=$?
+    [ "$status" = "1" ] || { echo "one unreviewed: expected exit 1, got $status"; rm -rf "$tmp"; return 1; }
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert [(f['kind'],f['float']) for f in d['findings']]==[('unreviewed','tab:counts')], d['findings']" \
+        || { rm -rf "$tmp"; return 1; }
+    printf 'tab:counts\t%s\tA. Reader\t2026-01-01\tok\t\n' "$fp_tab" >> "$tmp/reviews.tsv"
+    python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv --json >/dev/null
+    status=$?
+    [ "$status" = "0" ] || { echo "both reviewed: expected exit 0, got $status"; rm -rf "$tmp"; return 1; }
+    printf 'The gauges agree, mostly.\n' >> "$tmp/sections/results.tex"
+    python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv --json >/dev/null
+    status=$?
+    [ "$status" = "0" ] || { echo "a prose edit outside the floats reopened a review (exit $status)"; rm -rf "$tmp"; return 1; }
+    printf 'PNGBYTES-2' > "$tmp/figures/photo.png"
+    out=$(python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv --json)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" = "1" ] || { echo "changed image: expected exit 1, got $status"; return 1; }
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert [(x['kind'],x['float']) for x in f]==[('unreviewed','fig:span')] and 'older version' in f[0]['detail'], f"
+}
+
+test_T240() {
+    # The latest current row decides: fix keeps a float open, a later ok closes it. A row for a label that is gone
+    # is only a prompt; a pulled-in file that is not there fails.
+    local tmp out status fp_fig fp_tab
+    tmp=$(mktemp -d) || return 1
+    float_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    fp_fig=$(float_fp "$tmp" fig:span) && fp_tab=$(float_fp "$tmp" tab:counts) && fp_pre=$(float_fp "$tmp" preamble:main.tex) \
+        || { rm -rf "$tmp"; return 1; }
+    { printf 'label\tfingerprint\treviewer\tdate\tverdict\tnote\n'
+      printf 'preamble:main.tex\t%s\tA. Reader\t2026-01-01\tok\t\n' "$fp_pre"
+      printf 'fig:span\t%s\tA. Reader\t2026-01-01\tfix\tlabel runs into the frame\n' "$fp_fig"
+      printf 'tab:counts\t%s\tA. Reader\t2026-01-01\tok\t\n' "$fp_tab"
+      printf 'fig:gone\t0000000000000000\tA. Reader\t2026-01-01\tok\t\n'; } > "$tmp/reviews.tsv"
+    out=$(python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv --json)
+    status=$?
+    [ "$status" = "1" ] || { echo "fix: expected exit 1, got $status"; rm -rf "$tmp"; return 1; }
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); k=[(f['kind'],f['float']) for f in d['findings']]; assert k==[('review-open','fig:span'),('stale-row','fig:gone')], k" \
+        || { rm -rf "$tmp"; return 1; }
+    printf 'fig:span\t%s\tB. Reader\t2026-01-02\tok\tmoved the label\n' "$fp_fig" >> "$tmp/reviews.tsv"
+    python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv --json >/dev/null
+    status=$?
+    [ "$status" = "0" ] || { echo "a later ok: expected exit 0, got $status"; rm -rf "$tmp"; return 1; }
+    rm "$tmp/figures/photo.png"
+    out=$(python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv --json)
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" = "1" ] || { echo "missing image: expected exit 1, got $status"; return 1; }
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert ('missing-file','fig:span') in [(f['kind'],f['float']) for f in d['findings']], d['findings']"
+}
+
+test_T241() {
+    # Nothing found is not a pass, and a record that cannot be read is not an empty one.
+    local tmp status
+    tmp=$(mktemp -d) || return 1
+    printf '\\documentclass{article}\\begin{document}Text.\\end{document}\n' > "$tmp/main.tex"
+    python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv --json >/dev/null 2>&1
+    status=$?
+    [ "$status" = "2" ] || { echo "no float: expected 2, got $status"; rm -rf "$tmp"; return 1; }
+    float_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    printf 'figure\thash\n' > "$tmp/reviews.tsv"
+    python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv --json >/dev/null 2>&1
+    status=$?
+    rm -rf "$tmp"
+    [ "$status" = "2" ] || { echo "bad header: expected 2, got $status"; return 1; }
+}
+
+test_T242() {
+    # --render: the page is the PDF's physical page, from the named destination of the label's anchor, not the
+    # printed number (here they are swapped, as front matter numbered apart makes them); a float the PDF shows at an
+    # older version is marked and an unchanged one is not. Without pdftoppm it says so and exits 2.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    float_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    git -C "$tmp" init -q && git -C "$tmp" add -A . && git -C "$tmp" -c user.name=t -c user.email=t@example.invalid commit -qm v1
+    python3 - "$tmp/doc.pdf" <<'EOF'
+import sys
+objs = [b"<< /Type /Catalog /Pages 2 0 R /Dests << /figure.1 [4 0 R /XYZ 0 0 null] /table.1 [3 0 R /XYZ 0 0 null] >> >>",
+        b"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] >>", b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] >>"]
+out, offs = b"%PDF-1.4\n", []
+for i, o in enumerate(objs, 1):
+    offs.append(len(out)); out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+x = len(out)
+out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offs)
+out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, x)
+open(sys.argv[1], "wb").write(out)
+EOF
+    printf '\\newlabel{fig:span}{{1}{1}{Two spans}{figure.1}{}}\n\\newlabel{tab:counts}{{1}{2}{Counts}{table.1}{}}\n' > "$tmp/doc.aux"
+    printf 'PNGBYTES-2' > "$tmp/figures/photo.png"
+    # the figure now says something in words, one sentence of it a prediction; the sheet must set it out, marked
+    printf '\\begin{tikzpicture}\\node {If a gauge drifts, the spans should split.};\\end{tikzpicture}\n' > "$tmp/figures/span.tex"
+    printf '# Claims\n## C1 The spans\n- 允许的说法：the two spans agree within the gauge error\n' > "$tmp/claims.md"
+    git -C "$tmp" -c user.name=t -c user.email=t@example.invalid commit -qam v2
+    out=$(python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp" --main main.tex --reviews reviews.tsv \
+          --render --pdf "$tmp/doc.pdf" --aux "$tmp/doc.aux" --built-from HEAD~1 --out "$tmp/sheet" --claims "$tmp/claims.md" 2>&1)
+    status=$?
+    if ! command -v pdftoppm >/dev/null 2>&1; then
+        rm -rf "$tmp"
+        [ "$status" = "2" ] && echo "$out" | grep -q "pdftoppm is not installed" && return 0
+        echo "without pdftoppm: expected exit 2 and the reason, got $status: $out"; return 1
+    fi
+    [ "$status" = "0" ] || { echo "render: expected exit 0, got $status: $out"; rm -rf "$tmp"; return 1; }
+    [ -f "$tmp/sheet/doc-p001.png" ] && [ -f "$tmp/sheet/doc-p002.png" ] || { echo "pages not rendered: $(ls "$tmp/sheet")"; rm -rf "$tmp"; return 1; }
+    grep -q '`fig:span` · PDF page 2' "$tmp/sheet/REVIEW.md" && grep -q '`tab:counts` · PDF page 1' "$tmp/sheet/REVIEW.md" \
+        || { echo "pages taken from the printed numbers: $(grep '^## ' "$tmp/sheet/REVIEW.md")"; rm -rf "$tmp"; return 1; }
+    echo "$out" | grep -q "fig:span: PDF built from HEAD~1, where this float was a different version" \
+        || { echo "the older figure was not marked: $out"; rm -rf "$tmp"; return 1; }
+    echo "$out" | grep -q "tab:counts: PDF built from" && { echo "the unchanged table was marked: $out"; rm -rf "$tmp"; return 1; }
+    # what the reviewer is asked to check, what the paper may say, and the figure's words with the prediction marked
+    grep -q "For each figure and table, check:" "$tmp/sheet/REVIEW.md" \
+        && grep -q "C1 The spans: the two spans agree within the gauge error" "$tmp/sheet/REVIEW.md" \
+        && grep -q "  - ⚑ If a gauge drifts, the spans should split." "$tmp/sheet/REVIEW.md" \
+        && grep -q "  - Two spans, read at dawn." "$tmp/sheet/REVIEW.md" \
+        || { echo "the sheet does not set out the checklist, the allowed wordings or the figure's words:"; cat "$tmp/sheet/REVIEW.md"; rm -rf "$tmp"; return 1; }
+    rm -rf "$tmp"
+}
+
+test_T243() {
+    # A float that prints differently must not keep its old review: a paragraph break between two panels, a
+    # trailing % removed, an image whose argument sits after a space or a line break, a macro file the preamble
+    # inputs, a data file an \addplot table reads. A comment-only change to a regenerated table keeps its review.
+    python3 - "$REPO_ROOT/.claude/skills/audit/scripts/audit-float-reviews.py" <<'EOF'
+import json, subprocess, sys, tempfile
+from pathlib import Path
+S = sys.argv[1]
+MAIN = "\\documentclass{article}\n\\input{numbers}\n\\begin{document}\n\\input{body}\n\\end{document}\n"
+BODY = ("\\begin{figure}\n\\includegraphics{a}%\n\\includegraphics[width=2cm]\n{b}\n\\input{plot}\n"
+        "\\caption{Panels.}\\label{fig:p}\n\\end{figure}\n\\input{t}\n")
+FILES = {"main.tex": MAIN, "body.tex": BODY, "numbers.tex": "\\newcommand{\\n}{12}\n", "a.png": "A", "b.png": "B",
+         "plot.tex": "\\begin{tikzpicture}\\begin{axis}\\addplot table {data.dat};\\end{axis}\\end{tikzpicture}\n",
+         "data.dat": "x y\n1 2\n",
+         "t.tex": "% generated 10:00\n\\begin{table}\\caption{T.}\\label{tab:t}\\begin{tabular}{l}\\n\\end{tabular}\\end{table}\n"}
+def fps(root):
+    r = subprocess.run([sys.executable, S, "--base-dir", str(root), "--main", "main.tex", "--reviews", "r.tsv", "--json"],
+                       capture_output=True, text=True)
+    d = json.loads(r.stdout)
+    return {f["id"]: f["fingerprint"] for f in d["floats"] + d["preambles"]}
+def case(edit):
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        for k, v in FILES.items():
+            (root / k).write_text(v)
+        before = fps(root)
+        k, old, new = edit
+        p = root / k
+        p.write_text(p.read_text().replace(old, new) if old else new)
+        return before, fps(root)
+changes = {"paragraph break": ("body.tex", "{a}%\n", "{a}%\n\n"),
+           "trailing % removed": ("body.tex", "{a}%\n", "{a}\n"),
+           "image after a line break": ("b.png", None, "B2"),
+           "addplot data file": ("data.dat", None, "x y\n1 3\n")}
+for name, edit in changes.items():
+    b, a = case(edit)
+    assert b["fig:p"] != a["fig:p"], f"{name}: the figure kept its fingerprint"
+b, a = case(("t.tex", "% generated 10:00", "% generated 11:30"))
+assert b["tab:t"] == a["tab:t"], "a comment-only change reopened the table"
+b, a = case(("plot.tex", None, "% regenerated 11:30\n" + FILES["plot.tex"]))
+assert b["fig:p"] == a["fig:p"], "a comment-only change to a file the figure inputs reopened it"
+b, a = case(("plot.tex", None, FILES["plot.tex"].replace("\\begin{axis}", "\\begin{axis}[ymax=5]")))
+assert b["fig:p"] != a["fig:p"], "a real change to a file the figure inputs kept its review"
+b, a = case(("numbers.tex", None, "\\newcommand{\\n}{13}\n"))
+assert b["preamble:main.tex"] != a["preamble:main.tex"], "a macro file the preamble inputs did not reopen the preamble"
+assert b["tab:t"] == a["tab:t"] and b["fig:p"] == a["fig:p"], "a preamble change reopened every float at once"
+b, a = case(("main.tex", "\\input{numbers}", "\\input{numbers}\n\\newcommand{\\etal}{et al.}"))
+assert b["preamble:main.tex"] != a["preamble:main.tex"], "a new macro in the preamble did not reopen the preamble"
+assert b["tab:t"] == a["tab:t"] and b["fig:p"] == a["fig:p"], "a new macro in the preamble reopened the floats"
+b, a = case(("body.tex", "\\includegraphics{a}%\n\\includegraphics[width=2cm]\n{b}", "\\includegraphics{a}\\includegraphics[width=2cm] {b}"))
+assert b["fig:p"] == a["fig:p"], "a line joined by % and the same text on one line differ"
+b, a = case(("body.tex", "\\caption{Panels.}", "\\caption{Panels\nre-wrapped.}"))
+c, e = case(("body.tex", "\\caption{Panels.}", "\\caption{Panels re-wrapped.}"))
+assert a["fig:p"] == e["fig:p"], "re-wrapping a caption line changed the fingerprint"
+EOF
+}
+
+test_T244() {
+    # Floats written other ways are found: a space in \begin {figure}, an environment a \newenvironment defines around
+    # figure*, longtable, \captionof, a label that lives in the input file. Not floats: the definition itself, a float
+    # in \iffalse or a comment environment. An \input that names a macro fails instead of hiding what is behind it.
+    python3 - "$REPO_ROOT/.claude/skills/audit/scripts/audit-float-reviews.py" <<'EOF'
+import json, subprocess, sys, tempfile
+from pathlib import Path
+S = sys.argv[1]
+MAIN = ("\\documentclass{article}\n\\newenvironment{widefig}{\\begin{figure*}}{\\end{figure*}}\n\\begin{document}\n"
+        "\\begin {figure}\\caption{Spaced.}\\label{fig:spaced}\\end {figure}\n"
+        "\\begin{widefig}\\caption{Wide.}\\label{fig:wide}\\end{widefig}\n"
+        "\\begin{longtable}{l}\\caption{Long.}\\label{tab:long}\\\\ x \\\\ \\end{longtable}\n"
+        "\\begin{minipage}{\\linewidth}\\captionof{figure}{Loose.}\\label{fig:loose}\\end{minipage}\n\n"
+        "\\begin{table}\\input{t}\\end{table}\n"
+        "\\iffalse\n\\begin{figure}\\caption{Dead.}\\label{fig:dead}\\end{figure}\n\\fi\n"
+        "\\begin{comment}\n\\begin{figure}\\caption{Commented.}\\label{fig:commented}\\end{figure}\n\\end{comment}\n"
+        "\\end{document}\n")
+with tempfile.TemporaryDirectory() as d:
+    root = Path(d)
+    (root / "main.tex").write_text(MAIN)
+    (root / "t.tex").write_text("\\caption{In a file.}\\label{tab:infile}\\begin{tabular}{l}x\\end{tabular}\n")
+    r = subprocess.run([sys.executable, S, "--base-dir", d, "--main", "main.tex", "--reviews", "r.tsv", "--json"],
+                       capture_output=True, text=True)
+    got = sorted(f["id"] for f in json.loads(r.stdout)["floats"])
+    assert got == ["fig:loose", "fig:spaced", "fig:wide", "tab:infile", "tab:long"], got
+    d0 = json.loads(r.stdout)
+    rows = "".join(f"{f['id']}\t{f['fingerprint']}\tA\t2026-01-01\tok\t\n" for f in d0["floats"] + d0["preambles"])
+    (root / "r.tsv").write_text("label\tfingerprint\treviewer\tdate\tverdict\tnote\n" + rows)
+    r = subprocess.run([sys.executable, S, "--base-dir", d, "--main", "main.tex", "--reviews", "r.tsv", "--json"],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, (r.returncode, json.loads(r.stdout)["findings"])
+    (root / "main.tex").write_text(MAIN.replace("\\end{document}", "\\input{\\secdir/more}\n\\end{document}"))
+    r = subprocess.run([sys.executable, S, "--base-dir", d, "--main", "main.tex", "--reviews", "r.tsv", "--json"],
+                       capture_output=True, text=True)
+    kinds = [(f["kind"], bool(f.get("prompt"))) for f in json.loads(r.stdout)["findings"]]
+    assert r.returncode == 1 and kinds == [("unfollowed", False)], (r.returncode, kinds)
+EOF
+}
+
+test_T245() {
+    # \import leads with its own directory: an image beside the imported file is the one hashed, not a namesake at
+    # the root; and a name with no extension is looked up with the driver's extensions before the bare file.
+    python3 - "$REPO_ROOT/.claude/skills/audit/scripts/audit-float-reviews.py" <<'EOF'
+import json, subprocess, sys, tempfile
+from pathlib import Path
+S = sys.argv[1]
+with tempfile.TemporaryDirectory() as d:
+    root = Path(d)
+    (root / "figs").mkdir()
+    (root / "main.tex").write_text("\\documentclass{article}\\begin{document}\n\\begin{figure}\\import{figs/}{body}"
+                                   "\\caption{I.}\\label{fig:i}\\end{figure}\n\\end{document}\n")
+    (root / "figs/body.tex").write_text("\\includegraphics{plot}\n")
+    (root / "figs/plot.png").write_text("inner")
+    (root / "plot.png").write_text("root")
+    (root / "plot").write_text("bare")
+    r = subprocess.run([sys.executable, S, "--base-dir", d, "--main", "main.tex", "--reviews", "r.tsv", "--json"],
+                       capture_output=True, text=True)
+    f = json.loads(r.stdout)["floats"][0]
+    assert f["pulled"] == ["figs/body.tex", "figs/plot.png"], f["pulled"]
+    (root / "figs/body.tex").write_text("\\includegraphics{../plot}\n")
+    r = subprocess.run([sys.executable, S, "--base-dir", d, "--main", "main.tex", "--reviews", "r.tsv", "--json"],
+                       capture_output=True, text=True)
+    assert json.loads(r.stdout)["floats"][0]["pulled"][-1] == "plot.png", json.loads(r.stdout)["floats"][0]["pulled"]
+EOF
+}
+
+test_T246() {
+    # --render reads the .aux files an .aux \@input's, names the pages of two PDFs with the same name apart, says a
+    # missing --aux instead of a traceback, and a --built-from run from a subdirectory of the repository compares
+    # the same files.
+    local tmp out status
+    tmp=$(mktemp -d) || return 1
+    mkdir -p "$tmp/ms/a" "$tmp/ms/b"
+    float_fixture "$tmp/ms" || { rm -rf "$tmp"; return 1; }
+    git -C "$tmp" init -q && git -C "$tmp" add -A . && git -C "$tmp" -c user.name=t -c user.email=t@example.invalid commit -qm v1
+    out=$(python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp/ms" --main main.tex --reviews r.tsv \
+          --render --pdf "$tmp/ms/a/main.pdf" --aux "$tmp/ms/a/main.aux" --out "$tmp/sheet" 2>&1)
+    status=$?
+    [ "$status" = "2" ] && echo "$out" | grep -q "not found" && ! echo "$out" | grep -q Traceback \
+        || { echo "missing inputs: expected exit 2 and a reason, got $status: $out"; rm -rf "$tmp"; return 1; }
+    command -v pdftoppm >/dev/null 2>&1 || { rm -rf "$tmp"; return 0; }
+    for d in a b; do
+        python3 - "$tmp/ms/$d/main.pdf" <<'EOF'
+import sys
+objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] >>"]
+out, offs = b"%PDF-1.4\n", []
+for i, o in enumerate(objs, 1):
+    offs.append(len(out)); out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+x = len(out)
+out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offs)
+out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, x)
+open(sys.argv[1], "wb").write(out)
+EOF
+    done
+    printf '\\@input{chap.aux}\n' > "$tmp/ms/a/main.aux"
+    printf '\\newlabel{fig:span}{{1}{1}{Two spans}{figure.1}{}}\n' > "$tmp/ms/a/chap.aux"
+    printf '\\newlabel{tab:counts}{{1}{1}{Counts}{table.1}{}}\n' > "$tmp/ms/b/main.aux"
+    out=$(python3 .claude/skills/audit/scripts/audit-float-reviews.py --base-dir "$tmp/ms" --main main.tex --reviews r.tsv \
+          --render --pdf "$tmp/ms/a/main.pdf" --aux "$tmp/ms/a/main.aux" --pdf "$tmp/ms/b/main.pdf" --aux "$tmp/ms/b/main.aux" \
+          --built-from HEAD --out "$tmp/sheet" 2>&1)
+    status=$?
+    local names; names=$(ls "$tmp/sheet" | tr '\n' ' ')
+    rm -rf "$tmp"
+    [ "$status" = "0" ] || { echo "render: expected exit 0, got $status: $out"; return 1; }
+    echo "$names" | grep -q "1-main-p001.png" && echo "$names" | grep -q "2-main-p001.png" \
+        || { echo "two PDFs named alike wrote one PNG: $names"; return 1; }
+    echo "$out" | grep -q "not in any .aux" && { echo "a label in an \\@input .aux was not read: $out"; return 1; }
+    echo "$out" | grep -q "different version" && { echo "--built-from from a subdirectory compared other files: $out"; return 1; }
+    return 0
+}
+
+run_test "T239 float reviews: an unreviewed float is named, and a changed image reopens its figure while prose elsewhere does not" test_T239
+run_test "T240 float reviews: the latest current row decides, a gone label is a prompt, a missing image fails" test_T240
+run_test "T241 float reviews: no float, or an unreadable record, exits 2" test_T241
+run_test "T242 float reviews: --render takes the physical page from the named destination and marks a float the PDF shows at an older version" test_T242
+run_test "T243 float reviews: a paragraph break, a trailing %, a spaced image argument and plot data change the fingerprint; a comment, a re-wrap and a preamble edit do not" test_T243
+run_test "T244 float reviews: floats written other ways are found, dead ones are not, and an \\input naming a macro fails" test_T244
+run_test "T245 float reviews: \\import leads with its own directory and extensions are tried before the bare name" test_T245
+run_test "T246 float reviews: --render reads \\@input .aux files, names alike PDFs apart, and says what is missing" test_T246
+
+test_T247() {
+    # Round two of the working-tree guard: a script in the repository as the first word, an absolute or ~ path into
+    # it among the arguments, a relative .pth line, and an interpreter reached through /usr/bin/env all used to run
+    # uncommitted code while the report said it was not used. And {out}/sub/../x is the file x in {out}.
+    local tmp out status sp rel
+    tmp=$(mktemp -d) || return 1
+    gencopy_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    printf '#!/usr/bin/env python3\n%s' "$(cat "$tmp/data/gen.py")" > "$tmp/data/gen.py" && chmod +x "$tmp/data/gen.py"
+    git -C "$tmp/data" -c user.name=t -c user.email=t@example.invalid commit -qam exec
+    sed -i.bak 's/"{:.2f}".format(v\["a"\])/"0.99"/' "$tmp/data/gen.py" && rm "$tmp/data/gen.py.bak"
+    sed -i.bak 's/A \& 0.63/A \& 0.99/' "$tmp/ms/tables/t1.tex" && rm "$tmp/ms/tables/t1.tex.bak"
+    for run in '["{repo}/gen.py", "{out}"]' '["python3", "'"$tmp"'/data/gen.py", "{out}"]' '["python3", "~/data/gen.py", "{out}"]'; do
+        python3 - "$tmp" "$run" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); m["generators"][0]["run"] = json.loads(sys.argv[2]); json.dump(m, open(p, "w"))
+EOF
+        out=$(HOME="$tmp" python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+        status=$?
+        echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert d['same']==[] and [x['kind'] for x in f]==['generator-failed'] and 'working tree' in f[0]['detail'], f" \
+            || { echo "$run ran the working tree (exit $status)"; rm -rf "$tmp"; return 1; }
+    done
+    git -C "$tmp/data" checkout -q gen.py
+    sed -i.bak 's/A \& 0.99/A \& 0.63/' "$tmp/ms/tables/t1.tex" && rm "$tmp/ms/tables/t1.tex.bak"
+    python3 - "$tmp" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); g = m["generators"][0]
+g["run"] = ["python3", "gen.py", "{out}"]; g["copies"] = {"tables/t1.tex": "{out}/sub/../t1.tex"}
+json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['same']==['tables/t1.tex'], d['findings']" \
+        || { echo "{out}/sub/../t1.tex was not read"; rm -rf "$tmp"; return 1; }
+    rm -rf "$tmp"
+    tmp=$(mktemp -d) || return 1
+    python3 -m venv --without-pip "$tmp/venv" || { rm -rf "$tmp"; return 1; }
+    gencopy_lib_fixture "$tmp" "$tmp/venv/bin/python" || { rm -rf "$tmp"; return 1; }
+    sp=$("$tmp/venv/bin/python" -c "import site; print(site.getsitepackages()[0])")
+    # both sides resolved, so the line is relative all the way (a /var against /private/var pair climbs to the root
+    # and carries an absolute tail, which the absolute-path rule would catch instead)
+    rel=$(python3 -c "import os,sys; r=os.path.realpath; print(os.path.relpath(r(sys.argv[1]), r(sys.argv[2])))" "$tmp/data" "$sp")
+    case "$rel" in /*|*/var/*|*/private/*) echo "fixture: the .pth line is not purely relative: $rel"; rm -rf "$tmp"; return 1;; esac
+    printf '%s\n' "$rel" > "$sp/_rel.pth"
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert d['same']==[] and '_rel.pth' in f[0]['detail'], f" \
+        || { echo "a relative .pth line was not caught"; rm -rf "$tmp"; return 1; }
+    python3 - "$tmp" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); m["generators"][0]["run"] = ["/usr/bin/env", "python", "scripts/make.py", "{out}"]; json.dump(m, open(p, "w"))
+EOF
+    out=$(PATH="$tmp/venv/bin:$PATH" python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert d['same']==[] and '_rel.pth' in f[0]['detail'], f" \
+        || { echo "an interpreter reached through /usr/bin/env was not probed"; return 1; }
+}
+
+run_test "T247 generated copies: a script, a path or ~ into the repository, a relative .pth line and /usr/bin/env python cannot run uncommitted code" test_T247
+
+test_T248() {
+    # Round three: what the round-two reader broke. A \let...\iffalse in the preamble must not swallow the document up
+    # to a \fi in the body; a dead block ends at its own \fi, nested conditionals counted, and one with no \fi drops
+    # nothing; a filecontents block holding \begin{document} does not move the preamble; a caption keeps \%.
+    python3 - "$REPO_ROOT/.claude/skills/audit/scripts/audit-float-reviews.py" <<'EOF'
+import json, subprocess, sys, tempfile
+from pathlib import Path
+S = sys.argv[1]
+def run(files):
+    with tempfile.TemporaryDirectory() as d:
+        for k, v in files.items():
+            (Path(d) / k).write_text(v)
+        r = subprocess.run([sys.executable, S, "--base-dir", d, "--main", "main.tex", "--reviews", "r.tsv", "--json"],
+                           capture_output=True, text=True)
+        return json.loads(r.stdout)
+d = run({"main.tex": "\\documentclass{article}\n\\newif\\ifdraft\n\\let\\ifanon\\iffalse\n\\begin{document}\n"
+                     "\\begin{figure}\\caption{A $\\%$ 50\\% share.}\\label{fig:a}\\end{figure}\n"
+                     "\\ifanon Anonymous. \\fi\n"
+                     "\\iffalse\n\\ifdefined\\foo x\\fi\n\\ifdraft y\\fi\n"
+                     "\\begin{figure}\\caption{Dead.}\\label{fig:dead}\\end{figure}\n\\fi\n"
+                     "\\begin{figure}\\caption{B.}\\label{fig:b}\\end{figure}\n\\end{document}\n"})
+assert sorted(f["id"] for f in d["floats"]) == ["fig:a", "fig:b"], [f["id"] for f in d["floats"]]
+assert [p["id"] for p in d["preambles"]] == ["preamble:main.tex"], d["preambles"]
+assert "50\\% share" in d["floats"][0]["caption"], d["floats"][0]["caption"]
+d = run({"main.tex": "\\documentclass{article}\\begin{document}\n\\iffalse\n"
+                     "\\begin{figure}\\caption{Kept.}\\label{fig:kept}\\end{figure}\n"
+                     "\\ifdefined\\foo x\\fi\n\\end{document}\n"})
+assert [f["id"] for f in d["floats"]] == ["fig:kept"], "an \\iffalse with no \\fi dropped a float"
+d = run({"main.tex": "\\documentclass{article}\n\\begin{filecontents*}{x.tex}\n\\begin{document}\n\\end{filecontents*}\n"
+                     "\\newenvironment{widefig}{\\begin{figure*}}{\\end{figure*}}\n\\begin{document}\n"
+                     "\\begin{widefig}\\caption{W.}\\label{fig:w}\\end{widefig}\n\\end{document}\n"})
+assert [f["id"] for f in d["floats"]] == ["fig:w"], [f["id"] for f in d["floats"]]
+EOF
+}
+
+test_T249() {
+    # Round three, the float side: inline plot data is not a missing file; a table a \pgfplotstableread fills in the
+    # body is followed from \addplot table {\macro}; a \captionof inside center takes the image above a blank line;
+    # \graphicspath and \includesvg are followed; a macro-named or missing \input in the preamble fails.
+    python3 - "$REPO_ROOT/.claude/skills/audit/scripts/audit-float-reviews.py" <<'EOF'
+import json, subprocess, sys, tempfile
+from pathlib import Path
+S = sys.argv[1]
+MAIN = ("\\documentclass{article}\n\\graphicspath{{figs/}}\n\\begin{document}\n\\pgfplotstableread{d.dat}\\tbl\n"
+        "\\begin{figure}\\begin{axis}\\addplot table {x y\n0 0\n1 2\n};\\addplot table {\\tbl};\\end{axis}"
+        "\\caption{Plot.}\\label{fig:plot}\\end{figure}\n"
+        "\\begin{center}\n\\includegraphics{photo}\n\n\\captionof{figure}{Loose.}\\label{fig:loose}\n\\end{center}\n"
+        "\\begin{figure}\\includesvg{diagram}\\caption{S.}\\label{fig:svg}\\end{figure}\n\\end{document}\n")
+FILES = {"main.tex": MAIN, "d.dat": "x y\n1 2\n", "figs/photo.png": "P", "diagram.svg": "<svg/>"}
+def run(files):
+    with tempfile.TemporaryDirectory() as d:
+        for k, v in files.items():
+            (Path(d) / k).parent.mkdir(parents=True, exist_ok=True)
+            (Path(d) / k).write_text(v)
+        r = subprocess.run([sys.executable, S, "--base-dir", d, "--main", "main.tex", "--reviews", "r.tsv", "--json"],
+                           capture_output=True, text=True)
+        return json.loads(r.stdout)
+d = run(FILES)
+by = {f["id"]: f for f in d["floats"]}
+assert [x for x in d["findings"] if x["kind"] in ("missing-file", "unfollowed")] == [], d["findings"]
+assert by["fig:plot"]["pulled"] == ["d.dat"], by["fig:plot"]["pulled"]
+assert by["fig:loose"]["pulled"] == ["figs/photo.png"], by["fig:loose"]["pulled"]
+assert by["fig:svg"]["pulled"] == ["diagram.svg"], by["fig:svg"]["pulled"]
+e = run(dict(FILES, **{"d.dat": "x y\n1 3\n", "figs/photo.png": "P2"}))
+eb = {f["id"]: f["fingerprint"] for f in e["floats"]}
+assert eb["fig:plot"] != by["fig:plot"]["fingerprint"] and eb["fig:loose"] != by["fig:loose"]["fingerprint"], eb
+for pre in ("\\input{\\setupdir/defs}", "\\input{nowhere}"):
+    d = run(dict(FILES, **{"main.tex": MAIN.replace("\\begin{document}", pre + "\n\\begin{document}", 1)}))
+    assert [(x["kind"], x["float"]) for x in d["findings"] if x["kind"] == "unfollowed"] == [("unfollowed", "preamble:main.tex")], d["findings"]
+EOF
+}
+
+test_T250() {
+    # Round three, the generator side: a script run through bash that calls the python on PATH, and env -u NAME
+    # python3, still reach an editable install; while env NAME=value {repo}/.venv/bin/python, a TMPDIR inside the
+    # repository and a relative .pth line to a directory that is not there are not refused.
+    local tmp out sp
+    tmp=$(mktemp -d) || return 1
+    python3 -m venv --without-pip "$tmp/venv" || { rm -rf "$tmp"; return 1; }
+    gencopy_lib_fixture "$tmp" "python" || { rm -rf "$tmp"; return 1; }
+    printf 'python scripts/make.py "$1"\n' > "$tmp/data/run.sh"
+    git -C "$tmp/data" add run.sh && git -C "$tmp/data" -c user.name=t -c user.email=t@example.invalid commit -qm run
+    sp=$("$tmp/venv/bin/python" -c "import site; print(site.getsitepackages()[0])")
+    printf '%s\n' "$tmp/data" > "$sp/_abs.pth"
+    for run in '["bash", "run.sh", "{out}"]' '["/usr/bin/env", "-u", "LANG", "python3", "scripts/make.py", "{out}"]'; do
+        python3 - "$tmp" "$run" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); g = m["generators"][0]; g["run"] = json.loads(sys.argv[2]); g["export"] = ["scripts", "mylib", "run.sh"]
+json.dump(m, open(p, "w"))
+EOF
+        out=$(PATH="$tmp/venv/bin:$PATH" python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+        echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert d['same']==[] and f and '_abs.pth' in f[0]['detail'], f" \
+            || { echo "$run reached the working tree"; rm -rf "$tmp"; return 1; }
+    done
+    python3 - "$tmp" <<'EOF'
+import json, sys
+root = sys.argv[1]
+p = root + "/ms/generated.json"
+m = json.load(open(p)); m["generators"][0]["run"] = ["/usr/bin/env", "-u", "LANG", root + "/venv/bin/python", "scripts/make.py", "{out}"]
+json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert d['same']==[] and f and '_abs.pth' in f[0]['detail'], f" \
+        || { echo "env -u NAME /path/to/python (off PATH) reached the working tree"; rm -rf "$tmp"; return 1; }
+    rm -rf "$tmp"
+    tmp=$(mktemp -d) || return 1
+    gencopy_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    python3 -m venv --without-pip "$tmp/data/.venv" || { rm -rf "$tmp"; return 1; }
+    sp=$("$tmp/data/.venv/bin/python" -c "import site; print(site.getsitepackages()[0])")
+    printf '../../../nowhere\n' > "$sp/_gone.pth"
+    mkdir -p "$tmp/data/tmp"
+    python3 - "$tmp" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); m["generators"][0]["run"] = ["/usr/bin/env", "PYTHONHASHSEED=0", "{repo}/.venv/bin/python", "gen.py", "{out}"]
+json.dump(m, open(p, "w"))
+EOF
+    out=$(TMPDIR="$tmp/data/tmp" python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['same']==['tables/t1.tex'] and d['findings']==[], d['findings']" \
+        || { echo "a legitimate run was refused"; return 1; }
+}
+
+run_test "T248 float reviews: a \\let\\iffalse, nested conditionals, an unclosed \\iffalse and a filecontents block do not change what the document is" test_T248
+run_test "T249 float reviews: inline plot data, a table macro, \\captionof in center, \\graphicspath, \\includesvg and preamble inputs are followed or said" test_T249
+run_test "T250 generated copies: bash and env -u still reach the PATH python's editable install; env NAME=value, a TMPDIR in the repository and a dead .pth line are not refused" test_T250
+test_T251() {
+    # Round four: text TeX does not read as prose keeps its line breaks and % (a listing, verbatim, inline plot rows,
+    # a filecontents block); a \captionof beside its image's minipage takes the image; an \iffalse with an \else, or
+    # a \newif inside, drops no live float; a macro's #1 and a TeX-distribution file are not missing; inline table
+    # data read into a macro is not a missing file.
+    python3 - "$REPO_ROOT/.claude/skills/audit/scripts/audit-float-reviews.py" <<'EOF'
+import json, shutil, subprocess, sys, tempfile
+from pathlib import Path
+S = sys.argv[1]
+def run(files):
+    with tempfile.TemporaryDirectory() as d:
+        for k, v in files.items():
+            (Path(d) / k).parent.mkdir(parents=True, exist_ok=True)
+            (Path(d) / k).write_text(v)
+        r = subprocess.run([sys.executable, S, "--base-dir", d, "--main", "main.tex", "--reviews", "r.tsv", "--json"],
+                           capture_output=True, text=True)
+        return json.loads(r.stdout)
+def doc(body, pre=""):
+    return "\\documentclass{article}\n" + pre + "\\begin{document}\n" + body + "\\end{document}\n"
+def fp(d, i):
+    return {f["id"]: f["fingerprint"] for f in d["floats"] + d["preambles"]}[i]
+pairs = {"listing": ("\\begin{lstlisting}\nx = 1\ny = 2\n\\end{lstlisting}", "\\begin{lstlisting}\nx = 1 y = 2\n\\end{lstlisting}"),
+         "verbatim": ("\\begin{verbatim}\nrate 5%\nof all\n\\end{verbatim}", "\\begin{verbatim}\nrate 5%of all\n\\end{verbatim}"),
+         "plot rows": ("\\addplot table {x y\n0 0\n1 2\n};", "\\addplot table {x y 0 0\n1 2\n};")}
+for name, (a, b) in pairs.items():
+    fa = fp(run({"main.tex": doc("\\begin{figure}\n" + a + "\n\\caption{C.}\\label{fig:x}\\end{figure}\n")}), "fig:x")
+    fb = fp(run({"main.tex": doc("\\begin{figure}\n" + b + "\n\\caption{C.}\\label{fig:x}\\end{figure}\n")}), "fig:x")
+    assert fa != fb, f"{name}: a changed line break kept the review"
+side = ("\\begin{center}\n\\begin{minipage}{.4\\linewidth}\\includegraphics{a.png}\\end{minipage}\n"
+        "\\begin{minipage}{.4\\linewidth}\\captionof{figure}{Side.}\\label{fig:side}\\end{minipage}\n\\end{center}\n")
+d1, d2 = run({"main.tex": doc(side), "a.png": "A"}), run({"main.tex": doc(side), "a.png": "A2"})
+assert fp(d1, "fig:side") != fp(d2, "fig:side"), "a \\captionof beside its image's minipage left the image out"
+live = "\\begin{figure}\\caption{Live.}\\label{fig:live}\\end{figure}\n"
+for body in ("\\iffalse\nold text\n\\else\n" + live + "\\fi\n",
+             "\\iffalse\n\\newif\\ifdraft\n\\fi\n" + live + "\\ifpdf x\\fi\n"):
+    assert [f["id"] for f in run({"main.tex": doc(body)})["floats"]] == ["fig:live"], body
+pre = ("\\newcommand{\\fig}[2]{\\includegraphics[width=#1]{#2}}\n\\newcommand{\\tab}[1]{\\input{tables/#1}}\n"
+       + ("\\input{glyphtounicode}\n" if shutil.which("kpsewhich") else ""))
+d = run({"main.tex": doc(live, pre)})
+assert [x for x in d["findings"] if x["kind"] in ("unfollowed", "missing-file")] == [], d["findings"]
+inline = "\\pgfplotstableread{x y 1 2 3 4}\\loadedtable\n\\begin{figure}\\addplot table {\\loadedtable};\\caption{I.}\\label{fig:i}\\end{figure}\n"
+d = run({"main.tex": doc(inline)})
+assert [x for x in d["findings"] if x["kind"] == "missing-file"] == [], d["findings"]
+fc = "\\begin{filecontents*}[overwrite]{d.dat}\nx y\n1 2\n\\end{filecontents*}\n"
+d1, d2 = run({"main.tex": doc(live, fc)}), run({"main.tex": doc(live, fc.replace("1 2", "1 3"))})
+assert fp(d1, "preamble:main.tex") != fp(d2, "preamble:main.tex"), "data written by filecontents in the preamble did not count"
+EOF
+}
+
+test_T252() {
+    # Round four, the generator side: a script whose name only starts with python is not an interpreter; a command
+    # that names its own python is not refused for what another python on PATH imports; env -S is read; a .pth line
+    # naming a zip inside the repository is caught.
+    local tmp out sp
+    tmp=$(mktemp -d) || return 1
+    gencopy_fixture "$tmp" || { rm -rf "$tmp"; return 1; }
+    mkdir -p "$tmp/data/bin" && printf 'python3 gen.py "$1"\n' > "$tmp/data/bin/python_gen.sh"
+    git -C "$tmp/data" add bin && git -C "$tmp/data" -c user.name=t -c user.email=t@example.invalid commit -qm sh
+    python3 - "$tmp" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); m["generators"][0]["run"] = ["bash", "{repo}/bin/python_gen.sh", "{out}"]; json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert d['same']==[] and f and 'working tree' in f[0]['detail'], f" \
+        || { echo "a script named python_* in bin/ ran from the working tree"; rm -rf "$tmp"; return 1; }
+    python3 -m venv --without-pip "$tmp/data/.venv" && python3 -m venv --without-pip "$tmp/other" || { rm -rf "$tmp"; return 1; }
+    sp=$("$tmp/other/bin/python" -c "import site; print(site.getsitepackages()[0])")
+    printf '%s\n' "$tmp/data" > "$sp/_other.pth"
+    python3 - "$tmp" <<'EOF'
+import json, sys
+p = sys.argv[1] + "/ms/generated.json"
+m = json.load(open(p)); m["generators"][0]["run"] = ["{repo}/.venv/bin/python", "gen.py", "{out}"]; json.dump(m, open(p, "w"))
+EOF
+    out=$(PATH="$tmp/other/bin:$PATH" python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['same']==['tables/t1.tex'], d['findings']" \
+        || { echo "a run with its own python was refused for another python on PATH"; rm -rf "$tmp"; return 1; }
+    rm -rf "$tmp"
+    tmp=$(mktemp -d) || return 1
+    python3 -m venv --without-pip "$tmp/venv" || { rm -rf "$tmp"; return 1; }
+    gencopy_lib_fixture "$tmp" "python" || { rm -rf "$tmp"; return 1; }
+    sp=$("$tmp/venv/bin/python" -c "import site; print(site.getsitepackages()[0])")
+    printf '%s\n' "$tmp/data" > "$sp/_abs.pth"
+    python3 - "$tmp" <<'EOF'
+import json, sys
+root = sys.argv[1]
+p = root + "/ms/generated.json"
+m = json.load(open(p)); m["generators"][0]["run"] = ["/usr/bin/env", "-S", root + "/venv/bin/python scripts/make.py", "{out}"]
+json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert d['same']==[] and f and '_abs.pth' in f[0]['detail'], f" \
+        || { echo "env -S hid the python it runs"; rm -rf "$tmp"; return 1; }
+    rm "$sp/_abs.pth"
+    (cd "$tmp/data" && python3 -c "import zipfile; zipfile.ZipFile('lib.zip','w').writestr('mylib/__init__.py','V = \"0.71\"\n')")
+    python3 -c "import os,sys; r=os.path.realpath; print(os.path.relpath(r(sys.argv[1]), r(sys.argv[2])))" "$tmp/data/lib.zip" "$sp" > "$sp/_zip.pth"
+    python3 - "$tmp" <<'EOF'
+import json, sys
+root = sys.argv[1]
+p = root + "/ms/generated.json"
+m = json.load(open(p)); m["generators"][0]["run"] = [root + "/venv/bin/python", "scripts/make.py", "{out}"]; json.dump(m, open(p, "w"))
+EOF
+    out=$(python3 .claude/skills/audit/scripts/audit-generated-copies.py --base-dir "$tmp/ms" --manifest generated.json --json)
+    rm -rf "$tmp"
+    echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); f=d['findings']; assert d['same']==[] and f and '_zip.pth' in f[0]['detail'], f" \
+        || { echo "a .pth line naming a zip in the repository was not caught"; return 1; }
+}
+
+run_test "T251 float reviews: listings, verbatim, plot rows and filecontents keep their line breaks; \\captionof beside its image, \\else and \\newif in dead blocks, #1 and TeX-tree files are read right" test_T251
+run_test "T252 generated copies: a python_* script is not an interpreter, a named python is judged alone, env -S is read, a zip on a .pth line is caught" test_T252
+test_T253() {
+    # A table set in the running text, with no float and no caption, is listed as its own item; a tabular inside a
+    # float, beside a \captionof, or in a file a float pulls in is that float's and is not listed twice. A changed
+    # cell reopens it; an edit to the paragraph before its center environment does not.
+    python3 - "$REPO_ROOT/.claude/skills/audit/scripts/audit-float-reviews.py" <<'EOF'
+import json, subprocess, sys, tempfile
+from pathlib import Path
+S = sys.argv[1]
+BODY = ("Three plates checked:\n\\begin{center}\\small\n\\begin{tabular}{ll}\nc01 & A \\\\\n\\end{tabular}\n\\end{center}\n\n"
+        "\\begin{table}\\input{inner}\\caption{T.}\\label{tab:t}\\end{table}\n"
+        "\\begin{center}\\begin{tabular}{l}x\\end{tabular}\\captionof{table}{Loose.}\\label{tab:loose}\\end{center}\n")
+def run(body, inner="\\begin{tabular}{l}y\\end{tabular}\n"):
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "main.tex").write_text("\\documentclass{article}\n\\begin{document}\n" + body + "\\end{document}\n")
+        (Path(d) / "inner.tex").write_text(inner)
+        r = subprocess.run([sys.executable, S, "--base-dir", d, "--main", "main.tex", "--reviews", "r.tsv", "--json"],
+                           capture_output=True, text=True)
+        return {f["id"]: f for f in json.loads(r.stdout)["floats"]}
+a = run(BODY)
+assert sorted(a) == ["main.tex#tabular1", "tab:loose", "tab:t"], sorted(a)
+assert a["main.tex#tabular1"]["env"] == "inline tabular"
+b = run(BODY.replace("c01 & A", "c01 & B"))
+assert b["main.tex#tabular1"]["fingerprint"] != a["main.tex#tabular1"]["fingerprint"], "a changed cell kept the review"
+c = run(BODY.replace("Three plates checked:", "Three plates were checked:"))
+assert c["main.tex#tabular1"]["fingerprint"] == a["main.tex#tabular1"]["fingerprint"], "the paragraph before reopened it"
+bare = "The counts follow.\n\\begin{tabular}{l}z\\end{tabular}\n"
+d, e = run(bare), run(bare.replace("The counts follow.", "The counts are these."))
+assert list(d) == ["main.tex#tabular1"] and d["main.tex#tabular1"]["fingerprint"] == e["main.tex#tabular1"]["fingerprint"], \
+    "a bare tabular took the paragraph before it"
+EOF
+}
+
+run_test "T253 float reviews: a tabular in the running text is its own item, and one inside a float or its input is not listed twice" test_T253
+run_test "T254 claim ledger: a supplement outside --base-dir is read with --also-file, two ledgers together" test_T254
+run_test "T255 number ledger: two ledgers read together, each counting its copies in its own files" test_T255
+run_test "T256 changed-sentence audit: a link to the previous sentence is reported, not flagged" test_T256
+run_test "T257 fingerprint: share of sentences that open with a linking adverbial" test_T257
+run_test "T258 prose audits name the metrics at the edge of the baseline (outside its 5th-95th percentile band)" test_T258
+run_test "T259 claim ledger: a numeric claim whose snippets hold none of its numbers is a finding until an author reads it" test_T259
+run_test "T260 claim ledger: an ordinary claim not read is counted, a negative or scoped one is a finding" test_T260
+run_test "T261 claim ledger: 'cited here' with no \\cite is listed, and is a finding in gate mode when new" test_T261
+run_test "T262 claim ledger: a work the bibliography names, mentioned with no \\cite, is listed" test_T262
+run_test "T263 claim ledger: a cited negative claim with no row is a finding, not a credit" test_T263
+run_test "T264 claim ledger: --pairs puts every snippet of a claim under it, with its version" test_T264
+run_test "T265 claim ledger: a row read as wrong lists the other sentences citing that key" test_T265
+run_test "T266 changed-sentence audit: an edit that unbinds a claim-ledger row names the row" test_T266
+run_test "T267 claim ledger: a determiner, digits in a name, a sequence first and a compound -only are not high-risk" test_T267
+run_test "T268 paragraph openers: figure-first paragraphs are listed; a year, a metric name, a pointer and a model version are not" test_T268
+run_test "T269 number ledger: a number that ends a sentence is seen, and the full stop does not let a shorter number match inside a longer one" test_T269
+run_test "T270 prose fingerprint: speculate, speculation and speculative in every inflection count as hedges" test_T270
+run_test "T271 claim positioning: word forms of one method share one source (preregistered, preregistration)" test_T271
 
 header ""
 if [[ "$RUN_RETIRED" == "1" ]]; then
