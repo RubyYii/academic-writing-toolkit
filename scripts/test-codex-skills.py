@@ -77,6 +77,62 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(export_ui["interface"]["display_name"], "Export UI")
         self.assertEqual(export_ui["dependencies"], {"tools": []})
 
+    def test_research_plan_template_resolves_inside_a_real_install(self):
+        self.install()
+        bundle = self.dest / "research-plan"
+        entry = bundle / "SKILL.md"
+        self.assertTrue(entry.is_file(), "the installer omitted the research planning skill")
+        links = re.findall(r"\[[^\]]+\]\(([^)]+)\)", entry.read_text(encoding="utf-8"))
+        self.assertTrue(links, "the installed planning skill has no reachable template")
+        for link in links:
+            target = (bundle / link).resolve()
+            self.assertTrue(target.is_relative_to(bundle.resolve()), link)
+            self.assertTrue(target.is_file(), f"installed resource is missing: {link}")
+            self.assertEqual(target.read_bytes(),
+                             (installer.SOURCE / ".claude/skills/research-plan" / link).read_bytes())
+
+    def test_update_adds_research_plan_to_the_previous_catalogue(self):
+        previous_names = tuple(name for name in installer.NAMES if name != "research-plan")
+        with patch.object(installer, "NAMES", previous_names):
+            self.install()
+            previous = installer.snapshot(self.dest)
+        self.install()
+        self.assertTrue((self.dest / "research-plan/references/discussion-record.md").is_file())
+        for name in previous_names:
+            self.assertEqual(installer.manifest(self.dest / name), previous[name])
+
+    def test_previous_receipt_does_not_authorise_new_collisions_or_local_edits(self):
+        for changed_name in ("research-plan", "note"):
+            with self.subTest(changed_name=changed_name):
+                self.dest = self.root / changed_name / "skills"
+                with patch.object(installer, "NAMES", installer.PRE_RESEARCH_PLAN_NAMES):
+                    self.install()
+                installer.write_text(self.dest / changed_name / "SKILL.md", "Author's own skill content")
+                before = installer.snapshot(self.dest)
+                receipt = (installer.state_dir(self.dest) / "current.json").read_bytes()
+                with self.assertRaisesRegex(installer.InstallError, "replace-existing"):
+                    self.install()
+                self.assertEqual(installer.snapshot(self.dest), before)
+                self.assertEqual((installer.state_dir(self.dest) / "current.json").read_bytes(), receipt)
+
+    def test_previous_catalogue_verification_requires_an_update(self):
+        with patch.object(installer, "NAMES", installer.PRE_RESEARCH_PLAN_NAMES):
+            self.install()
+        receipt = installer.read_receipt(installer.state_dir(self.dest))
+        with self.assertRaisesRegex(installer.InstallError, "earlier release"):
+            installer.verify(self.dest, receipt)
+
+    def test_receipt_missing_an_entry_is_not_treated_as_a_legacy_catalogue(self):
+        self.install()
+        path = installer.state_dir(self.dest) / "current.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        del data["files"]["note"]
+        installer.write_json(path, data)
+        before = installer.snapshot(self.dest)
+        with self.assertRaisesRegex(installer.InstallError, "Unrecognised installation receipt"):
+            self.install()
+        self.assertEqual(installer.snapshot(self.dest), before)
+
     def test_exporter_handles_unicode_paths_with_legacy_stdout_encoding(self):
         source = installer.SOURCE / ".claude/skills/export/scripts/convert_to_docx.py"
         installer.write_text(self.root / "chapters/ch01.md", "# Fixture\n\nUnicode path export fixture.\n")

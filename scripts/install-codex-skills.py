@@ -23,7 +23,8 @@ import uuid
 import zipfile
 
 SOURCE = Path(__file__).resolve().parents[1]
-NAMES = ("audit", "export", "integrate", "map", "note", "read", "review", "verify-refs")
+NAMES = ("audit", "export", "integrate", "map", "note", "read", "research-plan", "review", "verify-refs")
+PRE_RESEARCH_PLAN_NAMES = ("audit", "export", "integrate", "map", "note", "read", "review", "verify-refs")
 FORMAT = 1
 OWNER = "yha9806/academic-writing-toolkit"
 # Source paths, not bare names: each script now lives in the skill that calls
@@ -322,7 +323,12 @@ def read_receipt(state):
         return None
     plain_path(path)
     data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("schemaVersion") != FORMAT or data.get("owner") != OWNER or set(data.get("files", {})) != set(NAMES):
+    files = data.get("files")
+    # Accept only the current catalogue or the exact predecessor. An earlier
+    # receipt owns only the entries it names; it cannot authorise replacement
+    # of a pre-existing skill with the newly introduced name.
+    known_catalogue = isinstance(files, dict) and set(files) in (set(NAMES), set(PRE_RESEARCH_PLAN_NAMES))
+    if data.get("schemaVersion") != FORMAT or data.get("owner") != OWNER or not known_catalogue:
         raise InstallError("Unrecognised installation receipt: {}".format(path))
     return data
 
@@ -337,6 +343,8 @@ def snapshot(dest):
 
 
 def verify(dest, receipt):
+    if receipt and set(receipt.get("files", {})) != set(NAMES):
+        raise InstallError("Installed catalogue is from an earlier release; run the installer to update before --verify")
     if not receipt or receipt.get("destination") != str(dest) or snapshot(dest) != receipt["files"]:
         raise InstallError("Installed files differ from the saved hashes, or no matching receipt exists")
     smoke(dest, receipt["python"])
@@ -389,7 +397,7 @@ def install(source, dest, python, replace_existing=False):
         for name, actual in before.items():
             if actual is None:
                 continue
-            owned = previous and previous.get("destination") == str(dest) and actual == previous["files"][name]
+            owned = previous and previous.get("destination") == str(dest) and actual == previous["files"].get(name)
             if not owned and not replace_existing:
                 raise InstallError("{} exists outside this installer's unchanged files. Inspect it, then use --replace-existing to back it up and replace it.".format(dest / name))
         check_runtime(python)

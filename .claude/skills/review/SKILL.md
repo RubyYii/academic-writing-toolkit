@@ -6,6 +6,19 @@ allowed-tools: Read, Glob, Grep, Agent, Bash
 
 # /review — Manuscript Review
 
+## Scope and optional planning
+
+Assess the submitted work's question, contribution and evidence within the
+declared sources. Research value belongs in that assessment; future studies
+must not be counted as contributions or evidence the current manuscript has.
+
+When the user also asks about next research steps, feasibility, thesis structure
+or paper planning, read the [planning addendum guidance](references/research-planning.md).
+Complete the review first, then present the requested planning advice separately.
+An ordinary review does not automatically start a planning workflow or save a
+research plan. If there is only an idea and no manuscript, use `/research-plan`
+for the requested discussion without claiming a manuscript review took place.
+
 ## Modes
 
 - **external** (default): review another author's work as submitted.
@@ -73,7 +86,8 @@ that is not available as submitted; or convert this review into a rewrite —
 
 ## Constraints
 
-1. Never rewrite or patch the manuscript; output findings only.
+1. Never rewrite or patch the manuscript; output findings and, when requested,
+   a separately labelled planning addendum.
 2. Every finding resolves: run the checker and report its exit code alongside
    the findings. An unresolved anchor is withdrawn, not explained.
 3. No emoji. British English.

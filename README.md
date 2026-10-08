@@ -16,7 +16,7 @@ The core promise is simple: **agents may help operate the workflow; the author k
 > **Latest tag: [v0.6.0-rc.2](https://github.com/yha9806/academic-writing-toolkit/releases/tag/v0.6.0-rc.2), a pre-release**,
 > and the last state of AWT as a
 > [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness)
-> distribution: the eight skills plus a guard plugin with typed denials. That
+> distribution: its skill catalogue plus a guard plugin with typed denials. That
 > distribution is retired from `main` as of 2026-09-20; the
 > [decision record](docs/specs/2026-09-20-retire-dsh-line-design.md) carries
 > the evidence. In short: its enforcement claims were CI-proven (E0), its one
@@ -59,6 +59,11 @@ record, not a gate.
 
 ## How it fits into writing
 
+Before a manuscript exists, [`/research-plan`](docs/skills/12-research-plan.md)
+helps explore a direction and organise thesis or paper plans. This experimental
+skill also revisits plans after new evidence; it is optional, and the researcher
+keeps the decision about what to pursue.
+
 1. **Read and note.** `/read` and `/note` produce the notes files; the notes
    lint keeps their contract, so a source read only in abstract cannot be
    cited as if it had been read in full.
@@ -86,7 +91,7 @@ workspace. On Windows, setup keeps
 Git's flattened link files intact and adds ignored `awt-local-*` directory
 junctions to the same canonical skills.
 
-To use the eight skills across your local Codex projects, install them in
+To use the nine skills across your local Codex projects, install them in
 user scope from a source checkout (Python 3.9+, Node.js ^22.12 or >=24):
 
 ```bash
@@ -156,7 +161,7 @@ and the lost-in-conversation comparison fixture were retired with their
 skills; they remain inspectable under [`archive/skills/`](archive/skills/)
 and [`examples/`](examples/) but are no longer presented as evaluations.
 
-## 8 composable skills
+## 9 composable skills
 
 The catalogue was triaged from 20 skills to 9 plus 3 reference documents on
 2026-08-16 after an adversarial efficacy review (every skill had to beat the
@@ -164,8 +169,13 @@ unaided frontier model to stay). See
 [`docs/specs/2026-08-16-awt-dsh-app-v0.1-design.md`](docs/specs/2026-08-16-awt-dsh-app-v0.1-design.md)
 for the per-skill verdicts; retired skills live under [`archive/skills/`](archive/skills/).
 
+The current catalogue includes the new experimental `/research-plan` entry.
+Its research-decision value still needs trials with actual projects; it was
+not part of that historical evaluation.
+
 | Lane | Skills | What the lane produces |
 |---|---|---|
+| **Explore and plan** | `/research-plan` (experimental) | research discussion summary, separate thesis and paper plans, changes and evidence when revisiting a direction |
 | **Read and ground** | `/read`, `/note`, `/map` | page-anchored notes with an evidence-status firewall, coverage matrix, progress dashboard |
 | **Write without losing the sources** | `/integrate` | notes woven into chapters with attribution; sources read only in part are refused as support |
 | **Review and ship** | `/review`, `/audit`, `/verify-refs`, `/export` | `file:line` review findings, the five audits, BibTeX checks, Word/ZIP exports |
@@ -176,6 +186,11 @@ draft. Own-work clean-room review calls for a fresh-context subagent given only
 the manuscript and explicitly listed evidence files. If no subagent is
 available, the output must be labelled as not clean-room.
 
+When requested, the [review workflow](docs/skills/09-review.md) can add research
+and paper planning advice after the assessment. A full saved plan reuses
+`/research-plan`; prospective work stays separate from the current manuscript's
+evidence and the independent review.
+
 Reference documents (loaded on demand, no standing prompt cost):
 [`references/argument-checklist.md`](references/argument-checklist.md),
 [`references/evidence-vocabulary.md`](references/evidence-vocabulary.md),
@@ -185,6 +200,7 @@ Detailed, goal-oriented documentation lives in:
 
 - [Skill guides](docs/skills/README.md)
 - [Use-case guides](docs/use-cases/README.md)
+- [Research direction and paper planning (experimental; Chinese guide)](docs/skills/12-research-plan.md) — a callable skill with a [discussion template](.claude/skills/research-plan/references/discussion-record.md) and [trial plan](docs/specs/2026-10-08-research-direction-and-paper-planning.md).
 - [Write a literature review](docs/use-cases/write-literature-review.md)
 - [Audit thesis citations](docs/use-cases/audit-thesis-citations.md)
 - [Verify references before submission](docs/use-cases/verify-references-before-submission.md)
@@ -267,7 +283,7 @@ The explicit `--online` mode can query Crossref, Semantic Scholar, and arXiv. CI
 
 ```text
 my-writing-project/
-├── .claude/skills/          canonical eight-skill catalogue (single source)
+├── .claude/skills/          canonical nine-skill catalogue (single source)
 ├── .agents/skills/          1:1 links — Codex and other Agent-Skills hosts read here
 ├── scaffold/                awt init: a clean thesis workspace linked to the catalogue
 ├── references/              on-demand reference documents
