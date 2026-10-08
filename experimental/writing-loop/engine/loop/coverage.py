@@ -1315,10 +1315,16 @@ def accepted_path(cfg):
     return K.accepted_rewrites_path(cfg)
 
 
+# Until 2026-10-08 the audits showed a number set as 4{,}120 as "4 , 120", and sentences were accepted in that form.
+SPACED_DIGIT_GROUP = re.compile(r"(?<=\d) , (?=\d)")
+
+
 def accepted(cfg):
     """{key: (reason, who)} from the ledger: key<TAB>reason<TAB>who decided<TAB>the sentence (for the reader). A row
-    without a reason accepts nothing."""
-    out = {}
+    without a reason accepts nothing. A row accepted in the old "4 , 120" form also accepts the sentence as the page
+    prints it (4,120): the wording did not change, only how the audit showed it. Only when the sentence column is the
+    text the key was made from."""
+    out, alias = {}, {}
     try:
         lines = accepted_path(cfg).read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -1326,8 +1332,11 @@ def accepted(cfg):
     for ln in lines:
         cells = ln.split("\t")
         if len(cells) >= 3 and cells[0].strip() and cells[1].strip() and not ln.startswith("#"):
-            out[cells[0].strip()] = (cells[1].strip(), cells[2].strip())
-    return out
+            key, given = cells[0].strip(), (cells[1].strip(), cells[2].strip())
+            out[key] = given
+            if len(cells) >= 4 and SPACED_DIGIT_GROUP.search(cells[3]) and sentence_key(cells[3]) == key:
+                alias[sentence_key(SPACED_DIGIT_GROUP.sub(",", cells[3]))] = given
+    return {**alias, **out}
 
 
 def _worktree_paths(cfg, head):

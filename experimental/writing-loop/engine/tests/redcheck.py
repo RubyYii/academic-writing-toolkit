@@ -741,6 +741,11 @@ MUTATIONS = [
      'test_coverage.RealCheckTest.test_a_flag_the_author_accepted_counts_in_the_committed_run_and_moves_the_base'),
     ("risks", 'catalogue.py', '"outside": _sentence_outside,', '"outside": _venue_outside,',
      'test_coverage.RealCheckTest.test_a_flag_the_author_accepted_counts_in_the_committed_run_and_moves_the_base'),
+    # 10-08：按「4 , 120」接受的句子，改成按页面印法（4,120）读后仍算接受；只认句子列就是算键原文的行。
+    ("rendering", 'coverage.py', '                alias[sentence_key(SPACED_DIGIT_GROUP.sub(",", cells[3]))] = given', '                pass',
+     'test_coverage.AcceptedRenderingTest.test_an_acceptance_given_to_a_spaced_digit_group_follows_the_corrected_rendering'),
+    ("rendering", 'coverage.py', ' and sentence_key(cells[3]) == key:', ':',
+     'test_coverage.AcceptedRenderingTest.test_an_acceptance_given_to_a_spaced_digit_group_follows_the_corrected_rendering'),
     # 读不了 LaTeX 的四项（spec awt-loop 2026-09-22-latex-coverage）：视图、整树取件、拼写模式、LaTeX 的引文替代。
     ("latex", 'coverage.py', '            err = _write_view(ctx)\n', '            err = None\n',
      'test_coverage.LatexCoverageTest.test_the_chapter_checks_read_a_latex_draft'),
