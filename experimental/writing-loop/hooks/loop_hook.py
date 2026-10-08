@@ -151,10 +151,25 @@ def history_wss(payload, regs):
     return out
 
 
+LOG_CAP = 1 << 20   # bytes; past this a log moves to <name>.1 (one older file kept) before the next run appends
+
+
+def open_log(ws, name):
+    """cache/<name> for appending, with a ceiling: the logs used to grow without one (2026-10-08: 4.9 MB of notch
+    log on one manuscript). A process already running keeps writing to the file it opened, now named <name>.1."""
+    (ws / "cache").mkdir(parents=True, exist_ok=True)
+    p = ws / "cache" / name
+    try:
+        if p.stat().st_size > LOG_CAP:
+            p.replace(p.with_name(name + ".1"))
+    except OSError:
+        pass
+    return open(p, "a")
+
+
 def spawn_update(ws, reason):
     """Start `loop update` detached from this hook process; its output goes to cache/update.log."""
-    (ws / "cache").mkdir(parents=True, exist_ok=True)
-    log = open(ws / "cache" / "update.log", "a")
+    log = open_log(ws, "update.log")
     subprocess.Popen([sys.executable, "-m", "loop", "update", str(ws), "--reason", reason],
                      cwd=str(ENGINE), env=dict(os.environ, PYTHONPATH=str(ENGINE)),
                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
@@ -163,8 +178,7 @@ def spawn_update(ws, reason):
 
 def spawn_card(ws):
     """Write this workspace's notch card once (`loop lintel --once`), detached; its output goes to cache/lintel.log."""
-    (ws / "cache").mkdir(parents=True, exist_ok=True)
-    log = open(ws / "cache" / "lintel.log", "a")
+    log = open_log(ws, "lintel.log")
     subprocess.Popen([sys.executable, "-m", "loop", "lintel", str(ws), "--once"], cwd=str(ENGINE),
                      env=dict(os.environ, PYTHONPATH=str(ENGINE)),
                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
@@ -186,8 +200,7 @@ def refresh_card(ws):
 
 def spawn_producer(ws):
     """Start the resident `loop lintel` for this workspace, detached; it keeps the notch cards and heartbeat."""
-    (ws / "cache").mkdir(parents=True, exist_ok=True)
-    log = open(ws / "cache" / "lintel.log", "a")
+    log = open_log(ws, "lintel.log")
     subprocess.Popen([sys.executable, "-m", "loop", "lintel", str(ws)], cwd=str(ENGINE),
                      env=dict(os.environ, PYTHONPATH=str(ENGINE)),
                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)

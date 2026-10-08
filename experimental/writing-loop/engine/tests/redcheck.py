@@ -374,7 +374,7 @@ MUTATIONS = [
      "test_lintel.OffByDefaultTest.test_unregistered_producer_writes_nothing_and_creates_no_directory"),
     ("v2-D5", "lintel.py", "return isinstance(producers, dict) and producer in producers", "return producer in (producers or ())",
      "test_lintel.OffByDefaultTest.test_malformed_registry_counts_as_unregistered"),
-    ("v2-D5", "cli.py", "            print(e, file=sys.stderr)\n            return 2", "            print(e, file=sys.stderr)\n            return 0",
+    ("v2-D5", "cli.py", "            _say(e, file=sys.stderr)\n            return 2", "            _say(e, file=sys.stderr)\n            return 0",
      "test_lintel.CliOffByDefaultTest.test_cli_refuses_with_exit_2_and_creates_nothing"),
     ('2.3', 'explain.py', '    if out["reading"] is None:\n        w = willow_reading(text)', '    if False:\n        w = willow_reading(text)',
      'test_explain.ParseTest.test_first_line_reading_counts_when_the_block_omits_it'),
@@ -967,7 +967,7 @@ MUTATIONS = [
     ("gap", 'skill:readers/scripts/tally-readers.py', '        blind = [c for c in coders if c != REVISER]', '        blind = coders', 'test_readers.ReadersTest.test_a_derived_metric_coded_only_by_the_reviser_is_not_a_count'),
     # 环上的「分析」（spec 2026-09-25 §4.5）：默认关；开了才插在设计与改稿之间，这一轮做完才算做过。
     # 第一条是写这一步时真出过的错：cli.py 没导入 catalogue，开关一开 loop lintel 就报 NameError，旧测试都没走到。
-    ("gap", 'cli.py', '            from . import catalogue as K\n            if K.get(cfg, "ring.analysis"):', '            if K.get(cfg, "ring.analysis"):', 'test_lintel.CliAnalysisStageTest.test_with_the_analysis_stage_on_the_card_carries_the_ledgers_open_analysis'),
+    ("gap", 'cli.py', '                from . import catalogue as K\n                if K.get(cfg, "ring.analysis"):', '                if K.get(cfg, "ring.analysis"):', 'test_lintel.CliAnalysisStageTest.test_with_the_analysis_stage_on_the_card_carries_the_ledgers_open_analysis'),
     ("gap", 'ring.py', '    out = STAGES[:2] + [ANALYSIS] + STAGES[2:] if analysis else list(STAGES)', '    return STAGES', 'test_ring.AnalysisStageTest.test_an_open_analysis_hangs_on_the_stage_between_design_and_rewrite'),
     ("gap", 'ring.py', '        "analysis": any(since is None or d >= str(since)[:10] for d in done_on) if analysis is not None else None,', '        "analysis": bool(done_on) if analysis is not None else None,', 'test_ring.AnalysisStageTest.test_an_analysis_closed_within_the_round_marks_the_stage_done'),
     ("gap", 'lintel.py', '            note = f"要做 {len(g[\'items\'])}"', '            pass', 'test_lintel.CliAnalysisStageTest.test_with_the_analysis_stage_on_the_card_carries_the_ledgers_open_analysis'),
@@ -1298,6 +1298,24 @@ MUTATIONS = [
      'test_state.StaleLedgerHintTest.test_a_wording_no_version_said_gets_no_hint'),
     ('strategic', 'state.py', '+ (f"——可能是台账过期：该短语在 {seen[\'sha\'][:7]} 之后不再出现" if seen else "")', '+ ("" if seen else "")',
      'test_state.StaleLedgerHintTest.test_the_last_commit_that_said_it_is_named'),
+    # 来源进程的功耗（2026-10-08，〈十五〉）：一张卡只解析一遍索引、会话文件分块读并续读尾部、自己的缓存不算输入、日志带时间有上限。
+    ("power", 'cli.py', '            with X.round_reads():', '            if True:',
+     'test_lintel.QuietTest.test_one_card_is_built_inside_one_round_of_reads'),
+    ("power", 'index.py', '    if key not in _ROUND:\n        _ROUND[key] =', '    if True:\n        _ROUND[key] =',
+     'test_index.RoundReadsTest.test_one_card_parses_sentences_json_once'),
+    ("power", 'doctor.py', '            fh.seek(max(0, seen - _OVERLAP))', '            fh.seek(0)',
+     'test_doctor.BranchScanTest.test_a_file_that_gains_the_branch_is_found_and_only_its_new_tail_is_read'),
+    ("power", 'doctor.py', '                tail = buf[-_OVERLAP:]', '                tail = b""',
+     'test_doctor.BranchScanTest.test_a_match_cut_by_a_chunk_boundary_is_found'),
+    ("power", 'doctor.py', '    if seen > size:      # 文件被改短了：不是追加，从头读\n        seen, hit = 0, False',
+     '    if False:\n        seen, hit = 0, False',
+     'test_doctor.BranchScanTest.test_a_file_rewritten_shorter_is_read_from_the_top'),
+    ("power", 'cli.py', '            dirs.remove("overview-audit")', '            pass',
+     'test_lintel.QuietTest.test_the_producers_own_audit_cache_and_older_log_are_not_inputs'),
+    ("power", 'cli.py', "print(f\"{_t.strftime('%Y-%m-%d %H:%M:%S')} {msg}\"", 'print(f"{msg}"',
+     'test_lintel.QuietTest.test_each_log_line_says_when'),
+    ("power", 'hooks/loop_hook.py', '            p.replace(p.with_name(name + ".1"))', '            pass',
+     'test_hooks.LogCapTest.test_a_log_past_the_cap_moves_aside_before_the_next_run_appends'),
 ]
 
 

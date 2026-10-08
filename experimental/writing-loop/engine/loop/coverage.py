@@ -147,7 +147,8 @@ def indexed_versions(ws):
     """Every indexed version of the draft, oldest first, and the head the index was built from. (None, None) if the
     index is not there."""
     try:
-        d = json.loads((Path(ws) / "index" / "sentences.json").read_text(encoding="utf-8"))
+        from . import index as X
+        d = X.read_doc(ws, "sentences.json")
     except (OSError, ValueError):
         return None, None
     return d.get("versions") or [], d.get("head")

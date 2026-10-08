@@ -48,9 +48,46 @@ def _branch_exists(cwd_prefix, branch):
     return gitio._run(p, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}", check=False).returncode == 0
 
 
+# 2026-10-08：常驻来源进程每轮都跑 doctor，这里原来把每个会话文件整份读进内存只为找一个分支名（一份稿子两个前缀下
+# 44 个文件 1.8 GB，最大一份 375 MB，单这一步瞬时 375 MB）。现在分块读、找到就停；会话文件只会往后追加，
+# 没找到的记下读到哪，下一轮只读新增的尾部。
+_CHUNK = 1 << 20
+_OVERLAP = 4096          # 一处命中被块边界切开时，下一块带着上一块的尾巴还能找到
+_SCANNED = {}            # (文件, 分支) -> (已读到的大小, 是否找到)
+
+
+def _holds(f, needle, key):
+    try:
+        size = f.stat().st_size
+    except OSError:
+        return False
+    seen, hit = _SCANNED.get(key, (0, False))
+    if seen > size:      # 文件被改短了：不是追加，从头读
+        seen, hit = 0, False
+    if hit:
+        return True
+    try:
+        with open(f, "rb") as fh:
+            fh.seek(max(0, seen - _OVERLAP))
+            tail = b""
+            while True:
+                chunk = fh.read(_CHUNK)
+                if not chunk:
+                    break
+                buf = tail + chunk
+                if needle.search(buf):
+                    _SCANNED[key] = (size, True)
+                    return True
+                tail = buf[-_OVERLAP:]
+    except OSError:
+        return False
+    _SCANNED[key] = (size, False)
+    return False
+
+
 def _on_branch(files, branch):
     needle = re.compile(rb'"gitBranch"\s*:\s*' + re.escape(json.dumps(branch).encode()))
-    return [f for f in files if needle.search(f.read_bytes())]
+    return [f for f in files if _holds(f, needle, (str(f), branch))]
 
 
 def run(ws):
