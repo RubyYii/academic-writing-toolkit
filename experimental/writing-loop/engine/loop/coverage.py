@@ -1017,7 +1017,7 @@ def refresh_outlet(ws, cfg):
         HL.record_event(ws, "hook_error", f"许愿柳的留言没刷新（{type(e).__name__}：{e}），下一条消息时会更正")
 
 
-STATUSES = (OK, STALE, NEVER, MISSING, NOT_APPLICABLE, WAIVED, FAILED)
+STATUSES = (OK, STALE, NEVER, MISSING, NOT_APPLICABLE, WAIVED, FAILED, ACCEPTED)
 
 
 def _stat_sig(path):

@@ -1314,6 +1314,18 @@ class AcceptStaleTest(unittest.TestCase):
                 reindex(ws)
                 self.assertEqual(status(V.compute(cfg, ws))["status"], V.STALE, "the next change clears the acceptance")
 
+    def test_summary_with_an_accepted_row_is_trusted(self):
+        """10-08, a live workspace: the reader panel was accepted at 15:44; load_summary did not know the status, threw the whole
+        summary away, and the notch ring read 「环算不出来」 while `loop coverage` kept writing the same row back."""
+        with TempDir() as root:
+            with Probe(probe_check(root, scope="cite")):
+                repo, ws, cfg = self._stale(root)
+                V.accept(cfg, ws, "probe", "只换了一个词")
+                V.compute(cfg, ws)
+                s = V.load_summary(ws, cfg)
+                self.assertIsNotNone(s, "a summary whose only odd row is an accepted one is still trusted")
+                self.assertEqual(status(s)["status"], V.ACCEPTED)
+
     def test_refusals(self):
         with TempDir() as root:
             with Probe(probe_check(root, scope="cite")):
