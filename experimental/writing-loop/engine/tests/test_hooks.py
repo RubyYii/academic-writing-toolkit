@@ -576,6 +576,36 @@ class BrokenNotchModuleTest(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class LogCapTest(unittest.TestCase):
+    """2026-10-08：cache/ 下的日志没有上限（一份稿子的刘海日志 4.9 MB）。过了上限，下一次启动前挪成 <名>.1。"""
+
+    def test_a_log_past_the_cap_moves_aside_before_the_next_run_appends(self):
+        with TempDir() as root:
+            ws = Path(root) / "ws"
+            (ws / "cache").mkdir(parents=True)
+            log = ws / "cache" / "lintel.log"
+            log.write_bytes(b"x" * (LH.LOG_CAP + 1))
+            with LH.open_log(ws, "lintel.log") as fh:
+                fh.write("new\n")
+            self.assertEqual(log.read_text(), "new\n")
+            self.assertEqual((ws / "cache" / "lintel.log.1").stat().st_size, LH.LOG_CAP + 1)
+            with LH.open_log(ws, "lintel.log") as fh:
+                fh.write("more\n")
+            self.assertEqual(log.read_text(), "new\nmore\n", "under the cap it appends")
+
+    def test_every_detached_run_opens_its_log_through_the_cap(self):
+        from unittest import mock
+        with TempDir() as root:
+            ws = Path(root) / "ws"
+            (ws / "cache").mkdir(parents=True)
+            for name, spawn in (("lintel.log", lambda: LH.spawn_card(ws)), ("lintel.log", lambda: LH.spawn_producer(ws)),
+                                ("update.log", lambda: LH.spawn_update(ws, "test"))):
+                (ws / "cache" / name).write_bytes(b"x" * (LH.LOG_CAP + 1))
+                with mock.patch.object(LH.subprocess, "Popen"):
+                    spawn()
+                self.assertEqual((ws / "cache" / name).stat().st_size, 0, f"{name} moved aside before the run")
+
+
 if __name__ == "__main__":
     unittest.main()
 

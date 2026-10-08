@@ -222,5 +222,66 @@ class RegistryTest(unittest.TestCase):
                     self.assertNotIn("登记表", buf.getvalue())
 
 
+class BranchScanTest(unittest.TestCase):
+    """2026-10-08：常驻来源进程每轮跑 doctor，这里把每个会话文件整份读进内存只为找分支名（一份稿子两个前缀下
+    1.8 GB，最大一份 375 MB）。现在分块读、找到就停；没找到的记下读到哪，文件长了只读新增的尾部。"""
+
+    BRANCH = "claude/the-branch"
+
+    def setUp(self):
+        doctor._SCANNED.clear()
+
+    def _line(self, branch):
+        return (json.dumps({"type": "user", "gitBranch": branch, "message": "x"}) + "\n").encode()
+
+    def _needle_hits(self, files):
+        return doctor._on_branch(files, self.BRANCH)
+
+    def test_a_session_file_is_searched_without_reading_it_whole(self):
+        with TempDir() as root:
+            f = Path(root) / "s.jsonl"
+            f.write_bytes(self._line("other") * 200 + self._line(self.BRANCH))
+            with mock.patch.object(doctor, "_CHUNK", 256), \
+                    mock.patch.object(Path, "read_bytes", side_effect=AssertionError("read whole")):
+                self.assertEqual(self._needle_hits([f]), [f])
+
+    def test_a_match_cut_by_a_chunk_boundary_is_found(self):
+        with TempDir() as root:
+            f = Path(root) / "s.jsonl"
+            hit = self._line(self.BRANCH)
+            for cut in range(1, len(hit)):
+                doctor._SCANNED.clear()
+                f.write_bytes(b"x" * (256 - cut) + hit)
+                with mock.patch.object(doctor, "_CHUNK", 256), mock.patch.object(doctor, "_OVERLAP", 128):
+                    self.assertEqual(self._needle_hits([f]), [f], f"cut {cut} bytes into the match")
+
+    def test_a_file_that_gains_the_branch_is_found_and_only_its_new_tail_is_read(self):
+        with TempDir() as root:
+            f = Path(root) / "s.jsonl"
+            f.write_bytes(self._line("other") * 500)
+            self.assertEqual(self._needle_hits([f]), [])
+            with f.open("ab") as fh:
+                fh.write(self._line(self.BRANCH))
+            seeks = []
+            real_open = open
+
+            def spying_open(path, mode="r", *a, **k):
+                fh = real_open(path, mode, *a, **k)
+                real_seek = fh.seek
+                fh.seek = lambda pos, *x: (seeks.append(pos), real_seek(pos, *x))[1]
+                return fh
+            with mock.patch("builtins.open", spying_open):
+                self.assertEqual(self._needle_hits([f]), [f])
+            self.assertTrue(seeks and seeks[0] > 0, f"the second scan starts near where the first stopped: {seeks}")
+
+    def test_a_file_rewritten_shorter_is_read_from_the_top(self):
+        with TempDir() as root:
+            f = Path(root) / "s.jsonl"
+            f.write_bytes(self._line("other") * 500)   # longer than the overlap, so resuming would start past the end
+            self.assertEqual(self._needle_hits([f]), [])
+            f.write_bytes(self._line(self.BRANCH))
+            self.assertEqual(self._needle_hits([f]), [f])
+
+
 if __name__ == "__main__":
     unittest.main()

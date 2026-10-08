@@ -983,7 +983,7 @@ class QuietTest(unittest.TestCase):
                 rc = main(["lintel", str(ws), "--home", str(home), "--interval", "0", "--rounds", "3"])
             self.assertEqual(rc, 0)
             self.assertIn("heartbeatSeconds", self._card(home))
-            lines = [x for x in out.getvalue().splitlines() if x.startswith("lintel：")]
+            lines = [x for x in out.getvalue().splitlines() if "lintel：" in x]
             self.assertEqual(len(lines), 1, f"three rounds with nothing changed log one line: {lines}")
 
     def test_the_inputs_signature_moves_with_the_inputs_and_not_with_the_producers_own_files(self):
@@ -1003,6 +1003,55 @@ class QuietTest(unittest.TestCase):
             (ws / "human").mkdir(exist_ok=True)
             (ws / "human" / "comments.jsonl").write_text("{}\n", encoding="utf-8")
             self.assertNotEqual(_inputs_signature(ws, cfg, home, L.PRODUCER), b)
+
+
+    def test_each_log_line_says_when(self):
+        # 2026-10-08：日志没有时间，中断以后分不清哪一轮跑了、哪一轮没跑（〈八〉）。
+        from loop.cli import main
+        with TempDir() as root:
+            ws, home, _ = self._ws(root)
+            self.assertEqual(main(["update", str(ws)]), 0)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                main(["lintel", str(ws), "--home", str(home), "--interval", "0", "--rounds", "1"])
+            lines = out.getvalue().splitlines()
+            self.assertTrue(lines)
+            for x in lines:
+                self.assertRegex(x, r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ")
+
+    def test_the_producers_own_audit_cache_and_older_log_are_not_inputs(self):
+        # 2026-10-08：总览写进 cache/overview-audit 的缓存被算成输入，每次真有变化都多重算一轮。
+        from loop import config as C
+        from loop.cli import _inputs_signature
+        with TempDir() as root:
+            ws, home, _ = self._ws(root)
+            cfg = C.load(ws)
+            a = _inputs_signature(ws, cfg, home, L.PRODUCER)
+            (ws / "cache" / "overview-audit").mkdir(parents=True, exist_ok=True)
+            (ws / "cache" / "overview-audit" / "0123456789ab-cdef.json").write_text("{}", encoding="utf-8")
+            (ws / "cache" / "lintel.log.1").write_text("lintel：1 张卡\n", encoding="utf-8")
+            self.assertEqual(_inputs_signature(ws, cfg, home, L.PRODUCER), a)
+            (ws / "cache" / "coverage").mkdir(parents=True, exist_ok=True)
+            (ws / "cache" / "coverage" / "summary.json").write_text("{}", encoding="utf-8")
+            self.assertNotEqual(_inputs_signature(ws, cfg, home, L.PRODUCER), a, "the rest of cache/ still counts")
+
+    def test_one_card_is_built_inside_one_round_of_reads(self):
+        import contextlib
+        from unittest import mock
+        from loop.cli import main
+        real, entered = X.round_reads, []
+
+        @contextlib.contextmanager
+        def recording():
+            with real():
+                entered.append(1)
+                yield
+        with TempDir() as root:
+            ws, home, _ = self._ws(root)
+            self.assertEqual(main(["update", str(ws)]), 0)
+            with mock.patch.object(X, "round_reads", recording):
+                self.assertEqual(main(["lintel", str(ws), "--once", "--home", str(home)]), 0)
+        self.assertEqual(entered, [1])
 
 
 if __name__ == "__main__":
