@@ -690,6 +690,44 @@ class LocateRowsTest(unittest.TestCase):
         self.assertEqual(len(only(L.build(self.history_with_rows(rows), now=NOW))["detail"]["history"][0]["rows"]), 16)
 
 
+class ShortFieldsTest(unittest.TestCase):
+    """lintel 的短字段（标签、徽标、概览最新一行）硬上限 64 字，超一个字段整张卡拒收（Validation.swift Limit.short）。
+    10-07：一轮改到 8 节、没有标签，节名连起来 67 字当了标签，刘海从此不再更新这份稿子。"""
+
+    SHORT = 64
+    NAMES = {s: f"§{i} {w}" for i, (s, w) in enumerate(zip("ABCDEFGHI", ["背景", "方法", "数据", "评测", "结果",
+                                                                        "讨论", "局限", "附录", "致谢"]), 3)}
+
+    def entry(self, label=None):
+        rows = [{"label": f"{s}{i}", "section": s, "new": f"n {i}"} for i, s in enumerate(self.NAMES)]
+        lc = change(n=len(rows), label=label)
+        return summary(latest_changeset=lc, section_names=self.NAMES,
+                       history=[{"id": lc["id"], "time": lc["time"], "n": lc["n"], "traced": True, "label": label,
+                                 "verbatim": lc["verbatim"], "status": "one", "rows": rows}])
+
+    def assert_short(self, a):
+        h = a["detail"]["history"][0]
+        for k in ("tag", "badge", "duration"):
+            self.assertLessEqual(len(h.get(k) or ""), self.SHORT, k)
+        latest = a["detail"]["overview"]["latest"]   # the overview really was built
+        for k, v in latest.items():
+            if isinstance(v, str):
+                self.assertLessEqual(len(v), self.SHORT, f"latest.{k}")
+
+    def test_without_a_label_the_sections_stand_in_but_stay_under_the_limit(self):
+        a = only(L.build(self.entry(), now=NOW, overview={"payload": {"stats": []}}))
+        self.assertGreater(len(" · ".join(self.NAMES.values())), self.SHORT)   # the fixture really is too long
+        self.assert_short(a)
+        h = a["detail"]["history"][0]
+        self.assertTrue(h["tag"].startswith("§3 背景 · §4 方法"))
+        self.assertIn("§11 致谢", next(l["text"] for l in h["lines"] if l["label"] == "改到"))   # nothing is lost
+
+    def test_with_a_label_the_overview_where_stays_under_the_limit(self):
+        a = only(L.build(self.entry(label="合并重复"), now=NOW, overview={"payload": {"stats": []}}))
+        self.assert_short(a)
+        self.assertEqual(a["detail"]["history"][0]["tag"], "合并重复")
+
+
 class SummaryViewTest(unittest.TestCase):
     """index.changeset_view: the notch's data is read from the index, never guessed."""
 
