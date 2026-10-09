@@ -63,6 +63,8 @@ report.
    each reply unedited as `<dir>/outputs/<persona>_<model>_<n>.json`, e.g. `R1_haiku_1.json`. Each reply carries
    the packet id the prompt names; a reply for another packet, or a copy of another reply, is rejected. Rebuild the
    packet into a new directory for a new version rather than over an old one.
+   Open at most 20 sub-agents at a time; the harness refuses the rest and tells you not to retry. When the panel
+   compares several versions, open one version's readers, collect every reply, then open the next version's.
 
 3. Check the outputs; an incomplete output is not a reading and is named, not repaired:
 
