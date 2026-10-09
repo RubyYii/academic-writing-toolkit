@@ -1436,3 +1436,25 @@ class SupplementReadTest(unittest.TestCase):
                 r = status(V.compute(cfg, ws, do_run=True), "blind")
                 self.assertEqual(r["status"], V.FAILED, r)
                 self.assertIn("figures/*.tex", r["detail"])
+
+
+class AcceptedRenderingTest(unittest.TestCase):
+    """10-08: the audits read 4{,}120 as "4 , 120", and a live draft had dozens of sentences accepted in that
+    rendering. Read as the page prints it, the same sentence keys differently; the author's acceptance follows the
+    wording."""
+
+    def test_an_acceptance_given_to_a_spaced_digit_group_follows_the_corrected_rendering(self):
+        with TempDir() as root:
+            cfg = {"repo": str(root)}
+            spaced = "At 4 , 120 or 4 , 385 by 1 , 906 bridges, the survey is larger."
+            note = "The survey is 4 , 120 long."
+            path = V.accepted_path(cfg)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"{V.sentence_key(spaced)}\tsize is the finding\tauthor\t{spaced}\n"
+                            f"0123456789abcdef\tanother reason\tauthor\t{note}\n", encoding="utf-8")
+            acc = V.accepted(cfg)
+            self.assertEqual(acc.get(V.sentence_key("At 4,120 or 4,385 by 1,906 bridges, the survey is larger.")),
+                             ("size is the finding", "author"))
+            self.assertEqual(acc[V.sentence_key(spaced)], ("size is the finding", "author"))
+            self.assertNotIn(V.sentence_key("The survey is 4,120 long."), acc,
+                             "a sentence column that is not the keyed text carries no acceptance")

@@ -383,11 +383,17 @@ def unlinked(s):
     return MID_LINK.sub("", s)
 
 
+# The comma inside 4,120 groups digits; it is not a pause in the sentence. Counted as one, a sentence that reports
+# three sizes gained three commas and read as denser than the same sentence without the numbers. Left out on both
+# sides: the draft's sentences and the venue's.
+DIGIT_GROUP_COMMA = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
+
+
 def features(s):
     return {
         "words": len(s.split()),
         "clauses": len(clause_tokens(s)),
-        "commas": s.count(","),
+        "commas": s.count(",") - len(DIGIT_GROUP_COMMA.findall(s)),
         "colons": len(re.findall(r":(?!\d)", s)),
         "semicolons": s.count(";"),
         "dashes": len(DASH.findall(s)),
